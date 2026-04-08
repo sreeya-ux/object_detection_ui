@@ -1,0 +1,1 @@
+{"0": "insulator", "1": "pole", "2": "crossarm", "3": "conductor", "4": "street_light"}

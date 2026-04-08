@@ -1,0 +1,2 @@
+image_name,final_class,voltage,confidence,reason,signals,faults
+test.jpeg,11kV_HT_pole,11kV,high,3 sheds detected → 11kV HT pole,"insulator_voltage=11kV, shed_count=3",0

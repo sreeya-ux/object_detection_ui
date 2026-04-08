@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Asakta Vision AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; }
+        .card { background: #111827; border-radius: 12px; border: 1px solid #1f2937; padding: 1.5rem; }
+        .task-card { background: #1e293b; border-radius: 10px; padding: 1.5rem; border: 1px solid #334155; display: flex; flex-direction: column; gap: 1rem; }
+        .badge { background: #334155; color: #94a3b8; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+        .btn-primary { background: #2563eb; padding: 0.5rem 1rem; border-radius: 6px; transition: 0.2s; }
+        .btn-primary:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body class="p-4 md:p-8 space-y-8">
+    <div class="max-w-6xl mx-auto space-y-6">
+        <header class="flex justify-between items-center bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-800">
+            <div>
+                <h1 class="text-3xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-user-shield text-blue-500"></i> Admin Dashboard
+                </h1>
+                <p class="text-gray-400">Review and verify detection tasks from all users</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-right mr-4 hidden md:block">
+                    <div class="text-sm text-gray-500 uppercase tracking-wider">Logged in as</div>
+                    <div class="font-bold text-blue-400">Administrator</div>
+                </div>
+                <a href="/admin/export" class="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/20 mr-2">
+                    <i class="fa-solid fa-file-csv"></i> Reports
+                </a>
+                <a href="/" class="btn-primary flex items-center gap-2 font-bold text-xs"><i class="fa-solid fa-home"></i> User UI</a>
+                <a href="/logout" class="text-red-400 hover:text-red-300 ml-4"><i class="fa-solid fa-right-from-bracket"></i></a>
+            </div>
+        </header>
+
+        <!-- Stats Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="card flex flex-col items-center justify-center p-8">
+                <div class="text-4xl font-bold text-blue-500" id="statPending">0</div>
+                <div class="text-gray-400 uppercase text-xs mt-2 tracking-widest font-semibold">Pending Review</div>
+            </div>
+            <div class="card flex flex-col items-center justify-center p-8">
+                <div class="text-4xl font-bold text-green-500" id="statApproved">0</div>
+                <div class="text-gray-400 uppercase text-xs mt-2 tracking-widest font-semibold">Approved</div>
+            </div>
+            <div class="card flex flex-col items-center justify-center p-8">
+                <div class="text-4xl font-bold text-red-500" id="statRejected">0</div>
+                <div class="text-gray-400 uppercase text-xs mt-2 tracking-widest font-semibold">Rejected</div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold flex items-center gap-2">
+                <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
+            </h2>
+            <div class="flex gap-2">
+                <button onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50">Pending</button>
+                <button onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full hover:bg-gray-700">Recent Approved</button>
+            </div>
+        </div>
+
+        <main id="taskList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Loading indicator -->
+            <div class="col-span-full text-center py-20 text-gray-500">
+                <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-4"></i>
+                <p>Fetching tasks...</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Review Modal -->
+    <div id="modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-50 animate-in fade-in duration-300">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-5xl w-full p-6 relative overflow-hidden flex flex-col md:flex-row gap-8">
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500 hover:text-white text-3xl transition-colors">&times;</button>
+            
+            <div class="flex-1 min-h-[300px] flex items-center justify-center bg-black rounded-lg overflow-hidden border border-gray-800">
+                <img id="modalImg" class="max-w-full max-h-[70vh] object-contain">
+            </div>
+
+            <div class="w-full md:w-96 flex flex-col">
+                <div class="mb-6">
+                    <h3 class="text-2xl font-bold text-white mb-1">Task Analysis</h3>
+                    <p id="modalUserIn" class="text-gray-400 text-sm font-mono"></p>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto mb-6 pr-2">
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 block">Detected Objects</label>
+                    <div id="modalDetections" class="space-y-2">
+                        <!-- Labels -->
+                    </div>
+                </div>
+
+                <div class="space-y-3 pt-6 border-t border-gray-800">
+                    <button id="btnApprove" class="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-bold shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-check-double"></i> APPROVE SUBMISSION
+                    </button>
+                    <button id="btnReject" class="w-full bg-red-600/20 hover:bg-red-600 border border-red-600/30 text-red-400 hover:text-white py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-xmark"></i> REJECT
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTaskId = null;
+        let currentFilter = 'pending';
+
+        async function updateStats() {
+            const allRes = await fetch('/api/get_tasks');
+            const allTasks = await allRes.json();
+            
+            const pending = allTasks.filter(t => t.status === 'pending').length;
+            const approved = allTasks.filter(t => t.status === 'approved').length;
+            const rejected = allTasks.filter(t => t.status === 'rejected').length;
+
+            document.getElementById('statPending').textContent = pending;
+            document.getElementById('statApproved').textContent = approved;
+            document.getElementById('statRejected').textContent = rejected;
+        }
+
+        async function loadTasks() {
+            const res = await fetch(`/api/get_tasks?status=${currentFilter}`);
+            const tasks = await res.json();
+            
+            const list = document.getElementById('taskList');
+            if (tasks.length === 0) {
+                list.innerHTML = `<div class="col-span-full text-center py-20 bg-gray-900/50 rounded-xl border border-dashed border-gray-800">
+                    <i class="fa-solid fa-folder-open text-4xl mb-4 opacity-20"></i>
+                    <p class="text-xl font-light opacity-50">No ${currentFilter} tasks found</p>
+                </div>`;
+                return;
+            }
+
+            // Show latest first
+            tasks.reverse();
+
+            list.innerHTML = tasks.map(task => `
+                <a href="/admin/task/${task.id}" class="task-card group hover:border-blue-500 transition-all cursor-pointer">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-[10px] text-gray-500 font-mono mb-1">ID: ${task.id.split('-')[0]}</p>
+                            <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors">${task.worker_name}</h4>
+                        </div>
+                        <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
+                    </div>
+                    <div class="relative overflow-hidden rounded-lg aspect-video bg-black border border-gray-800">
+                        <img src="data:image/jpeg;base64,${task.image_b64}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div class="absolute inset-0 flex items-center justify-center bg-blue-600/0 hover:bg-blue-600/10 transition-all">
+                             <i class="fa-solid fa-expand text-white opacity-0 group-hover:opacity-100 transform scale-75 group-hover:scale-100 transition-all text-2xl"></i>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                        ${[...new Set(task.detections.map(d => d.label))].slice(0, 3).map(l => `<span class="badge text-[9px] uppercase border border-gray-700 font-medium">${l}</span>`).join('')}
+                        ${task.detections.length > 3 ? `<span class="badge text-[9px] bg-blue-900/20 text-blue-400 border-blue-500/20">+${task.detections.length - 3}</span>` : ''}
+                    </div>
+                </a>
+            `).join('');
+        }
+
+        async function openReview(taskId) {
+            const res = await fetch('/api/get_tasks');
+            const tasks = await res.json();
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            currentTaskId = taskId;
+            document.getElementById('modalImg').src = 'data:image/jpeg;base64,' + task.image_b64;
+            document.getElementById('modalUserIn').textContent = `SUBMITTED BY: ${task.worker_name} @ ${task.timestamp}`;
+            
+            const detBox = document.getElementById('modalDetections');
+            detBox.innerHTML = task.detections.map(d => `
+                <div class="flex justify-between items-center text-sm p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <span class="font-medium text-gray-200 capitalize">${d.label.toLowerCase().replace('_', ' ')}</span>
+                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${Math.round(d.confidence*100)}%</span>
+                </div>
+            `).join('');
+
+            const modal = document.getElementById('modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            document.getElementById('btnApprove').onclick = () => updateStatus('approved');
+            document.getElementById('btnReject').onclick = () => updateStatus('rejected');
+
+            // Toggle visibility of buttons based on status
+            if (task.status !== 'pending') {
+                 document.getElementById('btnApprove').parentElement.classList.add('hidden');
+            } else {
+                 document.getElementById('btnApprove').parentElement.classList.remove('hidden');
+            }
+        }
+
+        async function updateStatus(status) {
+            if (!currentTaskId) return;
+            const res = await fetch('/api/update_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: currentTaskId, status: status })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                closeModal();
+                loadTasks();
+                updateStats();
+            }
+        }
+
+        function filterTasks(status) {
+            currentFilter = status;
+            loadTasks();
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // Initialize
+        updateStats();
+        loadTasks();
+        setInterval(() => {
+            updateStats();
+            loadTasks();
+        }, 30000); // Refresh every 30s
+    </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+venv/
+dry_backup/venv/
+__pycache__/
+*.log
+.env
+temp_*.jpg
+*_result*.jpg

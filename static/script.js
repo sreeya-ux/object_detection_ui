@@ -1,0 +1,937 @@
+/**
+ * Asakta Vision AI - Main Application Logic
+ * Consolidating detection, editing, and submission workflows.
+ */
+
+let detections = [];
+let uploadedFile = null;
+let masterResult = null; 
+let imageDimensions = { width: 0, height: 0 };
+let CLASS_OPTIONS = [
+    "CONDUCTOR", "POLE", "CROSSARM", "TRANSFORMER", "INSULATOR"
+];
+
+// Distinct Premium Color Palette matching the desired clean backend inference look!
+const CLASS_COLORS = {
+    "CONDUCTOR": "#00ffff",   // Cyan outline
+    "POLE": "#0ea5e9",        // Cyan-Blue
+    "CROSSARM": "#ff00ff",    // Magenta
+    "TRANSFORMER": "#f59e0b", // Amber
+    "INSULATOR": "#00ff00"    // Bright Green
+};
+
+// UI Persistence State
+let expandedGroups = new Set();
+
+// Drawing State
+let isDrawMode = false;
+let isDrawing = false;
+let drawStart = null; 
+let pendingBbox = null; 
+
+document.addEventListener('DOMContentLoaded', () => {
+    const uploadInput = document.getElementById('upload');
+    const previewImg = document.getElementById('preview');
+    const dropZone = document.getElementById('dropZone');
+
+    if (uploadInput) {
+        uploadInput.addEventListener('change', handleUpload);
+    }
+
+    if (dropZone) {
+        dropZone.addEventListener('click', (e) => {
+            // Only trigger upload if clicking the dropzone when no image is active 
+            // or if explicitly clicking the upload prompt area
+            if (!uploadedFile || e.target.closest('#uploadPrompt')) {
+                uploadInput.click();
+            }
+        });
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-blue-500', 'bg-blue-500/5');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-blue-500', 'bg-blue-500/5');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500', 'bg-blue-500/5');
+            if (e.dataTransfer.files.length) {
+                uploadInput.files = e.dataTransfer.files;
+                handleUpload({ target: uploadInput });
+            }
+        });
+    }
+
+    const overlay = document.getElementById('detectionOverlay');
+    if (overlay) {
+        // Unified pointer handling for both mouse and touch
+        overlay.addEventListener('mousedown', handleDragStart);
+        overlay.addEventListener('touchstart', handleDragStart, { passive: false });
+    }
+});
+
+function handleUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadedFile = file;
+    
+    document.getElementById('imageContainer')?.classList.remove('hidden');
+    const previewImg = document.getElementById('preview');
+    previewImg.src = URL.createObjectURL(file);
+    previewImg.classList.remove('hidden');
+    document.getElementById('uploadPrompt').classList.add('hidden');
+    document.getElementById('dropZone').classList.add('py-4'); // Shrink dropzone
+    document.getElementById('dropZone').classList.remove('p-10');
+}
+
+async function resizeImage(file, maxWidth, maxHeight) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width *= maxHeight / height;
+                        height = maxHeight;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, 'image/jpeg', 0.85);
+            };
+        };
+    });
+}
+
+async function processImage() {
+    if (!uploadedFile) {
+        showToast("Please upload an image first", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnRun');
+    const btnText = btn.querySelector('.btn-text');
+    const loader = btn.querySelector('.loader');
+
+    // UI state: Loading
+    btn.disabled = true;
+    btnText.textContent = "Processing...";
+    loader.classList.remove('hidden');
+
+    let imageToUpload = uploadedFile;
+    if (uploadedFile.size > 1024 * 1024) {
+        imageToUpload = await resizeImage(uploadedFile, 1280, 1280);
+    }
+
+    const formData = new FormData();
+    formData.append("image", imageToUpload, "image.jpg");
+
+    try {
+        const response = await fetch("/predict", { 
+            method: "POST",
+            headers: { "ngrok-skip-browser-warning": "69420" },
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error("Inference failed");
+        
+        const data = await response.json();
+        
+        // Use normalized labels
+        detections = data.detections.map(d => ({ 
+            ...d, 
+            label: d.label.toUpperCase(), 
+            confirmed: false 
+        }));
+        
+        masterResult = data.master; // Store Master Identity
+        imageDimensions = { width: data.width, height: data.height };
+
+        if (data.annotated_image) {
+            // Check if it's already a full data URI or just b64
+            const imgSrc = data.annotated_image.startsWith('data:') ? data.annotated_image : `data:image/jpeg;base64,${data.annotated_image}`;
+            document.getElementById("preview").src = imgSrc;
+            document.getElementById("imageContainer").classList.remove("hidden");
+            document.getElementById("submitSection").classList.remove("hidden");
+        }
+
+        renderResults();
+        renderBoxes();
+        showToast("Analysis complete", "success");
+    } catch (err) {
+        showToast("Cloud connection error", "danger");
+    } finally {
+        btn.disabled = false;
+        btnText.textContent = "Run Detection";
+        loader.classList.add('hidden');
+    }
+}
+
+function renderResults() {
+    const container = document.getElementById("resultBox");
+    const masterCard = document.getElementById("masterIdentityCard");
+    container.innerHTML = "";
+
+    // 1. Populate Master Asset Identity Card
+    if (masterResult) {
+        masterCard.classList.remove('hidden');
+        document.getElementById("masterClass").textContent = masterResult.final_class.replace(/_/g, ' ');
+        document.getElementById("masterVoltage").textContent = masterResult.voltage;
+        document.getElementById("masterReason").textContent = masterResult.reason;
+        
+        const confEl = document.getElementById("masterConfidence");
+        const confScore = masterResult.confidence.toLowerCase();
+        confEl.textContent = `Confidence: ${masterResult.confidence}`;
+        
+        if (confScore === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
+        else if (confScore === 'medium') confEl.className = "text-[8px] font-bold text-amber-400/80 uppercase tracking-widest";
+        else confEl.className = "text-[8px] font-bold text-rose-400/80 uppercase tracking-widest";
+    } else {
+        masterCard.classList.add('hidden');
+    }
+
+    if (detections.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-20 bg-black/30 rounded-2xl border border-dashed border-gray-800">
+                <i class="fa-solid fa-wand-magic-sparkles text-4xl text-gray-700 mb-4 block"></i>
+                <p class="text-gray-600 text-sm italic">Waiting for analysis results...</p>
+            </div>
+        `;
+        return;
+    }
+
+    // 2. Grouping detections by label
+    const groups = {};
+    detections.forEach((obj, i) => {
+        const lbl = obj.label;
+        if (!groups[lbl]) groups[lbl] = [];
+        groups[lbl].push({ ...obj, originalIndex: i });
+    });
+
+    // 3. Render Each Component Group
+    for (const label in groups) {
+        const groupItems = groups[label];
+        const groupCount = groupItems.length;
+        const groupDiv = document.createElement("div");
+        groupDiv.className = "mb-4 border border-gray-800 rounded-xl overflow-hidden bg-gray-900/40 transition-all shadow-sm";
+
+        const baseColor = CLASS_COLORS[label.toUpperCase()] || "#a8a29e";
+
+        // Group Header
+        const header = document.createElement("div");
+        header.className = "flex items-center justify-between p-4 cursor-pointer hover:bg-gray-800/50 transition-colors group";
+        header.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: ${baseColor}15; border: 1px solid ${baseColor}30;">
+                    <i class="fa-solid ${label === 'POLE' ? 'fa-tower-broadcast' : (label === 'INSULATOR' ? 'fa-bolt' : 'fa-layer-group')}" style="color: ${baseColor};"></i>
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-wider" style="color: ${baseColor};">${label}S</h3>
+                    <p class="text-[9px] text-gray-500 font-medium uppercase tracking-tighter">${groupCount} identified</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="px-2 py-0.5 text-[10px] font-mono rounded-lg" style="background: ${baseColor}15; color: ${baseColor}; border: 1px solid ${baseColor}30;">${groupCount}</span>
+                <i class="fa-solid ${expandedGroups.has(label) ? 'fa-chevron-up' : 'fa-chevron-down'} text-[10px] text-gray-600" id="icon-${label}"></i>
+            </div>
+        `;
+        
+        const itemsContainer = document.createElement("div");
+        const isOpen = expandedGroups.has(label);
+        itemsContainer.className = `${isOpen ? '' : 'hidden'} p-2 space-y-2 bg-black/40 border-t border-gray-800/50`;
+        itemsContainer.id = `container-${label}`;
+        
+        header.onclick = () => {
+            const isHidden = itemsContainer.classList.contains('hidden');
+            const icon = document.getElementById(`icon-${label}`);
+            if (isHidden) {
+                itemsContainer.classList.remove('hidden');
+                expandedGroups.add(label);
+                icon.className = 'fa-solid fa-chevron-up text-[10px] text-gray-600';
+            } else {
+                itemsContainer.classList.add('hidden');
+                expandedGroups.delete(label);
+                icon.className = 'fa-solid fa-chevron-down text-[10px] text-gray-600';
+            }
+        };
+
+        groupItems.forEach((obj, idx) => {
+            const i = obj.originalIndex;
+            const itemDiv = document.createElement("div");
+            itemDiv.className = `flex items-center justify-between p-3 rounded-lg border transition-all result-card-hover ${obj.confirmed ? 'border-green-500/40 bg-green-500/5' : 'bg-white/5 border-white/5'} hover:border-white/20`;
+
+            // Interactive Sync: Glow the box on the image when hovering the result item
+            itemDiv.onmouseenter = () => {
+                const box = document.getElementById(`box-${i}`);
+                if (box) box.classList.add('highlighted');
+                const label = document.getElementById(`label-${i}`);
+                if (label) label.setAttribute('transform', 'scale(1.1)');
+            };
+            itemDiv.onmouseleave = () => {
+                const box = document.getElementById(`box-${i}`);
+                if (box) box.classList.remove('highlighted');
+                const label = document.getElementById(`label-${i}`);
+                if (label) label.removeAttribute('transform');
+            };
+
+            // Dynamic Detail Meta-Data from Rule Engine
+            let detailStr = "";
+            let metaIcon = "fa-chart-simple";
+            
+            if (obj.label === 'INSULATOR' && obj.details) {
+                detailStr = `${obj.details.voltage} | ${obj.details.shed_count} sheds`;
+                metaIcon = "fa-bolt-lightning";
+            } else if (obj.label === 'CONDUCTOR' && obj.thickness) {
+                detailStr = `Thickness: ${obj.thickness}px`;
+                metaIcon = "fa-ruler-combined";
+            } else if (obj.label === 'CROSSARM' && obj.details) {
+                detailStr = `Geometry: ${obj.details.shape}`;
+                metaIcon = "fa-compass-drafting";
+            } else if (obj.label === 'POLE' && obj.details) {
+                detailStr = `${obj.details.type} | Lean: ${obj.details.lean}°`;
+                metaIcon = "fa-mountain";
+            } else {
+                detailStr = `Confidence: ${(obj.confidence * 100).toFixed(1)}%`;
+            }
+
+            itemDiv.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <div class="w-1.5 h-1.5 rounded-full" style="background: ${baseColor}"></div>
+                    <div>
+                        <p class="text-[10px] font-bold text-gray-200 uppercase tracking-tight">${label} ID-${i + 1}</p>
+                        <div class="flex items-center gap-1.5 mt-0.5">
+                            <i class="fa-solid ${metaIcon} text-[8px] text-gray-600"></i>
+                            <p class="text-[9px] text-gray-500 font-medium uppercase tracking-widest">${detailStr}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleConfirm(${i})" class="btn ${obj.confirmed ? 'bg-green-600 text-white' : 'btn-outline border-white/5 bg-white/5 hover:border-white/20'} !p-2 !h-8 !w-8 !rounded-lg text-[10px]">
+                        <i class="fa-solid ${obj.confirmed ? 'fa-check-double' : 'fa-check'}"></i>
+                    </button>
+                    <button onclick="removeDetection(${i})" class="p-2 text-gray-600 hover:text-rose-400 transition-colors">
+                        <i class="fa-solid fa-trash-can text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+            itemsContainer.appendChild(itemDiv);
+        });
+
+        groupDiv.appendChild(header);
+        groupDiv.appendChild(itemsContainer);
+        container.appendChild(groupDiv);
+    }
+    
+    // Update final submit button state
+    const allConfirmed = detections.every(d => d.confirmed);
+    const submitBtn = document.getElementById('finalSubmitBtn');
+    if (submitBtn) {
+        if (allConfirmed && detections.length > 0) {
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            submitBtn.disabled = false;
+        } else {
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            submitBtn.disabled = true;
+        }
+    }
+}
+
+function updateLabel(index, val) {
+    if (val === "Custom") {
+        const customVal = prompt("Enter custom class name:");
+        if (customVal) {
+            detections[index].label = customVal.toUpperCase();
+        }
+    } else {
+        detections[index].label = val;
+    }
+    renderResults();
+    renderBoxes();
+}
+
+function toggleConfirm(index) {
+    detections[index].confirmed = !detections[index].confirmed;
+    renderResults();
+    renderBoxes();
+}
+
+function removeDetection(index) {
+    detections.splice(index, 1);
+    renderResults();
+    renderBoxes();
+}
+
+function removeGroup(label) {
+    if (confirm(`Are you sure you want to remove all "${label}" detections?`)) {
+        detections = detections.filter(d => d.label !== label);
+        renderResults();
+        renderBoxes();
+        showToast(`Removed all ${label} items`, "primary");
+    }
+}
+
+function renderBoxes() {
+    const overlay = document.getElementById('detectionOverlay');
+    const img = document.getElementById('preview');
+    if (!overlay || !img || detections.length === 0) return;
+
+    overlay.innerHTML = "";
+    
+    // 0. Add SVG Filters for Glow Effect
+    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    defs.innerHTML = `
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+    `;
+    overlay.appendChild(defs);
+
+    // Calculate scaling
+    const displayWidth = img.clientWidth;
+    const displayHeight = img.clientHeight;
+    const scaleX = displayWidth / imageDimensions.width;
+    const scaleY = displayHeight / imageDimensions.height;
+
+    const labelCounts = {};
+
+    detections.forEach((obj, i) => {
+        if (!obj.bbox) return;
+
+        const baseLabel = obj.label.toUpperCase();
+        labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
+        const currentCount = labelCounts[baseLabel];
+        const labelText = `${baseLabel} ID-${i + 1}`;
+
+        const [x1, y1, x2, y2] = obj.bbox;
+        const w = (x2 - x1) * scaleX;
+        const h = (y2 - y1) * scaleY;
+        const x = x1 * scaleX;
+        const y = y1 * scaleY;
+
+        const baseColor = CLASS_COLORS[baseLabel] || "#a8a29e";
+        const color = obj.manual ? "#f43f5e" : baseColor; 
+        
+        // --- 1. Draw Shape (Polygon or Rect) ---
+        let shape;
+        if (obj.polygon && obj.polygon.length > 2) {
+            shape = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            const pointsStr = obj.polygon.map(pt => `${pt[0] * scaleX},${pt[1] * scaleY}`).join(" ");
+            shape.setAttribute("points", pointsStr);
+        } else {
+            shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            shape.setAttribute("x", x);
+            shape.setAttribute("y", y);
+            shape.setAttribute("width", w);
+            shape.setAttribute("height", h);
+        }
+
+        shape.setAttribute("stroke", color);
+        shape.setAttribute("stroke-width", obj.manual ? "2.5" : "1.5");
+        
+        // DIAGNOSTIC HUD: Solid-feeling translucent fill for structural objects
+        if (baseLabel !== "CONDUCTOR") {
+            shape.setAttribute("fill", color);
+            shape.setAttribute("fill-opacity", "0.15");
+        } else {
+            shape.setAttribute("fill", "transparent");
+            shape.setAttribute("class", "conductor-trace");
+        }
+        
+        shape.setAttribute("id", `box-${i}`);
+        shape.classList.add("detection-box");
+        if (obj.manual) shape.classList.add("manual-box");
+        overlay.appendChild(shape);
+
+        // --- 2. Calculate Label Position ---
+        let labelX = x;
+        let labelY = y;
+        if (obj.polygon && obj.polygon.length > 0) {
+            const topPoint = obj.polygon.reduce((min, p) => p[1] < min[1] ? p : min, obj.polygon[0]);
+            const avgX = obj.polygon.reduce((sum, p) => sum + p[0], 0) / obj.polygon.length;
+            labelX = avgX * scaleX;
+            labelY = topPoint[1] * scaleY;
+        } else {
+            labelX = x + (w / 2);
+            labelY = y;
+        }
+
+        // --- 3. Draw Pill Label (Background + Text) ---
+        const labelGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        labelGroup.setAttribute("class", "label-pill");
+        labelGroup.setAttribute("id", `label-${i}`);
+        
+        const labelTextEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        labelTextEl.textContent = labelText;
+        labelTextEl.setAttribute("font-size", "11px");
+        labelTextEl.setAttribute("font-family", "Outfit, Inter, sans-serif");
+        labelTextEl.setAttribute("font-weight", "700");
+        labelTextEl.setAttribute("fill", "#ffffff");
+        labelTextEl.setAttribute("text-anchor", "middle");
+        labelTextEl.setAttribute("dominant-baseline", "middle");
+        
+        // Hide temporarily to measure
+        labelTextEl.style.visibility = "hidden";
+        overlay.appendChild(labelTextEl);
+        const bbox = labelTextEl.getBBox();
+        overlay.removeChild(labelTextEl);
+        labelTextEl.style.visibility = "visible";
+
+        const paddingH = 8;
+        const paddingV = 4;
+        const rectW = bbox.width + paddingH * 2;
+        const rectH = bbox.height + paddingV * 2;
+        
+        const labelRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        labelRect.setAttribute("x", labelX - rectW / 2);
+        labelRect.setAttribute("y", (labelY - rectH - 5 < 0) ? labelY + 5 : labelY - rectH - 5);
+        labelRect.setAttribute("width", rectW);
+        labelRect.setAttribute("height", rectH);
+        labelRect.setAttribute("rx", "6");
+        labelRect.setAttribute("fill", color);
+        labelRect.setAttribute("class", "label-bg");
+        
+        labelTextEl.setAttribute("x", labelX);
+        labelTextEl.setAttribute("y", (labelY - rectH - 5 < 0) ? labelY + 5 + rectH / 2 : labelY - rectH - 5 + rectH / 2);
+        
+        labelGroup.appendChild(labelRect);
+        labelGroup.appendChild(labelTextEl);
+        overlay.appendChild(labelGroup);
+    });
+}
+
+window.addEventListener('resize', renderBoxes);
+
+async function submitTask() {
+    const previewImg = document.getElementById("preview");
+    const b64Data = previewImg.src.split(',')[1];
+    
+    const payload = {
+        image_b64: b64Data,
+        detections: detections
+    };
+
+    const btn = document.getElementById('finalSubmitBtn');
+    btn.disabled = true;
+    const originalInner = btn.innerHTML;
+    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Submitting...`;
+
+    try {
+        const res = await fetch('/api/save_task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            showToast("Success! Submitted to Admin", "success");
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            throw new Error(result.message);
+        }
+    } catch (err) {
+        showToast("Submission failed", "danger");
+        btn.disabled = false;
+        btn.innerHTML = originalInner;
+    }
+}
+
+// =========================
+// MANUAL ANNOTATION LOGIC
+// =========================
+
+function toggleDrawMode() {
+    isDrawMode = !isDrawMode;
+    const btn = document.getElementById('btnDrawMode');
+    const overlay = document.getElementById('detectionOverlay');
+    const status = document.getElementById('drawStatus');
+    const imageContainer = document.getElementById('imageContainer');
+
+    // Reset state when toggling
+    cancelManualDraw();
+
+    if (isDrawMode) {
+        btn.classList.add('active');
+        overlay.classList.add('draw-mode');
+        overlay.classList.remove('pointer-events-none');
+        overlay.style.pointerEvents = "auto";
+        imageContainer.classList.add('draw-active');
+        status.classList.remove('hidden');
+        status.classList.add('flex');
+        updateDrawStatus("PRESS & DRAG TO DRAW BOX");
+        showToast("Draw Mode: Enabled", "primary");
+    } else {
+        btn.classList.remove('active');
+        overlay.classList.remove('draw-mode');
+        overlay.classList.add('pointer-events-none');
+        overlay.style.pointerEvents = "none";
+        imageContainer.classList.remove('draw-active');
+        status.classList.add('hidden');
+        status.classList.remove('flex');
+        showToast("Draw Mode: Disabled", "primary");
+    }
+}
+
+function updateDrawStatus(text) {
+    const statusEl = document.getElementById('drawStatus');
+    const label = statusEl.querySelector('span:last-child');
+    if (label) {
+        label.textContent = text;
+        label.style.letterSpacing = "0.05em";
+    }
+}
+
+function addNewClass() {
+    const className = prompt("Enter name for the new object category:");
+    if (className && className.trim()) {
+        const upperName = className.trim().toUpperCase();
+        if (!CLASS_OPTIONS.includes(upperName)) {
+            CLASS_OPTIONS.push(upperName);
+            showToast(`Added '${upperName}' to category list`, "success");
+            renderResults(); // Refresh list to show new option in dropdowns
+        } else {
+            showToast("Category already exists", "warning");
+        }
+    }
+}
+
+function manageClasses() {
+    if (CLASS_OPTIONS.length === 0) {
+        showToast("No custom classes to manage", "warning");
+        return;
+    }
+
+    let listStr = CLASS_OPTIONS.map((c, i) => `${i + 1}. ${c}`).join('\n');
+    let selection = prompt(`Select class number to manage:\n\n${listStr}\n\n(Enter number)`);
+    
+    if (!selection) return;
+    let idx = parseInt(selection) - 1;
+
+    if (idx >= 0 && idx < CLASS_OPTIONS.length) {
+        let oldName = CLASS_OPTIONS[idx];
+        let action = prompt(`Managing "${oldName}"\nType 'R' to Rename or 'D' to Delete:`).toUpperCase();
+        
+        if (action === 'R') {
+            let newName = prompt(`Enter new name for ${oldName}:`);
+            if (newName && newName.trim()) {
+                renameClass(oldName, newName.trim().toUpperCase());
+            }
+        } else if (action === 'D') {
+            deleteClass(oldName);
+        }
+    }
+}
+
+function renameClass(oldName, newName) {
+    // 1. Update the options list
+    const optIdx = CLASS_OPTIONS.indexOf(oldName);
+    if (optIdx !== -1) {
+        CLASS_OPTIONS[optIdx] = newName;
+    }
+
+    // 2. Update all existing detections using this label
+    let updateCount = 0;
+    detections.forEach(det => {
+        if (det.label === oldName) {
+            det.label = newName;
+            updateCount++;
+        }
+    });
+
+    renderResults();
+    renderBoxes();
+    showToast(`Renamed ${oldName} to ${newName} (${updateCount} items updated)`, "success");
+}
+
+function deleteClass(name) {
+    if (confirm(`Delete category "${name}"? Existing detections will remain but their category label will be static.`)) {
+        CLASS_OPTIONS = CLASS_OPTIONS.filter(c => c !== name);
+        renderResults();
+        showToast(`Deleted category ${name}`, "warning");
+    }
+}
+
+// =========================
+// POINTER NORMALIZATION
+// =========================
+
+function getPointerPos(e) {
+    const overlay = document.getElementById('detectionOverlay');
+    const rect = overlay.getBoundingClientRect();
+    
+    // Support both mouse and touch events
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
+
+    return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+        rawX: clientX,
+        rawY: clientY
+    };
+}
+
+function handleDragStart(e) {
+    if (!isDrawMode || !uploadedFile) return;
+    
+    // Prevent accidental triggers and scrolling while drawing
+    e.stopPropagation();
+    if (e.type === 'touchstart') e.preventDefault(); 
+    if (e.type === 'mousedown' && e.button !== 0) return; // Only left click
+
+    const pos = getPointerPos(e);
+    drawStart = { x: pos.x, y: pos.y };
+    isDrawing = true;
+
+    // Add global listeners to track movement outside the SVG
+    window.addEventListener('mousemove', handleDragMove);
+    window.addEventListener('touchmove', handleDragMove, { passive: false });
+    window.addEventListener('mouseup', handleDragEnd);
+    window.addEventListener('touchend', handleDragEnd);
+
+    // Initial Marker
+    const hud = document.getElementById('manualPointHud');
+    hud.innerHTML = ""; // Clear old markers
+    const marker = document.createElement('div');
+    marker.className = 'point-marker';
+    const overlay = document.getElementById('detectionOverlay');
+    marker.style.left = `${(pos.x / overlay.clientWidth) * 100}%`;
+    marker.style.top = `${(pos.y / overlay.clientHeight) * 100}%`;
+    marker.id = 'startMarker';
+    hud.appendChild(marker);
+
+    updateDrawStatus("RELEASE TO FINISH BOX");
+}
+
+function handleDragMove(e) {
+    if (!isDrawing || !drawStart) return;
+    if (e.type === 'touchmove') e.preventDefault();
+
+    const pos = getPointerPos(e);
+    const overlay = document.getElementById('detectionOverlay');
+    
+    let ghost = document.getElementById('ghostBox');
+    if (!ghost) {
+        ghost = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        ghost.setAttribute("id", "ghostBox");
+        ghost.setAttribute("class", "ghost-box active");
+        overlay.appendChild(ghost);
+    }
+
+    const x = Math.min(drawStart.x, pos.x);
+    const y = Math.min(drawStart.y, pos.y);
+    const w = Math.abs(drawStart.x - pos.x);
+    const h = Math.abs(drawStart.y - pos.y);
+
+    ghost.setAttribute("x", x);
+    ghost.setAttribute("y", y);
+    ghost.setAttribute("width", w);
+    ghost.setAttribute("height", h);
+}
+
+function handleDragEnd(e) {
+    if (!isDrawing) return;
+    
+    // Remove global listeners
+    window.removeEventListener('mousemove', handleDragMove);
+    window.removeEventListener('touchmove', handleDragMove);
+    window.removeEventListener('mouseup', handleDragEnd);
+    window.removeEventListener('touchend', handleDragEnd);
+
+    const pos = getPointerPos(e.type === 'touchend' ? { touches: e.changedTouches } : e);
+    const overlay = document.getElementById('detectionOverlay');
+    const rect = overlay.getBoundingClientRect();
+
+    const x1 = Math.min(drawStart.x, pos.x);
+    const y1 = Math.min(drawStart.y, pos.y);
+    const x2 = Math.max(drawStart.x, pos.x);
+    const y2 = Math.max(drawStart.y, pos.y);
+
+    // Minimum size threshold to prevent accidental clicks
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    
+    if (width < 15 || height < 15) {
+        cancelManualDraw();
+        return;
+    }
+
+    isDrawing = false;
+    pendingBbox = [x1, y1, x2, y2];
+    
+    // Add visual "selection" appearance
+    const ghost = document.getElementById('ghostBox');
+    if (ghost) ghost.classList.add('final-preview');
+
+    showLabelPicker(pos.rawX, pos.rawY);
+    updateDrawStatus("SELECT CATEGORY BELOW");
+}
+
+function showLabelPicker(clientX, clientY) {
+    const modal = document.getElementById('labelPickerModal');
+    const backdrop = document.getElementById('labelPickerBackdrop');
+    const options = document.getElementById('pickerOptions');
+    options.innerHTML = '';
+
+    CLASS_OPTIONS.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'label-picker-btn';
+        btn.textContent = opt;
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            saveManualDraw(opt);
+        };
+        options.appendChild(btn);
+    });
+
+    backdrop.classList.remove('hidden');
+    modal.classList.remove('hidden');
+    
+    // RESPONSIVE POSITIONING
+    if (window.innerWidth < 640) {
+        // Mobile: Center on screen
+        modal.style.left = '50%';
+        modal.style.top = '50%';
+        modal.style.transform = 'translate(-50%, -50%)';
+    } else {
+        // Desktop: Float near click but stay within viewport
+        let left = clientX + 30;
+        let top = clientY - 100;
+
+        const modalWidth = 340;
+        const modalHeight = 400;
+
+        // Viewport clamping
+        if (left + modalWidth > window.innerWidth) left = window.innerWidth - modalWidth - 20;
+        if (left < 20) left = 20;
+        
+        if (top + modalHeight > window.innerHeight) top = window.innerHeight - modalHeight - 20;
+        if (top < 20) top = 20;
+
+        modal.style.left = `${left}px`;
+        modal.style.top = `${top}px`;
+        modal.style.transform = 'none';
+    }
+}
+
+function saveManualDraw(labelOverride = null) {
+    // Prevent event from bubbling to dropZone if this was called from a button click
+    if (window.event) window.event.stopPropagation();
+    
+    const customInput = document.getElementById('customLabelInput');
+    const custom = customInput.value.trim().toUpperCase();
+    const label = labelOverride || custom || "OBJECT";
+
+    if (!pendingBbox) return;
+
+    const overlay = document.getElementById('detectionOverlay');
+    const rect = overlay.getBoundingClientRect();
+
+    // Scale back to original image coordinates
+    const scaleX = imageDimensions.width / rect.width;
+    const scaleY = imageDimensions.height / rect.height;
+
+    const newDet = {
+        label: label,
+        confidence: 1.0,
+        bbox: [
+            pendingBbox[0] * scaleX,
+            pendingBbox[1] * scaleY,
+            pendingBbox[2] * scaleX,
+            pendingBbox[3] * scaleY
+        ],
+        confirmed: true,
+        manual: true
+    };
+
+    detections.push(newDet);
+    
+    // Add to CLASS_OPTIONS if new
+    if (custom && !CLASS_OPTIONS.includes(custom)) {
+        CLASS_OPTIONS.push(custom);
+    }
+
+    cancelManualDraw();
+    renderResults();
+    renderBoxes();
+    showToast(`Added manual ${label}`, "success");
+}
+
+function cancelManualDraw(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    
+    drawStart = null;
+    isDrawing = false;
+    pendingBbox = null;
+    
+    const ghost = document.getElementById('ghostBox');
+    if (ghost) ghost.remove();
+    
+    const marker = document.getElementById('startMarker');
+    if (marker) marker.remove();
+
+    const modal = document.getElementById('labelPickerModal');
+    const backdrop = document.getElementById('labelPickerBackdrop');
+    if (modal) modal.classList.add('hidden');
+    if (backdrop) backdrop.classList.add('hidden');
+    
+    const customInput = document.getElementById('customLabelInput');
+    if (customInput) customInput.value = '';
+    
+    updateDrawStatus("STEP 1: CLICK TO START");
+}
+
+function showToast(msg, type = "primary") {
+    const toast = document.createElement("div");
+    const colors = {
+        success: "bg-emerald-600",
+        danger: "bg-rose-600",
+        warning: "bg-amber-600",
+        primary: "bg-blue-600"
+    };
+    
+    toast.className = `fixed bottom-8 left-1/2 -translate-x-1/2 ${colors[type]} text-white px-6 py-3 rounded-xl shadow-2xl z-[100] animate-fade-in font-bold flex items-center gap-3`;
+    
+    const icons = {
+        success: "fa-circle-check",
+        danger: "fa-circle-xmark",
+        warning: "fa-triangle-exclamation",
+        primary: "fa-info-circle"
+    };
+    
+    toast.innerHTML = `<i class="fa-solid ${icons[type]}"></i> ${msg}`;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translate(-50%, 20px)';
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}

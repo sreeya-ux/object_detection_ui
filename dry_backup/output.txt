@@ -1,0 +1,29 @@
+≡ƒÜÇ Starting Pipeline...
+   Image     : test.jpeg
+   Component : D:\NEW_ASAKTA\dry\best_whole.pt
+   Shed/Disc : D:\NEW_ASAKTA\dry\best_disc.pt
+Loading component model...
+Loading insulator classifier (shed model + crop classifier)...
+Shed counter loaded: D:\NEW_ASAKTA\dry\best_disc.pt
+Pipeline ready.
+
+Saved: test_result.jpg
+
+=======================================================
+FINAL CLASS  : 11kV_HT_pole
+REASON       : 3 sheds detected ΓåÆ 11kV HT pole
+VOLTAGE      : 11kV
+CONFIDENCE   : high
+CROSSARM     : 0x none
+CONDUCTORS   : 3
+FLAGS        : {'has_dtr': False, 'has_lamp': False, 'has_ab_cable': False, 'has_lattice': False, 'has_jumper': False, 'has_ht_and_lt': False}
+SIGNALS USED : ['insulator_voltage=11kV', 'shed_count=3']
+
+ADJUSTMENT FAULTS: none detected
+
+INSULATOR DETAILS:
+  [0] type=pin  heuristic=pin  sheds=3  voltage=11kV  AR=1.55  conf=high
+  [1] type=pin  heuristic=pin  sheds=1  voltage=6.3kV  AR=1.24  conf=medium
+
+POLE: vertical_pole  lean=0.0┬░  OBB angle=90.0┬░ ΓåÆ vertical
+=======================================================
