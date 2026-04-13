@@ -63,8 +63,14 @@ CROSSARM_T_VERTICAL_RATIO   = 0.05
 HT_LT_HEIGHT_THRESHOLD = 0.40  # was 0.25
 
 # ── Detection thresholds ─────────────────────────────────────
-DETECTION_CONF  = 0.10  # was 0.15
+DETECTION_CONF  = 0.01  # Base sensitivity
 DETECTION_IOU   = 0.45
+
+# Class-specific confidence overrides to reduce false positives
+THRESHOLD_INSULATOR = 0.07
+THRESHOLD_CROSSARM  = 0.35
+THRESHOLD_POLE      = 0.10
+THRESHOLD_CONDUCTOR = 0.01
 
 # ── Insulator secondary processing ────────────────────────────
 # Only insulators above this confidence will be cropped and run
@@ -83,19 +89,17 @@ OBB_CLASS_KEYWORDS = {
     "pole":         ["pole"],
     "crossarm":     ["crossarm", "cross_arm", "cross arm", "arm", "v-arm", "v_arm", "t-arm", "t_arm"],
     "conductor":    ["conductor", "wire", "cable", "power_line"],
-    "lamp_head":    ["lamp", "lamp_head"],
-    "street_light": ["streetlight", "street light", "street_light", "stl"],
+    "lamp_head":    ["lamp", "lamp_head"]
 }
 
 # ── Component classes (YOLO Model) ───────────────────────────
 # 6 core physical components for the component detection model.
 # The pipeline uses these detections to run the rule engine.
 COMPONENT_CLASSES = [
-    "insulator",      # 0 — Utility Poles + ALL_image (InsulatorA/B/C/D)
-    "pole",           # 1 — all datasets
-    "crossarm",       # 2 — Pole-Data-1, Utility Poles
-    "conductor",      # 3 — Cable detection + ALL_image (ElectricLine)
-    "street_light",   # 4 — Pole-Data-1 (streetlight), Utility Poles (street light)
+    "insulator",      # 0 
+    "pole",           # 1 
+    "crossarm",       # 2 
+    "conductor",      # 3 
 ]
 
 

@@ -5,3 +5,7 @@ __pycache__/
 .env
 temp_*.jpg
 *_result*.jpg
+*.tar.gz
+*.db
+*.pth
+*.pt

@@ -44,7 +44,8 @@ from ultralytics import YOLO
 
 from config import (
     DETECTION_CONF, DETECTION_IOU, HT_LT_HEIGHT_THRESHOLD,
-    OBB_CLASS_KEYWORDS, POLE_CLASSES
+    OBB_CLASS_KEYWORDS, POLE_CLASSES,
+    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR
 )
 from insulator_classifier import InsulatorClassifier, InsulatorResult
 from crossarm_classifier  import (
@@ -67,9 +68,12 @@ class PipelineResult:
     signals_used:     list
 
     insulators:       list  = field(default_factory=list)
-    pole_orientation: Optional[PoleOrientationResult] = None
+    all_poles:        list  = field(default_factory=list) # List of PoleOrientationResult
+    pole_orientation: Optional[PoleOrientationResult] = None # Primary pole for rule engine
     crossarms:        list  = field(default_factory=list)
     conductors:       list  = field(default_factory=list) # Actual boxes
+    street_lights:    list  = field(default_factory=list) # (box, conf, poly)
+    others:           list  = field(default_factory=list) # (label, box, conf, poly)
     crossarm_shape:   str   = "none"
     crossarm_count:   int   = 0
     conductor_count:  int   = 0
@@ -163,19 +167,20 @@ class InfrastructurePipeline:
         # ── Step 1: Run component detector (Multiscale for thin conductors) ────
         # 640 & 1280 cover most structural elements.
         # 1600 is used specifically to resolve thin wires (conductors).
-        raw640  = self.component_model(image_path, conf=0.02, iou=self.iou, verbose=False, imgsz=640)
-        raw1280 = self.component_model(image_path, conf=0.02, iou=self.iou, verbose=False, imgsz=1280)
-        raw1600 = self.component_model(image_path, conf=0.01, iou=self.iou, verbose=False, imgsz=1600)
+        raw640  = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=640)
+        raw1280 = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=1280)
+        raw1600 = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=1600)
         
         # ── Step 2: Run specialized insulator detector (Hardware Detail) ──
         # Boost sensitivity and resolution for tiny insulators.
-        raw_insulator = self.insulator_detector(image_path, conf=0.05, imgsz=1600, verbose=False)
+        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=1600, verbose=False)
 
         # ── Step 3: Parse results into typed lists (Separate Streams) ────
         insulator_boxes  = []   # (box, conf, angle_deg)
         pole_boxes_raw   = []   # (box, conf, angle_deg)
-        crossarm_boxes   = []   # (box, conf, angle_deg)
         conductor_boxes  = []   # (box, conf)
+        street_light_boxes = [] # (box, conf, poly)
+        other_boxes        = [] # (label, box, conf, poly)
         flags = defaultdict(bool)
 
         # Process structural model output
@@ -189,7 +194,6 @@ class InfrastructurePipeline:
                     cls_name  = self.component_model.names[int(obb.cls[i])]
                     conf_val  = float(obb.conf[i])
                     total_structural += 1
-                    print(f"DEBUG: RAW OBB[{i}] - Class: {cls_name}, Conf: {conf_val:.2f}, Box: {obb.xyxy[i].cpu().numpy()}")
                     
                     # Extract rotated angle for crossarm/pole classification
                     xywhr = obb.xywhr[i].cpu().numpy()
@@ -212,16 +216,17 @@ class InfrastructurePipeline:
                     b = obb.xyxy[i].cpu().numpy()
                     box = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
                     
-                    # Categorise including polygon
-                    if _match_keyword(cls_name, "conductor"):
+                    # ── Class-Specific Sensitivity Filtering ──
+                    if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
-                    elif conf_val >= 0.10:
-                        self._categorise(
-                            cls_name, box, conf_val, angle_deg,
-                            insulator_boxes, pole_boxes_raw,
-                            crossarm_boxes, conductor_boxes, flags,
-                            polygon=poly
-                        )
+                    elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif conf_val >= 0.05: # Default for other flags like DTR/AB Cable
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
 
             if boxes is not None and len(boxes) > 0:
                 for box_obj in boxes:
@@ -237,24 +242,22 @@ class InfrastructurePipeline:
                     # For non-OBB detections, the polygon is just the bbox corners
                     poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
 
-                    if _match_keyword(cls_name, "conductor"):
+                    # ── Class-Specific Sensitivity Filtering ──
+                    if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
-                    elif conf_val >= 0.10:
-                        self._categorise(
-                            cls_name, box, conf_val, angle_deg,
-                            insulator_boxes, pole_boxes_raw,
-                            crossarm_boxes, conductor_boxes, flags,
-                            polygon=poly
-                        )
+                    elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                    elif conf_val >= 0.05:
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
         
-        print(f"DEBUG: Total structural raw detections: {total_structural}")
-
         # Process specialized insulator detector output (Final Insulator Detections)
-        # This model ALSO has crossarm and conductor classes — use them!
         for result in raw_insulator:
             boxes = result.boxes if hasattr(result, "boxes") and result.boxes else None
             if boxes is not None and len(boxes) > 0:
-                print(f"DEBUG: Specialized model found {len(boxes)} raw detections.")
                 for box_obj in boxes:
                     cls_name = self.insulator_detector.names[int(box_obj.cls)]
                     conf_val = float(box_obj.conf)
@@ -276,20 +279,22 @@ class InfrastructurePipeline:
                             polygon=poly
                         )
         
-        print(f"DEBUG: Specialized model found {len(insulator_boxes)} insulator raw boxes:")
-        for idx, det in enumerate(insulator_boxes):
-            b, c, a = det[0], det[1], det[2]
-            print(f"  Raw[{idx}] Box={b}, Conf={c:.3f}")
-
         # ── Deduplicate multi-scale detections (NMS) ─────────
-        # Relax thresholds to allow distinct, close objects to be detected separately
         insulator_boxes = self._nms(insulator_boxes, iou_threshold=0.75) 
-        print(f"DEBUG: insulator_boxes after NMS: {len(insulator_boxes)}")
         pole_boxes_raw  = self._nms(pole_boxes_raw,  iou_threshold=0.45)
         crossarm_boxes  = self._nms(crossarm_boxes,  iou_threshold=0.45)
         conductor_boxes = self._nms(conductor_boxes, iou_threshold=0.65)
+        street_light_boxes = self._nms(street_light_boxes, iou_threshold=0.45)
+        other_boxes        = self._nms(other_boxes,        iou_threshold=0.45)
 
-        # (Removed inferred pole logic — relies entirely on OBB model now)
+        # ── Infer missing pole logic ──────────────
+        if not pole_boxes_raw:
+            inferred = self._infer_pole_if_missing(insulator_boxes, crossarm_boxes, img_h, img_w)
+            if inferred:
+                b = inferred[0]
+                poly = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]
+                pole_boxes_raw.append((inferred[0], inferred[1], inferred[2], poly))
+                flags["inferred_pole"] = True
 
         # ── Classify each insulator ───────────────────────────
         insulator_results = []
@@ -300,14 +305,21 @@ class InfrastructurePipeline:
             ins_result.obb_polygon = polygon
             insulator_results.append(ins_result)
 
+        all_poles = []
         pole_result = None
         if pole_boxes_raw:
-            # Sort by ACTUAL AREA (x2-x1) * (y2-y1)
+            # Sort by ACTUAL AREA (x2-x1) * (y2-y1) to find the primary pole
             pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
-            main_box, main_conf, main_angle, main_poly = pole_boxes_raw[0]
-            pole_result = classify_pole_orientation(main_box, main_angle)
-            pole_result.detection_conf = main_conf
-            pole_result.obb_polygon = main_poly
+            
+            for i, (p_box, p_conf, p_angle, p_poly) in enumerate(pole_boxes_raw):
+                pr = classify_pole_orientation(p_box, p_angle)
+                pr.detection_conf = p_conf
+                pr.obb_polygon = p_poly
+                all_poles.append(pr)
+                
+                # The first (largest) pole is the primary one for rule engine classification
+                if i == 0:
+                    pole_result = pr
 
         # ── Classify crossarm shapes ──────────────────────────
         crossarm_results = []
@@ -352,30 +364,19 @@ class InfrastructurePipeline:
             })
 
         # ── Detect HT + LT on same pole ──────────────────────
-        # Be more skeptical: vertical spread alone isn't enough (V-arms spread wires).
-        # Only trigger if we see distinct clusters or explicit LT indicators.
         if conductor_boxes and len(conductor_boxes) >= 4:
-            y_centres = [(b[1] + b[3]) / 2 for b, _ in conductor_boxes]
+            y_centres = [(det[0][1] + det[0][3]) / 2 for det in conductor_boxes]
             y_range = max(y_centres) - min(y_centres)
             
-            # Check if we have high-voltage insulators helping the classification
-            hv_insulators = [i for i in insulator_results if i.voltage in ["11kV", "33kV"]]
-            
             if y_range > img_h * HT_LT_HEIGHT_THRESHOLD:
-                # If we have HV insulators but also wires way below them, it's a strong LT signal
                 flags["has_ht_and_lt"] = True
                 
-        # Override: if all insulators detected are HT, don't label as HT/LT 
-        # unless there's a very clear second set of wires.
         if flags.get("has_ht_and_lt"):
             voltages = {i.voltage for i in insulator_results}
             if len(voltages) == 1 and list(voltages)[0] in ["11kV", "33kV"]:
-                # Probably false positive from V-arm
                 flags["has_ht_and_lt"] = False
 
         # ── Populate signals for Rule Engine ──────────────────
-        # MAJORITY LOGIC: If multiple insulators of the same type are present,
-        # we take the majority shed count for that type to filter out noisy miscounts.
         pin_insulators = [i for i in insulator_results if i.type_final == "pin"]
         disc_insulators = [i for i in insulator_results if i.type_final == "disc"]
         
@@ -384,18 +385,14 @@ class InfrastructurePipeline:
         max_c = "low"
         
         if pin_insulators:
-            # Multi-object consensus for PIN
             shed_counts = [i.shed_count for i in pin_insulators]
             majority_s  = Counter(shed_counts).most_common(1)[0][0]
-            
-            # Map majority shed count back to voltage
             from insulator_classifier import ShedCounter
             max_v = ShedCounter.to_voltage(majority_s, "pin")
             max_s = majority_s
             max_c = "high" if any(i.type_confidence == "high" for i in pin_insulators) else "medium"
             
         elif disc_insulators:
-            # Logic for DISC (max string length)
             shed_counts = [i.shed_count for i in disc_insulators]
             majority_s  = max(shed_counts) if shed_counts else 0 
             from insulator_classifier import ShedCounter
@@ -410,7 +407,6 @@ class InfrastructurePipeline:
             insulator_conf    = max_c,
 
             has_dtr      = flags["has_dtr"],
-            has_lamp     = flags["has_lamp"],
             has_ab_cable = flags["has_ab_cable"],
             has_lattice  = flags["has_lattice"],
             has_jumper   = flags["has_jumper"],
@@ -436,11 +432,14 @@ class InfrastructurePipeline:
             confidence       = classification.confidence,
             signals_used     = classification.signals_used,
             insulators       = insulator_results,
+            all_poles        = all_poles,
             pole_orientation = pole_result,
             crossarms        = crossarm_results,
+            conductors       = conductor_boxes,
+            street_lights    = street_light_boxes,
+            others           = other_boxes,
             crossarm_shape   = dominant_shape,
             crossarm_count   = n_crossarms,
-            conductors       = conductor_boxes,
             conductor_count  = len(conductor_boxes),
             flags            = dict(flags),
             adjustment_faults= adjustment_faults,
@@ -487,19 +486,34 @@ class InfrastructurePipeline:
         elif _match_keyword(cls_name, "pole"):
             pole_boxes_raw.append(det)
         elif _match_keyword(cls_name, "crossarm"):
-            crossarm_boxes.append(det)
+            # Structural Guard: Crossarms MUST be horizontal. 
+            # We allow a small tolerance (1.2x) for significantly tilted arms.
+            w, h = box[2] - box[0], box[3] - box[1]
+            if (w * 1.2) > h:
+                crossarm_boxes.append(det)
+            else:
+                # If it's vertical but high confidence, maybe it's a pole?
+                if conf_val > 0.40:
+                    pole_boxes_raw.append(det)
         elif _match_keyword(cls_name, "conductor"):
             conductor_boxes.append((box, conf_val, polygon))
+        elif _match_keyword(cls_name, "lamp_head"):
+            street_light_boxes.append((box, conf_val, polygon))
         elif _match_keyword(cls_name, "dtr_tank"):
             flags["has_dtr"] = True
-        elif _match_keyword(cls_name, "lamp_head") or _match_keyword(cls_name, "street_light"):
-            flags["has_lamp"] = True
+            other_boxes.append(("DTR Tank", box, conf_val, polygon))
         elif _match_keyword(cls_name, "ab_cable"):
             flags["has_ab_cable"] = True
+            other_boxes.append(("AB Cable", box, conf_val, polygon))
         elif _match_keyword(cls_name, "lattice_frame"):
             flags["has_lattice"] = True
+            other_boxes.append(("Lattice Frame", box, conf_val, polygon))
         elif _match_keyword(cls_name, "jumper_wire"):
             flags["has_jumper"] = True
+            other_boxes.append(("Jumper Wire", box, conf_val, polygon))
+        else:
+            # Catch-all for any other model classes not explicitly handled
+            other_boxes.append((cls_name.replace("_", " ").title(), box, conf_val, polygon))
 
     def _infer_pole_if_missing(
         self, insulator_boxes, crossarm_boxes, img_h, img_w

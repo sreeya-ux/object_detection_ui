@@ -34,7 +34,6 @@ class ComponentSignals:
 
     # Structural signals
     has_dtr:          bool  = False
-    has_lamp:         bool  = False
     has_ab_cable:     bool  = False
     has_lattice:      bool  = False
     has_jumper:       bool  = False
@@ -63,6 +62,7 @@ class ClassificationResult:
     voltage:        str
     confidence:     str   # "high" | "medium" | "low"
     signals_used:   list  = field(default_factory=list)
+    faults:         list  = field(default_factory=list) # Critical anomalies
 
 
 # ── Rule engine ───────────────────────────────────────────────
@@ -81,6 +81,18 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
 
     def make(cls_name, reason, voltage=None, conf="medium", signals_used=None):
         cls_id = POLE_CLASSES.index(cls_name) if cls_name in POLE_CLASSES else -1
+        
+        # --- NEW: ANOMALY DETECTION (Requirement 2.4) ---
+        found_faults = []
+        if signals.lean_angle_deg > 5.0 and signals.pole_type == "vertical_pole":
+            found_faults.append(f"CRITICAL LEAN ({signals.lean_angle_deg}°)")
+            
+        if signals.insulator_type == "unknown" and signals.conductor_count > 0:
+            found_faults.append("MISSING INSULATOR / BROKEN MOUNT")
+
+        if found_faults:
+            reason = " { FAULT DETECTED } " + reason + " | " + ", ".join(found_faults)
+
         return ClassificationResult(
             final_class   = cls_name,
             class_id      = cls_id,
@@ -88,6 +100,7 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
             voltage       = voltage or signals.insulator_voltage,
             confidence    = conf,
             signals_used  = signals_used or [],
+            faults        = found_faults
         )
 
     # ════════════════════════════════════════════════════════
@@ -111,13 +124,7 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
             signals_used=["has_dtr"]
         )
 
-    if signals.has_lamp:
-        return make(
-            "street_light_pole",
-            "Street light lamp head detected",
-            voltage="LT", conf="high",
-            signals_used=["has_lamp"]
-        )
+
 
     if signals.has_jumper:
         return make(

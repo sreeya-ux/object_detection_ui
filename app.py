@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response, send_file
 from werkzeug.security import check_password_hash
 import requests
 import csv
@@ -49,6 +49,14 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def log_activity(user, action, details=None):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db_connection()
+    conn.execute('INSERT INTO activity_logs (user_name, action, details, timestamp) VALUES (?, ?, ?, ?)',
+                 (user, action, details, timestamp))
+    conn.commit()
+    conn.close()
+
 def get_ngrok_url():
     try:
         response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=0.1)
@@ -94,6 +102,7 @@ def login():
             if check_password_hash(user['password'], password):
                 session['user'] = user['username']
                 session['role'] = user['role']
+                log_activity(username, "login", f"Role: {user['role']}")
                 if user['role'] == 'admin':
                     return redirect(url_for('admin_dashboard'))
                 return redirect(url_for('home'))
@@ -145,15 +154,23 @@ def process_image_file(file_stream):
         from skimage.morphology import skeletonize
         skel = (skeletonize(mask_resized / 255.0) > 0).astype(np.uint8)
 
-        # Bridge gaps for continuous polygons (Smaller kernel to preserve detail)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20))
+        # Bridge gaps for continuous polygons (Wider kernel to fix wire count)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
         mask_closed = cv2.morphologyEx(mask_resized, cv2.MORPH_CLOSE, kernel)
-
+        
+        # 3. Create Hardware Blackout Mask (Wire Detection Last)
+        # Prevents wires from "hallucinating" over insulators/poles
+        hardware_mask = np.zeros((h, w), dtype=np.uint8)
+        
         final_detections = []
 
         # A. Map Rule Engine Components to UI format (with OBB Polygons)
         # Each component in pipe_res is now (box, conf, angle, polygon)
         for ins in pipe_res.insulators:
+            # Map to Hardware Mask with 5px buffer
+            x1, y1, x2, y2 = [int(v) for v in ins.box]
+            cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
+            
             final_detections.append({
                 "label": "insulator",
                 "confidence": float(ins.detection_conf),
@@ -167,6 +184,10 @@ def process_image_file(file_stream):
             })
         
         for ca in pipe_res.crossarms:
+            # Map to Hardware Mask with 5px buffer
+            x1, y1, x2, y2 = [int(v) for v in ca.box]
+            cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
+            
             final_detections.append({
                 "label": "crossarm",
                 "confidence": float(ca.detection_conf),
@@ -177,8 +198,11 @@ def process_image_file(file_stream):
                 }
             })
         
-        if pipe_res.pole_orientation:
-            po = pipe_res.pole_orientation
+        for po in pipe_res.all_poles:
+            # Map to Hardware Mask with 5px buffer
+            x1, y1, x2, y2 = [int(v) for v in po.box]
+            cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
+            
             final_detections.append({
                 "label": "pole",
                 "confidence": float(po.detection_conf),
@@ -190,12 +214,57 @@ def process_image_file(file_stream):
                 }
             })
 
-        # B. Generate Conductor Polygons from UNet (The high-precision part)
-        contours, _ = cv2.findContours(mask_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for box, conf, poly in pipe_res.street_lights:
+            # Map to Hardware Mask (Street lights are hardware too, wires shouldn't pass THROUGH them)
+            x1, y1, x2, y2 = [int(v) for v in box]
+            cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
+            
+            final_detections.append({
+                "label": "street_light",
+                "confidence": float(conf),
+                "bbox": [int(x) for x in box],
+                "polygon": poly,
+                "details": {"type": "Standard Lamp"}
+            })
+
+        for label, box, conf, poly in pipe_res.others:
+            # We add large 'other' items to the exclusion mask to prevent wire ghosts
+            bw, bh = box[2]-box[0], box[3]-box[1]
+            if bw > 100 or bh > 100:
+                 cv2.rectangle(hardware_mask, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), 255, -1)
+
+            final_detections.append({
+                "label": label.lower().replace(" ", "_"),
+                "confidence": float(conf),
+                "bbox": [int(x) for x in box],
+                "polygon": poly,
+                "details": {"source": "AI Inference"}
+            })
+
+        # --- Wire Discovery Phase 2: Exclude static hardware ---
+        # Any wire detected INSIDE a hardware box is disqualified to reduce noise
+        mask_final = cv2.bitwise_and(mask_closed, cv2.bitwise_not(hardware_mask))
+        
+        # B. Generate Conductor Polygons from clean mask
+        contours, _ = cv2.findContours(mask_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
             cx, cy, cw, ch = cv2.boundingRect(c)
-            if cw + ch < 80: continue
+            area = cv2.contourArea(c)
             
+            # --- 1. Basic Size Filter ---
+            if cw + ch < 80 or area < 100: 
+                continue
+            
+            # --- 2. Geometric "Clump" Filter ---
+            # Real wires are elongated. Huge square clumps are usually noise or shadows.
+            aspect_ratio = max(cw, ch) / max(1, min(cw, ch))
+            solidity = area / (cw * ch)
+            
+            # If it's a large clumpy rectangle (high solidity, low elongation), it's likely noise
+            if cw > 150 and ch > 150 and solidity > 0.5 and aspect_ratio < 1.8:
+                continue
+            
+            # --- 3. Process Valid Wire ---
             epsilon = 0.01 * cv2.arcLength(c, True)
             approx = cv2.approxPolyDP(c, epsilon, True)
             polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
@@ -206,7 +275,11 @@ def process_image_file(file_stream):
             local_skel = skel & (c_mask > 0)
             local_thickness = dist[local_skel > 0] * 2
             avg_thick = float(np.mean(local_thickness)) if len(local_thickness) > 0 else 0.0
-                
+            
+            # Reject if the detected "wire" is physically impossible (too thick)
+            if avg_thick > 80:
+                continue
+            
             final_detections.append({
                 "label": "conductor",
                 "confidence": 0.90,
@@ -290,29 +363,33 @@ def export_tasks():
     output.headers["Content-type"] = "text/csv"
     return output
 
-@app.route('/admin/task/<task_id>')
+@app.route('/admin/asset/<asset_id>')
 @admin_required
-def view_task(task_id):
+def view_asset(asset_id):
     conn = get_db_connection()
-    task_row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
+    
+    if not asset_row:
+        conn.close()
+        return "Asset not found", 404
+        
+    image_rows = conn.execute('SELECT * FROM asset_images WHERE asset_id = ?', (asset_id,)).fetchall()
     conn.close()
     
-    if not task_row:
-        return "Task not found", 404
-        
-    task = dict(task_row)
-    detections = json.loads(task['detections'])
+    asset = dict(asset_row)
+    images = []
+    total_detections = 0
+
+    for row in image_rows:
+        img_dict = dict(row)
+        img_dict['detections'] = json.loads(img_dict['detections'])
+        total_detections += len(img_dict['detections'])
+        images.append(img_dict)
     
-    grouped_detections = {}
-    for det in detections:
-        label = det['label']
-        if label not in grouped_detections:
-            grouped_detections[label] = []
-    grouped_detections[label].append(det)
+    asset['images'] = images
+    asset['total_count'] = total_detections
     
-    task['grouped_detections'] = grouped_detections
-    task['total_count'] = len(detections)
-    return render_template('task_detail.html', task=task)
+    return render_template('asset_detail.html', asset=asset)
 
 @app.route('/predict', methods=['POST'])
 @login_required
@@ -329,63 +406,145 @@ def predict():
 # =========================
 # API ENDPOINTS
 # =========================
-@app.route('/api/save_task', methods=['POST'])
+@app.route('/admin/logs')
+@admin_required
+def audit_logs():
+    conn = get_db_connection()
+    logs = conn.execute('SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 100').fetchall()
+    conn.close()
+    return render_template('audit_logs.html', logs=logs)
+
+@app.route('/api/save_asset', methods=['POST'])
 @login_required
-def save_task():
-    data = request.json
-    task_id = str(uuid.uuid4())
+def save_asset():
+    data = request.json # { images: [{b64, detections, pole_angle}], master: {final_class, voltage, reason} }
+    asset_id = str(uuid.uuid4())
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     worker_name = session['user']
     
-    conn = get_db_connection()
-    conn.execute('''
-        INSERT INTO tasks (id, worker_name, image_b64, detections, status, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (task_id, worker_name, data['image_b64'], json.dumps(data['detections']), 'pending', timestamp))
-    conn.commit()
-    conn.close()
+    master = data.get('master', {})
     
-    return jsonify({"status": "success", "task_id": task_id})
+    conn = get_db_connection()
+    try:
+        # 1. Save Asset Header
+        conn.execute('''
+            INSERT INTO assets (id, worker_name, status, timestamp, asset_class, voltage, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (asset_id, worker_name, 'pending', timestamp, 
+              master.get('final_class'), master.get('voltage'), master.get('reason')))
+        
+        # 2. Save Images
+        for img_data in data['images']:
+            conn.execute('''
+                INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
+                VALUES (?, ?, ?, ?)
+            ''', (asset_id, img_data['image_b64'], json.dumps(img_data['detections']), img_data.get('pole_angle', 0.0)))
+            
+        conn.commit()
+        log_activity(worker_name, "asset_submission", f"Asset: {asset_id}, Images: {len(data['images'])}")
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({"status": "success", "asset_id": asset_id})
 
-@app.route('/api/get_tasks')
+@app.route('/api/get_assets')
 @login_required
-def get_tasks():
+def get_assets():
     status = request.args.get('status')
     
     conn = get_db_connection()
-    query = 'SELECT * FROM tasks WHERE 1=1'
+    # Get assets along with the first image as a thumbnail
+    query = '''
+        SELECT a.*, i.image_b64 as thumbnail 
+        FROM assets a
+        LEFT JOIN asset_images i ON i.id = (
+            SELECT id FROM asset_images WHERE asset_id = a.id LIMIT 1
+        )
+        WHERE 1=1
+    '''
     params = []
     
     if status:
-        query += ' AND status = ?'
+        query += ' AND a.status = ?'
         params.append(status)
     
     if session['role'] != 'admin':
-        query += ' AND worker_name = ?'
+        query += ' AND a.worker_name = ?'
         params.append(session['user'])
     
-    tasks_rows = conn.execute(query, params).fetchall()
+    query += ' ORDER BY a.timestamp DESC'
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     
-    tasks = []
-    for row in tasks_rows:
-        task = dict(row)
-        task['detections'] = json.loads(task['detections'])
-        tasks.append(task)
-        
-    return jsonify(tasks)
+    # Clean up results
+    data = []
+    for r in rows:
+        d = dict(r)
+        data.append(d)
+    
+    return jsonify(data)
 
-@app.route('/api/update_task', methods=['POST'])
+@app.route('/admin/asset/pdf/<asset_id>')
+@admin_required
+def export_asset_pdf(asset_id):
+    conn = get_db_connection()
+    asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
+    if not asset_row:
+        conn.close()
+        return "Asset not found", 404
+        
+    image_rows = conn.execute('SELECT * FROM asset_images WHERE asset_id = ?', (asset_id,)).fetchall()
+    conn.close()
+    
+    asset_data = dict(asset_row)
+    asset_data['images'] = [dict(r) for r in image_rows]
+    for img in asset_data['images']:
+        img['detections'] = json.loads(img['detections'])
+
+    pdf_buffer = generate_asset_pdf(asset_data)
+    filename = f"Inspection_Report_{asset_id[:8]}.pdf"
+    
+    return send_file(pdf_buffer, download_name=filename, as_attachment=True, mimetype='application/pdf')
+
+@app.route('/admin/asset/excel/<asset_id>')
+@admin_required
+def export_asset_excel(asset_id):
+    conn = get_db_connection()
+    asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
+    if not asset_row:
+        conn.close()
+        return "Asset not found", 404
+        
+    image_rows = conn.execute('SELECT * FROM asset_images WHERE asset_id = ?', (asset_id,)).fetchall()
+    conn.close()
+    
+    asset_data = dict(asset_row)
+    asset_data['images'] = [dict(r) for r in image_rows]
+    for img in asset_data['images']:
+        img['detections'] = json.loads(img['detections'])
+
+    excel_buffer = generate_asset_excel(asset_data)
+    filename = f"Detection_Log_{asset_id[:8]}.xlsx"
+    
+    return send_file(excel_buffer, download_name=filename, as_attachment=True, 
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@app.route('/api/update_asset_status', methods=['POST'])
 @login_required
-def update_task():
+def update_asset_status():
     data = request.json
-    task_id = data.get('task_id')
+    asset_id = data.get('asset_id')
     status = data.get('status')
     
     conn = get_db_connection()
-    conn.execute('UPDATE tasks SET status = ? WHERE id = ?', (status, task_id))
+    conn.execute('UPDATE assets SET status = ? WHERE id = ?', (status, asset_id))
     conn.commit()
     conn.close()
+    
+    log_activity(session['user'], "asset_status_update", f"Asset: {asset_id}, Status: {status}")
     
     return jsonify({"status": "success"})
 

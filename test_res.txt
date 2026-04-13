@@ -1,0 +1,12 @@
+SUCCESS
+Detections found: 10
+ - insulator, box: [624, 492, 682, 591]
+ - pole, box: [533, 994, 572, 1434]
+ - conductor, box: [383, 912, 540, 967]
+ - conductor, box: [670, 903, 817, 989]
+ - conductor, box: [234, 704, 330, 743]
+ - conductor, box: [963, 699, 1080, 762]
+ - conductor, box: [428, 620, 505, 646]
+ - conductor, box: [0, 598, 73, 633]
+ - conductor, box: [548, 416, 1080, 726]
+ - conductor, box: [0, 116, 583, 418]

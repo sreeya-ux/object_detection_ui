@@ -21,14 +21,38 @@ def init_db():
     )
     ''')
 
-    # Create Tasks table
+    # Create Assets table (Workflow Header)
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS tasks (
+    CREATE TABLE IF NOT EXISTS assets (
         id TEXT PRIMARY KEY,
         worker_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', -- pending, approved, rejected
+        timestamp TEXT NOT NULL,
+        asset_class TEXT,                       -- From Rule Engine
+        voltage TEXT,
+        reason TEXT
+    )
+    ''')
+
+    # Create Asset Images table (Inference Results)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS asset_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asset_id TEXT NOT NULL,
         image_b64 TEXT NOT NULL,
-        detections TEXT NOT NULL, -- JSON string
-        status TEXT NOT NULL DEFAULT 'pending',
+        detections TEXT NOT NULL,               -- JSON string of boxes
+        pole_angle FLOAT DEFAULT 0.0,           -- For leaning pole detection
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+    )
+    ''')
+
+    # Create Activity Logs table (Requirement 1.4)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_name TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT,
         timestamp TEXT NOT NULL
     )
     ''')

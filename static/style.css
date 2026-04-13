@@ -377,3 +377,128 @@ h1, h2, h3 { font-family: 'Outfit', sans-serif; font-weight: 700; }
 @keyframes dash-flow {
     to { stroke-dashoffset: -100; }
 }
+
+/* Batch Gallery & Thumbnails */
+#batchStrip {
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none; /* Hide scrollbar for IE/Edge */
+}
+#batchStrip::-webkit-scrollbar {
+    height: 4px;
+    background: transparent;
+}
+#batchStrip::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.batch-thumb {
+    position: relative;
+    flex: 0 0 80px;
+    height: 60px;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #000;
+}
+
+.batch-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.6;
+    transition: all 0.3s;
+}
+
+.batch-thumb:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.batch-thumb:hover img {
+    opacity: 0.9;
+}
+
+.batch-thumb.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+    transform: scale(1.05);
+    z-index: 10;
+}
+
+.batch-thumb.active img {
+    opacity: 1;
+}
+
+.batch-thumb-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    background: #f43f5e;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 20;
+    box-shadow: 0 4px 10px rgba(244, 63, 94, 0.3);
+}
+
+.batch-thumb:hover .batch-thumb-remove {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.batch-thumb-remove:hover {
+    background: #e11d48;
+    transform: scale(1.1) !important;
+}
+
+.batch-thumb.processed::after {
+    content: '\f058';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    color: #10b981;
+    font-size: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    backdrop-filter: blur(4px);
+}
+
+.batch-thumb.loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Custom transitions for gallery reveal */
+#batchStripWrapper.animate-reveal {
+    animation: slideDownIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes slideDownIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

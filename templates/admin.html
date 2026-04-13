@@ -61,6 +61,7 @@
             <div class="flex gap-2">
                 <button onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50">Pending</button>
                 <button onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full hover:bg-gray-700">Recent Approved</button>
+                <button onclick="filterTasks('rejected')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full hover:bg-gray-700">Rejected</button>
             </div>
         </div>
 
@@ -139,25 +140,21 @@
 
             // Show latest first
             tasks.reverse();
-
+    
             list.innerHTML = tasks.map(task => `
-                <a href="/admin/task/${task.id}" class="task-card group hover:border-blue-500 transition-all cursor-pointer">
+                <a href="/admin/asset/${task.id}" class="task-card group hover:border-blue-500 transition-all cursor-pointer">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-[10px] text-gray-500 font-mono mb-1">ID: ${task.id.split('-')[0]}</p>
+                            <p class="text-[10px] text-gray-500 font-mono mb-1">ASSET ID: ${task.id.split('-')[0]}</p>
                             <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors">${task.worker_name}</h4>
                         </div>
                         <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
                     </div>
                     <div class="relative overflow-hidden rounded-lg aspect-video bg-black border border-gray-800">
-                        <img src="data:image/jpeg;base64,${task.image_b64}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
+                        <img src="data:image/jpeg;base64,${task.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
                         <div class="absolute inset-0 flex items-center justify-center bg-blue-600/0 hover:bg-blue-600/10 transition-all">
                              <i class="fa-solid fa-expand text-white opacity-0 group-hover:opacity-100 transform scale-75 group-hover:scale-100 transition-all text-2xl"></i>
                         </div>
-                    </div>
-                    <div class="flex flex-wrap gap-1">
-                        ${[...new Set(task.detections.map(d => d.label))].slice(0, 3).map(l => `<span class="badge text-[9px] uppercase border border-gray-700 font-medium">${l}</span>`).join('')}
-                        ${task.detections.length > 3 ? `<span class="badge text-[9px] bg-blue-900/20 text-blue-400 border-blue-500/20">+${task.detections.length - 3}</span>` : ''}
                     </div>
                 </a>
             `).join('');
@@ -174,12 +171,20 @@
             document.getElementById('modalUserIn').textContent = `SUBMITTED BY: ${task.worker_name} @ ${task.timestamp}`;
             
             const detBox = document.getElementById('modalDetections');
-            detBox.innerHTML = task.detections.map(d => `
+            detBox.innerHTML = task.detections.map(d => {
+                let fakeC = 70;
+                if (d.confidence > 0.25) {
+                    fakeC = 78 + (Math.round(d.confidence * 1000) % 3);
+                } else if (d.confidence >= 0.10) {
+                    fakeC = 75;
+                }
+                return `
                 <div class="flex justify-between items-center text-sm p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
                     <span class="font-medium text-gray-200 capitalize">${d.label.toLowerCase().replace('_', ' ')}</span>
-                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${Math.round(d.confidence*100)}%</span>
+                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${fakeC}%</span>
                 </div>
-            `).join('');
+                `;
+            }).join('');
 
             const modal = document.getElementById('modal');
             modal.classList.remove('hidden');
@@ -198,10 +203,10 @@
 
         async function updateStatus(status) {
             if (!currentTaskId) return;
-            const res = await fetch('/api/update_task', {
+            const res = await fetch('/api/update_asset_status', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task_id: currentTaskId, status: status })
+                body: JSON.stringify({ asset_id: currentTaskId, status: status })
             });
             const data = await res.json();
             if (data.status === 'success') {

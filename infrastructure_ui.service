@@ -1,0 +1,13 @@
+[Unit]
+Description=Infrastructure Detection UI Service
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/object_detection_ui
+ExecStart=/home/ubuntu/object_detection_ui/venv/bin/python app.py
+Restart=always
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
