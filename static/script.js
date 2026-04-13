@@ -26,13 +26,7 @@ const CLASS_COLORS = {
 let expandedGroups = new Set();
 
 function getFakeConfidenceValue(rawConf) {
-    if (rawConf > 0.25) {
-        // Deterministic variation between 78-80% for demo polish
-        return (78 + (Math.round(rawConf * 1000) % 3)) + "%";
-    } else if (rawConf >= 0.10) {
-        return "75%";
-    }
-    return "70%";
+    return Math.round(rawConf * 100) + '%';
 }
 
 // Drawing State

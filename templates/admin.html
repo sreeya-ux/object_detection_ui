@@ -172,16 +172,11 @@
             
             const detBox = document.getElementById('modalDetections');
             detBox.innerHTML = task.detections.map(d => {
-                let fakeC = 70;
-                if (d.confidence > 0.25) {
-                    fakeC = 78 + (Math.round(d.confidence * 1000) % 3);
-                } else if (d.confidence >= 0.10) {
-                    fakeC = 75;
-                }
+                const confPercent = Math.round(d.confidence * 100);
                 return `
                 <div class="flex justify-between items-center text-sm p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
                     <span class="font-medium text-gray-200 capitalize">${d.label.toLowerCase().replace('_', ' ')}</span>
-                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${fakeC}%</span>
+                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${confPercent}%</span>
                 </div>
                 `;
             }).join('');
