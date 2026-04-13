@@ -52,11 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dropZone) {
         dropZone.addEventListener('click', (e) => {
-            // Only trigger upload if clicking the dropzone when no batch is active 
-            // or if explicitly clicking the upload prompt area
-            if (activeBatchIndex === -1 || e.target.closest('#uploadPrompt')) {
-                uploadInput.click();
-            }
+            // Always allow adding more images via the dropzone click
+            uploadInput.click();
         });
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -112,6 +109,9 @@ function handleUpload(e) {
     if (activeBatchIndex === -1) {
         selectBatchImage(batchImages.length - files.length);
     }
+
+    // Clear the input so the same files can be selected again if needed
+    e.target.value = '';
 }
 
 function renderBatchStrip() {
@@ -141,6 +141,16 @@ function renderBatchStrip() {
         
         strip.appendChild(thumb);
     });
+
+    // Add "Add More" Button at the end of the strip
+    const addMore = document.createElement('div');
+    addMore.className = 'batch-thumb-add';
+    addMore.innerHTML = `
+        <i class="fa-solid fa-plus text-blue-400"></i>
+        <span class="text-[8px] font-bold text-gray-400 mt-1">ADD MORE</span>
+    `;
+    addMore.onclick = () => document.getElementById('upload').click();
+    strip.appendChild(addMore);
 }
 
 function removeBatchImage(index) {

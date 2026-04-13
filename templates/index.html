@@ -91,8 +91,8 @@
                                     class="fa-solid fa-cloud-arrow-up text-2xl text-gray-400 group-hover:text-blue-400"></i>
                             </div>
                             <div>
-                                <p class="text-gray-300 font-bold">Upload high-res analysis file</p>
-                                <p class="text-xs text-gray-500 mt-1">Drag and drop or click target area</p>
+                                <p class="text-gray-300 font-bold uppercase tracking-tight text-sm">Upload asset analysis file(s)</p>
+                                <p class="text-[10px] text-gray-500 mt-1 uppercase font-bold tracking-widest">Drag and drop or click to add images</p>
                             </div>
                         </div>
                     </div>
@@ -121,6 +121,7 @@
                     </div>
                 </div>
 
+                    <div class="flex gap-4 mt-8">
                         <button id="btnRun" onclick="processImage()"
                             class="bg-blue-600 hover:bg-blue-500 text-white flex-1 h-[42px] rounded-xl shadow-xl shadow-blue-900/20 transition-all flex items-center justify-center gap-3 active:scale-95 border border-blue-500/20">
                             <i class="fa-solid fa-microscope text-sm"></i>
@@ -208,7 +209,7 @@
                         review.
                     </p>
                 </div>
-                <button id="finalSubmitBtn" onclick="submitTask()" disabled
+                <button id="finalSubmitBtn" onclick="submitAsset()" disabled
                     class="btn btn-primary w-full py-4 opacity-50 cursor-not-allowed transition-all">
                     <i class="fa-solid fa-cloud-arrow-up"></i> CONFIRM & SUBMIT TO ADMIN
                 </button>

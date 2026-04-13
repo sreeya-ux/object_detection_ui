@@ -502,3 +502,27 @@ h1, h2, h3 { font-family: 'Outfit', sans-serif; font-weight: 700; }
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+.batch-thumb-add {
+    flex: 0 0 80px;
+    height: 60px;
+    border-radius: 10px;
+    border: 2px dashed rgba(59, 130, 246, 0.3);
+    background: rgba(59, 130, 246, 0.05);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.batch-thumb-add:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.5);
+    transform: translateY(-2px);
+}
+
+.batch-thumb-add i {
+    font-size: 14px;
+}
