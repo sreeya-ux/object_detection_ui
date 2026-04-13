@@ -10,413 +10,555 @@
     <style>
         :root { --primary: #3b82f6; --danger: #f43f5e; --bg: #030712; }
         body { font-family: 'Inter', sans-serif; background: var(--bg); color: #f8fafc; }
-        .studio-card { background: rgba(17, 24, 39, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 1.5rem; }
-        .badge { padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.1); }
+        .studio-card { background: rgba(17,24,39,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); border-radius: 1.5rem; }
         .scroll-hide::-webkit-scrollbar { display: none; }
-        
-        /* Editor Styles */
-        .box-overlay { pointer-events: auto; cursor: move; }
-        .box-handle { fill: white; stroke: var(--primary); stroke-width: 2; cursor: nwse-resize; transition: transform 0.2s; }
-        .box-handle:hover { transform: scale(1.5); }
-        .box-selected { filter: drop-shadow(0 0 8px var(--primary)); }
+        .box-selected { filter: drop-shadow(0 0 8px #3b82f6); }
+        .det-item { transition: all 0.2s; border: 1px solid rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.6rem 0.8rem; background: rgba(255,255,255,0.03); }
+        .det-item:hover { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
+        /* Category Picker Modal */
+        #adminPickerModal { position: fixed; z-index: 999; background: rgba(9,11,21,0.95); backdrop-filter: blur(20px); border-radius: 1.25rem; border: 1px solid rgba(255,255,255,0.08); padding: 1.5rem; min-width: 280px; box-shadow: 0 25px 60px rgba(0,0,0,0.7); }
+        .picker-btn { display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; border: 1px solid transparent; transition: all 0.15s; margin-bottom: 0.3rem; cursor: pointer; background: rgba(255,255,255,0.04); }
+        .picker-btn:hover { background: rgba(59,130,246,0.15); color: #60a5fa; border-color: rgba(59,130,246,0.3); }
+        /* Auto-save indicator */
+        #autoSaveStatus { transition: all 0.3s; }
     </style>
 </head>
-<body class="p-6">
-    <div class="max-w-7xl mx-auto space-y-8">
-        
-        <!-- Header -->
-        <header class="flex justify-between items-center studio-card p-6 shadow-2xl">
-            <div class="flex items-center gap-6">
-                <a href="/admin" class="w-12 h-12 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all border border-white/5 group">
-                    <i class="fa-solid fa-chevron-left text-gray-400 group-hover:text-white"></i>
-                </a>
+<body class="p-4 md:p-6">
+<div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="flex flex-wrap justify-between items-center studio-card p-5 shadow-2xl gap-4">
+        <div class="flex items-center gap-5">
+            <a href="/admin" class="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition-all border border-white/5">
+                <i class="fa-solid fa-chevron-left text-gray-400 hover:text-white"></i>
+            </a>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-white font-['Outfit']">Asset Studio <span class="text-blue-500">v3.0</span></h1>
+                <div class="flex items-center gap-2 mt-0.5">
+                    <span class="text-[9px] text-gray-500 uppercase font-bold tracking-widest">ID: {{ asset.id[:8] }}...</span>
+                    <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
+                    <span class="text-[9px] text-blue-400/80 font-bold uppercase tracking-widest">{{ asset.asset_class or 'Unclassified' }}</span>
+                    <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
+                    <span id="autoSaveStatus" class="text-[9px] text-gray-600 font-bold uppercase tracking-widest"><i class="fa-solid fa-circle-notch fa-spin mr-1 hidden" id="savingIcon"></i><span id="saveLabel">Not saved</span></span>
+                </div>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/admin/asset/pdf/{{ asset.id }}" class="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl text-[9px] font-bold uppercase transition-all flex items-center gap-2 border border-white/5">
+                <i class="fa-solid fa-file-pdf"></i> PDF
+            </a>
+            <a href="/admin/asset/excel/{{ asset.id }}" class="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl text-[9px] font-bold uppercase transition-all flex items-center gap-2 border border-white/5">
+                <i class="fa-solid fa-file-excel"></i> Excel
+            </a>
+            <span class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-widest">{{ asset.status }}</span>
+        </div>
+    </header>
+
+    <main class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- LEFT SIDEBAR -->
+        <div class="lg:col-span-3 space-y-4">
+            <div class="studio-card p-5 space-y-5">
+
+                <!-- Diagnostic Result -->
                 <div>
-                    <h1 class="text-2xl font-bold tracking-tight text-white font-['Outfit']">Asset Studio <span class="text-blue-500">v2.0</span></h1>
-                    <div class="flex items-center gap-3 mt-1">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Asset ID: {{ asset.id[:8] if asset.id else 'XXXX' }}...</span>
-                        <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
-                        <span class="text-[10px] text-blue-400/80 font-bold uppercase tracking-widest">{{ asset.asset_class or 'Unclassified' }}</span>
+                    <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">AI Diagnostic</h3>
+                    <div class="p-3 bg-gray-950/60 rounded-xl border border-white/5 space-y-1">
+                        <p class="text-xs font-bold text-white">{{ asset.asset_class or '—' }}</p>
+                        <p class="text-[9px] text-blue-400 font-semibold">{{ asset.voltage or '' }}</p>
+                        <p class="text-[9px] text-gray-500 italic leading-relaxed">{{ asset.reason or 'No reason provided' }}</p>
                     </div>
                 </div>
-            </div>
 
-            <div class="flex items-center gap-4">
-                <div class="flex items-center gap-2 mr-4">
-                    <a href="/admin/asset/pdf/{{ asset.id }}" class="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 border border-white/5">
-                        <i class="fa-solid fa-file-pdf"></i> PDF Report
-                    </a>
-                    <a href="/admin/asset/excel/{{ asset.id }}" class="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 border border-white/5">
-                        <i class="fa-solid fa-file-excel"></i> Excel Log
-                    </a>
-                </div>
-                <div class="text-right border-r border-white/5 pr-6 hidden sm:block">
-                    <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Assigned Worker</p>
-                    <p class="text-xs font-bold text-white">{{ asset.worker_name }}</p>
-                </div>
-                <div class="status-pill px-4 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest">
-                    {{ asset.status }}
-                </div>
-            </div>
-        </header>
-
-        <main class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            
-            <!-- Left: Sidebar Summary & History -->
-            <div class="space-y-6">
-                <div class="studio-card p-6 space-y-6">
-                    <div>
-                        <h3 class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-4">Diagnostic Result</h3>
-                        <div class="p-4 bg-gray-950/50 rounded-2xl border border-white/5">
-                            <p class="text-sm font-bold text-white mb-1">{{ asset.asset_class }}</p>
-                            <p class="text-[10px] text-gray-500 italic leading-relaxed">{{ asset.reason }}</p>
+                <!-- Gallery -->
+                <div>
+                    <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Gallery</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        {% for img in asset.images %}
+                        <div class="relative cursor-pointer thumb-link rounded-lg overflow-hidden border-2 transition-all border-transparent hover:border-blue-500" data-idx="{{ loop.index0 }}">
+                            <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full aspect-video object-cover">
+                            <div class="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-bold text-white">#{{ loop.index }}</div>
                         </div>
-                    </div>
-
-                    <div>
-                        <h3 class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-4">Inspection Gallery</h3>
-                        <div class="grid grid-cols-2 gap-3" id="galleryThumbs">
-                            {% for img in asset.images %}
-                            <div class="group relative cursor-pointer thumb-link" data-idx="{{ loop.index0 }}">
-                                <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full aspect-video object-cover rounded-lg border border-white/5 hover:border-blue-500/50 transition-all">
-                                <div class="absolute bottom-1 right-1 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] font-bold text-white">#{{ loop.index }}</div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <div>
-                        <h3 class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-4">Annotation History</h3>
-                        <div id="historyLog" class="space-y-3 max-h-64 overflow-y-auto pr-2 scroll-hide text-[9px]">
-                            <!-- History items injected here -->
-                            <div class="text-gray-600 italic">No modifications logged yet...</div>
-                        </div>
-                    </div>
-
-                    <div class="pt-4 border-t border-white/5 space-y-3">
-                        <button id="btnApprove" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">Verify & Approve</button>
-                        <button id="btnSave" class="w-full py-3 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-blue-500/20 flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Changes (Ctrl+S)
-                        </button>
-                        <button id="btnReject" class="w-full py-3 bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-white/5">Reject</button>
+                        {% endfor %}
                     </div>
                 </div>
-            </div>
 
-            <!-- Right: Content Feed -->
-            <div class="lg:col-span-3 space-y-8 h-[calc(100vh-180px)] overflow-y-auto pr-2 scroll-hide scroll-smooth" id="imageFeed">
-                <div class="mb-4 flex items-center justify-between px-4 bg-white/5 p-3 rounded-xl border border-white/5">
-                    <div class="flex items-center gap-4 text-[10px] uppercase font-bold tracking-widest text-gray-500">
-                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [Z] Undo</span>
-                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [Y] Redo</span>
-                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [DEL] Delete</span>
-                    </div>
-                    <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-4 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">
-                        <i class="fa-solid fa-pencil mr-2"></i> Draw New box
+                <!-- Detection List Panel (per active image) -->
+                <div>
+                    <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Detections <span class="text-blue-400" id="detCount">(0)</span></h3>
+                    <div id="detListPanel" class="space-y-1 max-h-48 overflow-y-auto scroll-hide"></div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="pt-4 border-t border-white/5 space-y-2">
+                    <button id="btnApprove" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-check-double"></i> Approve & Next
                     </button>
+                    <button id="btnSave" class="w-full py-2.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-blue-500/20 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Changes (Ctrl+S)
+                    </button>
+                    <button id="btnReject" class="w-full py-2.5 bg-white/5 hover:bg-rose-500/10 text-gray-500 hover:text-rose-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-white/5">Reject</button>
                 </div>
-                {% for img in asset.images %}
-                <div class="studio-card p-4 space-y-4 asset-image-node" id="img-container-{{ loop.index0 }}" data-idx="{{ loop.index0 }}">
-                    <div class="flex justify-between items-center px-2">
-                        <div class="flex items-center gap-3">
-                            <span class="w-7 h-7 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 text-xs font-bold border border-blue-500/10">{{ loop.index }}</span>
-                            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Frame Analysis</h4>
-                        </div>
-                    </div>
-
-                    <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
-                        <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full h-auto block detection-img" id="img-{{ loop.index0 }}">
-                        <svg class="absolute inset-0 w-full h-full pointer-events-auto detection-svg select-none" id="svg-{{ loop.index0 }}" 
-                             data-detections='{{ img.detections|tojson }}'
-                             style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></svg>
-                    </div>
-                </div>
-                {% endfor %}
             </div>
-        </main>
-    </div>
 
-    <script>
-        let isDrawMode = false;
-        let isDrawing = false;
-        let drawStart = null;
-        let ghostBox = null;
+            <!-- Annotation History -->
+            <div class="studio-card p-5">
+                <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Annotation History</h3>
+                <div id="historyLog" class="space-y-2 max-h-72 overflow-y-auto scroll-hide">
+                    <div class="text-[9px] text-gray-600 italic">Loading history...</div>
+                </div>
+            </div>
+        </div>
 
-        function toggleDrawMode() {
-            isDrawMode = !isDrawMode;
-            const btn = document.getElementById('btnDrawMode');
-            if (isDrawMode) {
-                btn.classList.add('bg-blue-600', 'text-white');
-                btn.innerHTML = '<i class="fa-solid fa-mouse-pointer mr-2"></i> Exit Draw Mode';
-                document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'crosshair');
-            } else {
-                btn.classList.remove('bg-blue-600', 'text-white');
-                btn.innerHTML = '<i class="fa-solid fa-pencil mr-2"></i> Draw New Box';
-                document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'default');
-            }
+        <!-- RIGHT: IMAGE FEED -->
+        <div class="lg:col-span-9 space-y-6 h-[calc(100vh-160px)] overflow-y-auto pr-1 scroll-hide" id="imageFeed">
+
+            <!-- Toolbar -->
+            <div class="flex flex-wrap items-center justify-between bg-white/5 border border-white/5 p-3 rounded-xl gap-3 sticky top-0 z-10 backdrop-blur-md">
+                <div class="flex items-center gap-3 text-[9px] uppercase font-bold tracking-widest text-gray-500">
+                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> Ctrl+Z Undo</span>
+                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> Ctrl+Y Redo</span>
+                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> DEL Remove</span>
+                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> DblClick Relabel</span>
+                </div>
+                <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-4 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[9px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-pencil"></i> Draw Box
+                </button>
+            </div>
+
+            {% for img in asset.images %}
+            <div class="studio-card p-4 space-y-4 asset-image-node" id="img-container-{{ loop.index0 }}" data-idx="{{ loop.index0 }}">
+                <div class="flex items-center gap-3 px-1">
+                    <span class="w-6 h-6 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 text-xs font-bold border border-blue-500/10">{{ loop.index }}</span>
+                    <h4 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Frame {{ loop.index }} — {{ img.detections | length }} detections</h4>
+                </div>
+
+                <!-- Annotated Image Canvas -->
+                <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 shadow-inner" id="canvas-wrapper-{{ loop.index0 }}">
+                    <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full h-auto block detection-img" id="img-{{ loop.index0 }}" draggable="false">
+                    <svg class="absolute inset-0 w-full h-full detection-svg select-none" id="svg-{{ loop.index0 }}"
+                         data-detections='{{ img.detections|tojson }}'
+                         style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;"></svg>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+</div>
+
+<!-- Category Picker Modal -->
+<div id="adminPickerBackdrop" class="fixed inset-0 z-[998] hidden" onclick="cancelAdminDraw()"></div>
+<div id="adminPickerModal" class="hidden">
+    <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Select Category</p>
+    <div id="adminPickerOptions" class="space-y-1 max-h-60 overflow-y-auto scroll-hide mb-3"></div>
+    <input id="adminCustomLabel" type="text" placeholder="Or type custom label..." class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 outline-none focus:border-blue-500/50 mb-2">
+    <button onclick="confirmAdminDraw()" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold uppercase transition-all">Confirm</button>
+    <button onclick="cancelAdminDraw()" class="w-full py-1.5 text-gray-600 hover:text-gray-400 text-xs mt-1 transition-all">Cancel</button>
+</div>
+
+<script>
+const CLASS_COLORS = {
+    INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4',
+    CROSSARM: '#10b981', STREET_LIGHT: '#f97316', OBJECT: '#ec4899', DTR: '#a78bfa'
+};
+const CLASS_OPTIONS = ['INSULATOR','POLE','CONDUCTOR','CROSSARM','STREET_LIGHT','DTR','OBJECT'];
+
+// === STATE ===
+let isDrawMode = false;
+let isDrawing = false;
+let drawStart = null;
+let pendingDrawData = null; // {idx, x, y, w, h}
+let historyStack = [];
+let redoStack = [];
+let selectedBox = null;
+let activeImageIdx = 0;
+let lastSaveTime = 0;
+const assetId = "{{ asset.id }}";
+
+// === DRAW MODE TOGGLE ===
+function toggleDrawMode() {
+    isDrawMode = !isDrawMode;
+    const btn = document.getElementById('btnDrawMode');
+    if (isDrawMode) {
+        btn.innerHTML = '<i class="fa-solid fa-mouse-pointer"></i> Exit Draw';
+        btn.classList.add('bg-blue-600','text-white');
+        document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'crosshair');
+    } else {
+        btn.innerHTML = '<i class="fa-solid fa-pencil"></i> Draw Box';
+        btn.classList.remove('bg-blue-600','text-white');
+        document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'default');
+    }
+}
+
+// === SVG RENDERING ===
+function initSVG(idx) {
+    const img = document.getElementById(`img-${idx}`);
+    const svg = document.getElementById(`svg-${idx}`);
+    if (!img || !svg) return;
+
+    const raw = svg.dataset.detections;
+    let dets = [];
+    try { dets = JSON.parse(raw); } catch(e) {}
+
+    svg.innerHTML = '';
+    svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+
+    // Draw handlers on SVG background (for draw mode)
+    let ghostRect = null;
+    svg.onmousedown = (e) => {
+        if (!isDrawMode || e.target !== svg) return;
+        isDrawing = true;
+        const pt = getSVGPoint(svg, e.clientX, e.clientY);
+        drawStart = pt;
+        ghostRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        ghostRect.setAttribute("stroke", "#f43f5e");
+        ghostRect.setAttribute("stroke-width", "4");
+        ghostRect.setAttribute("stroke-dasharray", "10,6");
+        ghostRect.setAttribute("fill", "rgba(244,63,94,0.1)");
+        svg.appendChild(ghostRect);
+    };
+
+    svg.onmousemove = (e) => {
+        if (!isDrawing || !ghostRect) return;
+        const pt = getSVGPoint(svg, e.clientX, e.clientY);
+        const x = Math.min(drawStart.x, pt.x);
+        const y = Math.min(drawStart.y, pt.y);
+        const w = Math.abs(drawStart.x - pt.x);
+        const h = Math.abs(drawStart.y - pt.y);
+        ghostRect.setAttribute("x", x); ghostRect.setAttribute("y", y);
+        ghostRect.setAttribute("width", w); ghostRect.setAttribute("height", h);
+    };
+
+    svg.onmouseup = (e) => {
+        if (!isDrawing) return;
+        isDrawing = false;
+        const pt = getSVGPoint(svg, e.clientX, e.clientY);
+        const x = Math.min(drawStart.x, pt.x);
+        const y = Math.min(drawStart.y, pt.y);
+        const w = Math.abs(drawStart.x - pt.x);
+        const h = Math.abs(drawStart.y - pt.y);
+        if (ghostRect) ghostRect.remove();
+        ghostRect = null;
+        if (w > 10 && h > 10) {
+            pendingDrawData = { idx, x, y, w, h };
+            showAdminPicker(e.clientX, e.clientY);
         }
+    };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const assetId = "{{ asset.id }}";
-            let activeIdx = 0;
-            let historyStack = [];
-            let redoStack = [];
-            let selectedBox = null;
+    // Render each detection box
+    dets.forEach((det, dIdx) => {
+        if (!det.bbox || det.bbox.length < 4) return;
+        const [x1, y1, x2, y2] = det.bbox;
+        const color = CLASS_COLORS[det.label?.toUpperCase()] || '#a8a29e';
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
-            // Initialize SVGs
-            document.querySelectorAll('.asset-image-node').forEach(node => {
-                const idx = node.dataset.idx;
-                const img = node.querySelector('.detection-img');
-                if (img.complete) initSVG(idx); else img.onload = () => initSVG(idx);
-            });
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", x1); rect.setAttribute("y", y1);
+        rect.setAttribute("width", x2 - x1); rect.setAttribute("height", y2 - y1);
+        rect.setAttribute("stroke", det.manual ? "#f43f5e" : color);
+        rect.setAttribute("stroke-width", "3");
+        rect.setAttribute("fill", `${det.manual ? '#f43f5e' : color}22`);
+        rect.style.cursor = isDrawMode ? "crosshair" : "move";
 
-            loadHistory();
+        // Label pill
+        const labelG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        const labelText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        labelText.textContent = (det.label || 'OBJECT').toUpperCase();
+        labelText.setAttribute("x", x1 + 6);
+        labelText.setAttribute("y", y1 - 5);
+        labelText.setAttribute("font-size", "20");
+        labelText.setAttribute("font-family", "Inter, sans-serif");
+        labelText.setAttribute("font-weight", "700");
+        labelText.setAttribute("fill", det.manual ? "#f43f5e" : color);
+        const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        labelBg.setAttribute("x", x1); labelBg.setAttribute("y", y1 - 28);
+        labelBg.setAttribute("width", Math.max((det.label?.length || 6) * 13, 60));
+        labelBg.setAttribute("height", 26); labelBg.setAttribute("rx", "6");
+        labelBg.setAttribute("fill", `${det.manual ? '#f43f5e' : color}33`);
+        labelG.appendChild(labelBg); labelG.appendChild(labelText);
 
-            // Shortcuts
-            window.addEventListener('keydown', (e) => {
-                if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
-                if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
-                if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveModifications(); }
-                if (e.key === 'Delete' || e.key === 'Backspace') { 
-                    if (selectedBox) deleteBox(selectedBox.idx, selectedBox.dIdx); 
-                }
-            });
-
-            async function loadHistory() {
-                const res = await fetch(`/api/get_asset_history/${assetId}`);
-                const logs = await res.json();
-                const logBox = document.getElementById('historyLog');
-                if (logs.length > 0) {
-                    logBox.innerHTML = logs.map(l => `
-                        <div class="p-2 bg-white/5 rounded-lg border border-white/5 mb-1 transition-all hover:bg-white/10">
-                            <div class="flex justify-between font-bold text-gray-300 mb-0.5">
-                                <span>${l.user_name}</span>
-                                <span class="text-gray-600">${l.timestamp.split(' ')[1]}</span>
-                            </div>
-                            <p class="text-gray-500">${l.action.replace(/_/g, ' ')}</p>
-                        </div>
-                    `).join('');
-                }
-            }
-
-            function saveState(idx) {
-                const svg = document.getElementById(`svg-${idx}`);
-                const current = svg.dataset.detections;
-                if (historyStack.length === 0 || historyStack[historyStack.length-1].data !== current) {
-                    historyStack.push({ idx, data: current });
-                    redoStack = [];
-                }
-            }
-
-            function undo() {
-                if (historyStack.length > 0) {
-                    const last = historyStack.pop();
-                    redoStack.push({ idx: last.idx, data: document.getElementById(`svg-${last.idx}`).dataset.detections });
-                    const svg = document.getElementById(`svg-${last.idx}`);
-                    svg.dataset.detections = last.data;
-                    initSVG(last.idx);
-                }
-            }
-
-            function redo() {
-                if (redoStack.length > 0) {
-                    const next = redoStack.pop();
-                    historyStack.push({ idx: next.idx, data: document.getElementById(`svg-${next.idx}`).dataset.detections });
-                    const svg = document.getElementById(`svg-${next.idx}`);
-                    svg.dataset.detections = next.data;
-                    initSVG(next.idx);
-                }
-            }
-
-            async function saveModifications() {
-                const btn = document.getElementById('btnSave');
-                btn.disabled = true;
-                const original = btn.innerHTML;
-                btn.innerHTML = 'Saving...';
-
-                const updates = [];
-                document.querySelectorAll('.detection-svg').forEach(svg => {
-                    updates.push({ index: parseInt(svg.id.split('-')[1]), detections: JSON.parse(svg.dataset.detections) });
-                });
-
-                const res = await fetch('/api/update_asset_detections', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ asset_id: assetId, updates: updates })
-                });
-                
-                if ((await res.json()).status === 'success') {
-                    loadHistory();
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Saved';
-                    setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 2000);
-                }
-            }
-
-            function initSVG(idx) {
-                const img = document.getElementById(`img-${idx}`);
-                const svg = document.getElementById(`svg-${idx}`);
-                const dets = JSON.parse(svg.dataset.detections);
-                
-                svg.innerHTML = '';
-                // Viewbox matches natural image size for precise coord scaling
-                svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
-
-                // Background Event Handlers for Drawing
-                svg.onmousedown = (e) => {
-                    if (!isDrawMode) return;
-                    isDrawing = true;
-                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                    drawStart = pt;
-                    
-                    ghostBox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                    ghostBox.setAttribute("stroke", "#f43f5e");
-                    ghostBox.setAttribute("stroke-width", "4");
-                    ghostBox.setAttribute("fill", "rgba(244, 63, 94, 0.1)");
-                    ghostBox.setAttribute("stroke-dasharray", "8,8");
-                    svg.appendChild(ghostBox);
-                };
-
-                svg.onmousemove = (e) => {
-                    if (!isDrawing || !ghostBox) return;
-                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                    const x = Math.min(drawStart.x, pt.x);
-                    const y = Math.min(drawStart.y, pt.y);
-                    const w = Math.abs(drawStart.x - pt.x);
-                    const h = Math.abs(drawStart.y - pt.y);
-                    ghostBox.setAttribute("x", x);
-                    ghostBox.setAttribute("y", y);
-                    ghostBox.setAttribute("width", w);
-                    ghostBox.setAttribute("height", h);
-                };
-
-                svg.onmouseup = (e) => {
-                    if (!isDrawing) return;
-                    isDrawing = false;
-                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                    const x = Math.min(drawStart.x, pt.x);
-                    const y = Math.min(drawStart.y, pt.y);
-                    const w = Math.abs(drawStart.x - pt.x);
-                    const h = Math.abs(drawStart.y - pt.y);
-                    
-                    if (ghostBox) ghostBox.remove();
-                    
-                    if (w > 10 && h > 10) {
-                        const label = prompt("Enter category for new box:", "OBJECT");
-                        if (label) {
-                            saveState(idx);
-                            dets.push({
-                                label: label.toUpperCase(),
-                                confidence: 1.0,
-                                bbox: [x, y, x + w, y + h],
-                                manual: true
-                            });
-                            syncDets(idx, dets);
-                        }
-                    }
-                };
-
-                dets.forEach((det, dIdx) => {
-                    const [x1, y1, x2, y2] = det.bbox;
-                    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                    g.className = "box-overlay group";
-                    
-                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                    rect.setAttribute("x", x1);
-                    rect.setAttribute("y", y1);
-                    rect.setAttribute("width", x2 - x1);
-                    rect.setAttribute("height", y2 - y1);
-                    rect.setAttribute("stroke", det.manual ? "#f43f5e" : "#3b82f6");
-                    rect.setAttribute("stroke-width", "4");
-                    rect.setAttribute("fill", det.manual ? "rgba(244, 63, 94, 0.1)" : "rgba(59, 130, 246, 0.1)");
-                    rect.style.cursor = isDrawMode ? "crosshair" : "move";
-
-                    // Dragging Logic
-                    let isDragging = false;
-                    let dragOffset = { x: 0, y: 0 };
-
-                    rect.onmousedown = (e) => {
-                        if (isDrawMode) return; // Background will handle click
-                        e.stopPropagation();
-                        isDragging = true;
-                        selectedBox = { idx, dIdx };
-                        document.querySelectorAll('rect').forEach(r => r.classList.remove('box-selected'));
-                        rect.classList.add('box-selected');
-                        
-                        const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                        dragOffset = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
-                    };
-
-                    window.addEventListener('mousemove', (e) => {
-                        if (isDragging) {
-                            const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                            const newX = pt.x - dragOffset.x;
-                            const newY = pt.y - dragOffset.y;
-                            rect.setAttribute('x', newX);
-                            rect.setAttribute('y', newY);
-                        }
-                    });
-
-                    window.addEventListener('mouseup', () => {
-                        if (isDragging) {
-                            isDragging = false;
-                            saveState(idx);
-                            updateDets(idx, dIdx, rect);
-                        }
-                    });
-
-                    // Relabel
-                    rect.ondblclick = () => {
-                        const L = prompt("New category:", det.label);
-                        if (L) { saveState(idx); det.label = L.toUpperCase(); syncDets(idx, dets); }
-                    };
-
-                    g.appendChild(rect);
-                    svg.appendChild(g);
-                });
-            }
-
-            function getSVGPoint(svg, x, y) {
-                const pt = svg.createSVGPoint();
-                pt.x = x; pt.y = y;
-                return pt.matrixTransform(svg.getScreenCTM().inverse());
-            }
-
-            function updateDets(idx, dIdx, rect) {
-                const svg = document.getElementById(`svg-${idx}`);
-                const dets = JSON.parse(svg.dataset.detections);
-                const x = parseFloat(rect.getAttribute('x'));
-                const y = parseFloat(rect.getAttribute('y'));
-                const w = parseFloat(rect.getAttribute('width'));
-                const h = parseFloat(rect.getAttribute('height'));
-                dets[dIdx].bbox = [x, y, x + w, y + h];
-                syncDets(idx, dets);
-            }
-
-            function deleteBox(idx, dIdx) {
-                const svg = document.getElementById(`svg-${idx}`);
-                const dets = JSON.parse(svg.dataset.detections);
-                saveState(idx);
-                dets.splice(dIdx, 1);
-                syncDets(idx, dets);
-                selectedBox = null;
-            }
-
-            function syncDets(idx, dets) {
-                const svg = document.getElementById(`svg-${idx}`);
-                svg.dataset.detections = JSON.stringify(dets);
-                initSVG(idx);
-            }
-
-            async function updateStatus(status) {
-                await fetch('/api/update_asset_status', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ asset_id: assetId, status: status })
-                });
-                window.location.href = '/admin';
-            }
+        // Drag logic
+        let isDragging = false;
+        let dragOff = {x:0, y:0};
+        rect.onmousedown = (e) => {
+            if (isDrawMode) return;
+            e.stopPropagation();
+            isDragging = true;
+            selectedBox = { idx, dIdx };
+            document.querySelectorAll('.box-selected').forEach(r => r.classList.remove('box-selected'));
+            g.classList.add('box-selected');
+            const pt = getSVGPoint(svg, e.clientX, e.clientY);
+            dragOff = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
+        };
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const pt = getSVGPoint(svg, e.clientX, e.clientY);
+            rect.setAttribute('x', pt.x - dragOff.x);
+            rect.setAttribute('y', pt.y - dragOff.y);
+            labelG.setAttribute('transform', `translate(${pt.x - dragOff.x - x1}, ${pt.y - dragOff.y - y1})`);
         });
-    </script>
-</body>
-</html>
+        window.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            saveState(idx);
+            const nx = parseFloat(rect.getAttribute('x'));
+            const ny = parseFloat(rect.getAttribute('y'));
+            dets[dIdx].bbox = [nx, ny, nx + (x2-x1), ny + (y2-y1)];
+            syncDets(idx, dets);
+        });
+
+        // Double-click to relabel
+        rect.ondblclick = () => {
+            const newLabel = prompt("New category:", det.label);
+            if (newLabel) { saveState(idx); det.label = newLabel.toUpperCase(); syncDets(idx, dets); }
+        };
+
+        g.appendChild(rect); g.appendChild(labelG);
+        svg.appendChild(g);
+    });
+
+    // Update sidebar detection list
+    if (parseInt(idx) === activeImageIdx) renderDetList(idx, dets);
+}
+
+function renderDetList(idx, dets) {
+    const panel = document.getElementById('detListPanel');
+    const count = document.getElementById('detCount');
+    count.textContent = `(${dets.length})`;
+    if (dets.length === 0) { panel.innerHTML = '<p class="text-[9px] text-gray-600 italic">No detections</p>'; return; }
+
+    const groups = {};
+    dets.forEach(d => { const l = d.label?.toUpperCase() || 'OBJECT'; groups[l] = (groups[l]||0)+1; });
+
+    panel.innerHTML = Object.entries(groups).map(([label, count]) => {
+        const color = CLASS_COLORS[label] || '#a8a29e';
+        return `<div class="det-item flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full" style="background:${color}"></div>
+                <span class="text-[9px] font-bold text-gray-300 uppercase tracking-wider">${label}</span>
+            </div>
+            <span class="text-[9px] font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded">${count}x</span>
+        </div>`;
+    }).join('');
+}
+
+// === CATEGORY PICKER MODAL ===
+function showAdminPicker(clientX, clientY) {
+    const modal = document.getElementById('adminPickerModal');
+    const backdrop = document.getElementById('adminPickerBackdrop');
+    const opts = document.getElementById('adminPickerOptions');
+
+    opts.innerHTML = CLASS_OPTIONS.map(c => `
+        <button class="picker-btn" onclick="confirmAdminDrawWithLabel('${c}')">${c}</button>
+    `).join('');
+
+    backdrop.classList.remove('hidden');
+    modal.classList.remove('hidden');
+    document.getElementById('adminCustomLabel').value = '';
+
+    // Position near click
+    const mw = 280, mh = 360;
+    let left = clientX + 20, top = clientY - 60;
+    if (left + mw > window.innerWidth) left = clientX - mw - 10;
+    if (top + mh > window.innerHeight) top = window.innerHeight - mh - 20;
+    if (top < 10) top = 10;
+    modal.style.left = `${left}px`;
+    modal.style.top = `${top}px`;
+}
+
+function confirmAdminDraw() {
+    const customLabel = document.getElementById('adminCustomLabel').value.trim().toUpperCase();
+    confirmAdminDrawWithLabel(customLabel || 'OBJECT');
+}
+
+function confirmAdminDrawWithLabel(label) {
+    if (!pendingDrawData) return;
+    const { idx, x, y, w, h } = pendingDrawData;
+    const svg = document.getElementById(`svg-${idx}`);
+    const dets = JSON.parse(svg.dataset.detections);
+    saveState(idx);
+    dets.push({ label: label.toUpperCase(), confidence: 1.0, bbox: [x, y, x+w, y+h], manual: true });
+    syncDets(idx, dets);
+    pendingDrawData = null;
+    cancelAdminDraw();
+}
+
+function cancelAdminDraw() {
+    pendingDrawData = null;
+    document.getElementById('adminPickerModal').classList.add('hidden');
+    document.getElementById('adminPickerBackdrop').classList.add('hidden');
+}
+
+// === UNDO / REDO ===
+function saveState(idx) {
+    const svg = document.getElementById(`svg-${idx}`);
+    historyStack.push({ idx, data: svg.dataset.detections });
+    redoStack = [];
+}
+
+function undo() {
+    if (historyStack.length === 0) return;
+    const state = historyStack.pop();
+    redoStack.push({ idx: state.idx, data: document.getElementById(`svg-${state.idx}`).dataset.detections });
+    document.getElementById(`svg-${state.idx}`).dataset.detections = state.data;
+    initSVG(state.idx);
+}
+
+function redo() {
+    if (redoStack.length === 0) return;
+    const state = redoStack.pop();
+    historyStack.push({ idx: state.idx, data: document.getElementById(`svg-${state.idx}`).dataset.detections });
+    document.getElementById(`svg-${state.idx}`).dataset.detections = state.data;
+    initSVG(state.idx);
+}
+
+function syncDets(idx, dets) {
+    const svg = document.getElementById(`svg-${idx}`);
+    svg.dataset.detections = JSON.stringify(dets);
+    initSVG(idx);
+}
+
+function getSVGPoint(svg, x, y) {
+    const pt = svg.createSVGPoint();
+    pt.x = x; pt.y = y;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+// === SAVE MODIFICATIONS ===
+async function saveModifications(silent = false) {
+    const btn = document.getElementById('btnSave');
+    const icon = document.getElementById('savingIcon');
+    const label = document.getElementById('saveLabel');
+
+    if (!silent) { btn.disabled = true; }
+    icon.classList.remove('hidden');
+    label.textContent = 'Saving...';
+
+    const updates = [];
+    document.querySelectorAll('.detection-svg').forEach(svg => {
+        updates.push({ index: parseInt(svg.id.split('-')[1]), detections: JSON.parse(svg.dataset.detections) });
+    });
+
+    try {
+        const res = await fetch('/api/update_asset_detections', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ asset_id: assetId, updates })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            lastSaveTime = Date.now();
+            label.textContent = 'Saved ✓';
+            setTimeout(() => { label.textContent = 'Auto-save on'; icon.classList.add('hidden'); }, 2000);
+            if (!silent) loadHistory();
+        }
+    } catch(e) {
+        label.textContent = 'Save failed!';
+    } finally {
+        if (!silent) btn.disabled = false;
+        setTimeout(() => { icon.classList.add('hidden'); }, 2000);
+    }
+}
+
+// === LOAD ANNOTATION HISTORY ===
+async function loadHistory() {
+    const res = await fetch(`/api/get_asset_history/${assetId}`);
+    const logs = await res.json();
+    const box = document.getElementById('historyLog');
+
+    if (!logs || logs.length === 0) {
+        box.innerHTML = '<p class="text-[9px] text-gray-600 italic">No changes logged yet.</p>';
+        return;
+    }
+
+    box.innerHTML = logs.map(l => `
+        <div class="p-3 bg-white/3 rounded-xl border border-white/5 hover:bg-white/5 transition-all space-y-1">
+            <div class="flex justify-between items-center">
+                <span class="text-[9px] font-bold text-blue-400 uppercase">${l.user_name}</span>
+                <span class="text-[8px] text-gray-600 font-mono">${l.timestamp}</span>
+            </div>
+            <p class="text-[9px] text-gray-400">${l.action.replace(/_/g, ' ')}</p>
+            ${l.details ? `<p class="text-[8px] text-gray-600 italic truncate">${l.details}</p>` : ''}
+        </div>
+    `).join('');
+}
+
+// === APPROVE & REDIRECT ===
+async function approveAndNext() {
+    // First save any unsaved changes
+    await saveModifications(true);
+
+    const res = await fetch('/api/update_asset_status', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ asset_id: assetId, status: 'approved' })
+    });
+    const data = await res.json();
+    if (data.status === 'success') {
+        // Show success feedback then redirect to next item in queue
+        document.getElementById('btnApprove').innerHTML = '<i class="fa-solid fa-check"></i> Approved!';
+        document.getElementById('btnApprove').classList.replace('bg-emerald-600','bg-emerald-400');
+        setTimeout(() => { window.location.href = '/admin'; }, 1200);
+    }
+}
+
+// === INIT ===
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize all SVGs
+    document.querySelectorAll('.asset-image-node').forEach(node => {
+        const idx = node.dataset.idx;
+        const img = node.querySelector('.detection-img');
+        if (img.complete && img.naturalWidth > 0) initSVG(idx);
+        else img.addEventListener('load', () => initSVG(idx));
+    });
+
+    loadHistory();
+
+    // Gallery clicks
+    document.querySelectorAll('.thumb-link').forEach(link => {
+        link.addEventListener('click', () => {
+            activeImageIdx = parseInt(link.dataset.idx);
+            document.getElementById(`img-container-${activeImageIdx}`)?.scrollIntoView({behavior:'smooth'});
+            const svg = document.getElementById(`svg-${activeImageIdx}`);
+            if (svg) renderDetList(activeImageIdx, JSON.parse(svg.dataset.detections));
+        });
+    });
+
+    // Action buttons
+    document.getElementById('btnApprove').addEventListener('click', approveAndNext);
+    document.getElementById('btnSave').addEventListener('click', () => saveModifications(false));
+    document.getElementById('btnReject').addEventListener('click', async () => {
+        await fetch('/api/update_asset_status', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ asset_id: assetId, status: 'rejected' })
+        });
+        window.location.href = '/admin';
+    });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+        if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+        if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveModifications(false); }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBox) {
+            const svg = document.getElementById(`svg-${selectedBox.idx}`);
+            const dets = JSON.parse(svg.dataset.detections);
+            saveState(selectedBox.idx);
+            dets.splice(selectedBox.dIdx, 1);
+            syncDets(selectedBox.idx, dets);
+            selectedBox = null;
+        }
+    });
+
+    // Auto-save every 30 seconds
+    setInterval(() => {
+        if (Date.now() - lastSaveTime > 30000) {
+            saveModifications(true);
+        }
+    }, 30000);
+
+    document.getElementById('saveLabel').textContent = 'Auto-save on';
+});
+</script>
 </body>
 </html>
