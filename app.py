@@ -548,5 +548,36 @@ def update_asset_status():
     
     return jsonify({"status": "success"})
 
+@app.route('/api/update_asset_detections', methods=['POST'])
+@admin_required
+def update_asset_detections():
+    data = request.json
+    asset_id = data.get('asset_id')
+    image_updates = data.get('updates') # List of {image_id, detections}
+    
+    conn = get_db_connection()
+    try:
+        for update in image_updates:
+            # We need the relative index or ID. 
+            # In asset_detail.html, we use the list order. 
+            # Better to pass the image index or original ID if we had it.
+            # Assuming updates are {image_index: int, detections: list}
+            
+            # Re-fetch images to match index correctly
+            image_rows = conn.execute('SELECT id FROM asset_images WHERE asset_id = ? ORDER BY id ASC', (asset_id,)).fetchall()
+            if update['index'] < len(image_rows):
+                img_db_id = image_rows[update['index']]['id']
+                conn.execute('UPDATE asset_images SET detections = ? WHERE id = ?', 
+                             (json.dumps(update['detections']), img_db_id))
+        
+        conn.commit()
+        log_activity(session['user'], "asset_annotation_edit", f"Modified annotations for Asset: {asset_id}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)

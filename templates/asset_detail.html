@@ -89,6 +89,9 @@
 
                     <div class="pt-4 border-t border-white/5 space-y-3">
                         <button id="btnApprove" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">Approve Submission</button>
+                        <button id="btnSave" class="w-full py-3 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-blue-500/20 flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Modifications
+                        </button>
                         <button id="btnReject" class="w-full py-3 bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-white/5">Reject</button>
                     </div>
                 </div>
@@ -144,7 +147,41 @@
 
             // Action Buttons
             document.getElementById('btnApprove')?.addEventListener('click', () => updateStatus('approved'));
+            document.getElementById('btnSave')?.addEventListener('click', saveModifications);
             document.getElementById('btnReject')?.addEventListener('click', () => updateStatus('rejected'));
+
+            async function saveModifications() {
+                const btn = document.getElementById('btnSave');
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+                btn.disabled = true;
+
+                const updates = [];
+                document.querySelectorAll('.detection-svg').forEach(svg => {
+                    const idx = parseInt(svg.id.split('-')[1]);
+                    const dets = JSON.parse(svg.dataset.detections);
+                    updates.push({ index: idx, detections: dets });
+                });
+
+                try {
+                    const res = await fetch('/api/update_asset_detections', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ asset_id: assetId, updates: updates })
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        alert("Modifications saved successfully!");
+                    } else {
+                        throw new Error(data.message);
+                    }
+                } catch (err) {
+                    alert("Failed to save changes: " + err.message);
+                } finally {
+                    btn.innerHTML = original;
+                    btn.disabled = false;
+                }
+            }
 
             async function updateStatus(status) {
                 const res = await fetch('/api/update_asset_status', {
