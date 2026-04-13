@@ -113,7 +113,7 @@
         let currentFilter = 'pending';
 
         async function updateStats() {
-            const allRes = await fetch('/api/get_tasks');
+            const allRes = await fetch('/api/get_assets');
             const allTasks = await allRes.json();
             
             const pending = allTasks.filter(t => t.status === 'pending').length;
@@ -126,7 +126,7 @@
         }
 
         async function loadTasks() {
-            const res = await fetch(`/api/get_tasks?status=${currentFilter}`);
+            const res = await fetch(`/api/get_assets?status=${currentFilter}`);
             const tasks = await res.json();
             
             const list = document.getElementById('taskList');
@@ -161,7 +161,7 @@
         }
 
         async function openReview(taskId) {
-            const res = await fetch('/api/get_tasks');
+            const res = await fetch('/api/get_assets');
             const tasks = await res.json();
             const task = tasks.find(t => t.id === taskId);
             if (!task) return;

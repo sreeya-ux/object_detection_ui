@@ -61,7 +61,7 @@
 
         <main class="grid grid-cols-1 lg:grid-cols-4 gap-8">
             
-            <!-- Left: Sidebar Summary -->
+            <!-- Left: Sidebar Summary & History -->
             <div class="space-y-6">
                 <div class="studio-card p-6 space-y-6">
                     <div>
@@ -78,19 +78,24 @@
                             {% for img in asset.images %}
                             <div class="group relative cursor-pointer thumb-link" data-idx="{{ loop.index0 }}">
                                 <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full aspect-video object-cover rounded-lg border border-white/5 hover:border-blue-500/50 transition-all">
-                                <button class="absolute top-1 right-1 w-5 h-5 bg-rose-500 text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-600 delete-image-btn" data-img-idx="{{ loop.index0 }}">
-                                    <i class="fa-solid fa-xmark text-[10px]"></i>
-                                </button>
                                 <div class="absolute bottom-1 right-1 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] font-bold text-white">#{{ loop.index }}</div>
                             </div>
                             {% endfor %}
                         </div>
                     </div>
 
+                    <div>
+                        <h3 class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-4">Annotation History</h3>
+                        <div id="historyLog" class="space-y-3 max-h-64 overflow-y-auto pr-2 scroll-hide text-[9px]">
+                            <!-- History items injected here -->
+                            <div class="text-gray-600 italic">No modifications logged yet...</div>
+                        </div>
+                    </div>
+
                     <div class="pt-4 border-t border-white/5 space-y-3">
-                        <button id="btnApprove" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">Approve Submission</button>
+                        <button id="btnApprove" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">Verify & Approve</button>
                         <button id="btnSave" class="w-full py-3 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-blue-500/20 flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Modifications
+                            <i class="fa-solid fa-floppy-disk"></i> Save Changes (Ctrl+S)
                         </button>
                         <button id="btnReject" class="w-full py-3 bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 rounded-xl font-bold text-xs uppercase tracking-widest transition-all border border-white/5">Reject</button>
                     </div>
@@ -99,6 +104,13 @@
 
             <!-- Right: Content Feed -->
             <div class="lg:col-span-3 space-y-8 h-[calc(100vh-180px)] overflow-y-auto pr-2 scroll-hide scroll-smooth" id="imageFeed">
+                <div class="mb-4 flex items-center justify-between px-4 bg-white/5 p-3 rounded-xl border border-white/5">
+                    <div class="flex items-center gap-4 text-[10px] uppercase font-bold tracking-widest text-gray-500">
+                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [Z] Undo</span>
+                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [Y] Redo</span>
+                        <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [DEL] Delete</span>
+                    </div>
+                </div>
                 {% for img in asset.images %}
                 <div class="studio-card p-4 space-y-4 asset-image-node" id="img-container-{{ loop.index0 }}" data-idx="{{ loop.index0 }}">
                     <div class="flex justify-between items-center px-2">
@@ -108,9 +120,9 @@
                         </div>
                     </div>
 
-                    <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
+                    <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner cursor-crosshair">
                         <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full h-auto block detection-img" id="img-{{ loop.index0 }}">
-                        <svg class="absolute inset-0 w-full h-full pointer-events-auto detection-svg" id="svg-{{ loop.index0 }}" 
+                        <svg class="absolute inset-0 w-full h-full pointer-events-auto detection-svg select-none" id="svg-{{ loop.index0 }}" 
                              data-detections='{{ img.detections|tojson }}'
                              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></svg>
                     </div>
@@ -123,68 +135,203 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const assetId = "{{ asset.id }}";
+            let activeIdx = 0;
+            let historyStack = [];
+            let redoStack = [];
+            let selectedBox = null;
 
             // Initialize SVGs
             document.querySelectorAll('.asset-image-node').forEach(node => {
                 const idx = node.dataset.idx;
                 const img = node.querySelector('.detection-img');
-                
-                // If already loaded
-                if (img.complete) {
-                    initSVG(idx);
-                } else {
-                    img.onload = () => initSVG(idx);
+                if (img.complete) initSVG(idx); else img.onload = () => initSVG(idx);
+            });
+
+            loadHistory();
+
+            // Shortcuts
+            window.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+                if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+                if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveModifications(); }
+                if (e.key === 'Delete' || e.key === 'Backspace') { 
+                    if (selectedBox) deleteBox(selectedBox.idx, selectedBox.dIdx); 
                 }
             });
 
-            // Gallery Clicks
-            document.querySelectorAll('.thumb-link').forEach(link => {
-                link.onclick = () => {
-                    const idx = link.dataset.idx;
-                    document.getElementById(`img-container-${idx}`).scrollIntoView();
-                };
-            });
-
-            // Action Buttons
-            document.getElementById('btnApprove')?.addEventListener('click', () => updateStatus('approved'));
-            document.getElementById('btnSave')?.addEventListener('click', saveModifications);
-            document.getElementById('btnReject')?.addEventListener('click', () => updateStatus('rejected'));
-
-            async function saveModifications() {
-                const btn = document.getElementById('btnSave');
-                const original = btn.innerHTML;
-                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
-                btn.disabled = true;
-
-                const updates = [];
-                document.querySelectorAll('.detection-svg').forEach(svg => {
-                    const idx = parseInt(svg.id.split('-')[1]);
-                    const dets = JSON.parse(svg.dataset.detections);
-                    updates.push({ index: idx, detections: dets });
-                });
-
-                try {
-                    const res = await fetch('/api/update_asset_detections', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ asset_id: assetId, updates: updates })
-                    });
-                    const data = await res.json();
-                    if (data.status === 'success') {
-                        alert("Modifications saved successfully!");
-                    } else {
-                        throw new Error(data.message);
-                    }
-                } catch (err) {
-                    alert("Failed to save changes: " + err.message);
-                } finally {
-                    btn.innerHTML = original;
-                    btn.disabled = false;
+            async function loadHistory() {
+                const res = await fetch(`/api/get_asset_history/${assetId}`);
+                const logs = await res.json();
+                const logBox = document.getElementById('historyLog');
+                if (logs.length > 0) {
+                    logBox.innerHTML = logs.map(l => `
+                        <div class="p-2 bg-white/5 rounded-lg border border-white/5 mb-1 transition-all hover:bg-white/10">
+                            <div class="flex justify-between font-bold text-gray-300 mb-0.5">
+                                <span>${l.user_name}</span>
+                                <span class="text-gray-600">${l.timestamp.split(' ')[1]}</span>
+                            </div>
+                            <p class="text-gray-500">${l.action.replace(/_/g, ' ')}</p>
+                        </div>
+                    `).join('');
                 }
             }
 
+            function saveState(idx) {
+                const svg = document.getElementById(`svg-${idx}`);
+                const current = svg.dataset.detections;
+                if (historyStack.length === 0 || historyStack[historyStack.length-1].data !== current) {
+                    historyStack.push({ idx, data: current });
+                    redoStack = [];
+                }
+            }
+
+            function undo() {
+                if (historyStack.length > 1) {
+                    const state = historyStack.pop();
+                    redoStack.push(state);
+                    const last = historyStack[historyStack.length - 1];
+                    const svg = document.getElementById(`svg-${last.idx}`);
+                    svg.dataset.detections = last.data;
+                    initSVG(last.idx);
+                }
+            }
+
+            function redo() {
+                if (redoStack.length > 0) {
+                    const state = redoStack.pop();
+                    historyStack.push(state);
+                    const svg = document.getElementById(`svg-${state.idx}`);
+                    svg.dataset.detections = state.data;
+                    initSVG(state.idx);
+                }
+            }
+
+            async function saveModifications() {
+                const btn = document.getElementById('btnSave');
+                btn.disabled = true;
+                const original = btn.innerHTML;
+                btn.innerHTML = 'Saving...';
+
+                const updates = [];
+                document.querySelectorAll('.detection-svg').forEach(svg => {
+                    updates.push({ index: parseInt(svg.id.split('-')[1]), detections: JSON.parse(svg.dataset.detections) });
+                });
+
+                const res = await fetch('/api/update_asset_detections', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ asset_id: assetId, updates: updates })
+                });
+                
+                if ((await res.json()).status === 'success') {
+                    loadHistory();
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Saved';
+                    setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 2000);
+                }
+            }
+
+            function initSVG(idx) {
+                const img = document.getElementById(`img-${idx}`);
+                const svg = document.getElementById(`svg-${idx}`);
+                const dets = JSON.parse(svg.dataset.detections);
+                
+                svg.innerHTML = '';
+                // Viewbox matches natural image size for precise coord scaling
+                svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+
+                dets.forEach((det, dIdx) => {
+                    const [x1, y1, x2, y2] = det.bbox;
+                    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    g.className = "box-overlay group";
+                    
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("x", x1);
+                    rect.setAttribute("y", y1);
+                    rect.setAttribute("width", x2 - x1);
+                    rect.setAttribute("height", y2 - y1);
+                    rect.setAttribute("stroke", "#3b82f6");
+                    rect.setAttribute("stroke-width", "4");
+                    rect.setAttribute("fill", "rgba(59, 130, 246, 0.1)");
+                    rect.style.cursor = "move";
+
+                    // Dragging Logic
+                    let isDragging = false;
+                    let startPos = { x: 0, y: 0 };
+
+                    rect.onmousedown = (e) => {
+                        e.stopPropagation();
+                        isDragging = true;
+                        selectedBox = { idx, dIdx };
+                        document.querySelectorAll('rect').forEach(r => r.classList.remove('box-selected'));
+                        rect.classList.add('box-selected');
+                        
+                        const pt = getSVGPoint(svg, e.clientX, e.clientY);
+                        startPos = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
+                    };
+
+                    window.addEventListener('mousemove', (e) => {
+                        if (isDragging) {
+                            const pt = getSVGPoint(svg, e.clientX, e.clientY);
+                            const newX = pt.x - startPos.x;
+                            const newY = pt.y - startPos.y;
+                            rect.setAttribute('x', newX);
+                            rect.setAttribute('y', newY);
+                        }
+                    });
+
+                    window.addEventListener('mouseup', () => {
+                        if (isDragging) {
+                            isDragging = false;
+                            saveState(idx);
+                            updateDets(idx, dIdx, rect);
+                        }
+                    });
+
+                    // Relabel
+                    rect.ondblclick = () => {
+                        const L = prompt("New category:", det.label);
+                        if (L) { det.label = L.toUpperCase(); syncDets(idx, dets); }
+                    };
+
+                    g.appendChild(rect);
+                    svg.appendChild(g);
+                });
+            }
+
+            function getSVGPoint(svg, x, y) {
+                const pt = svg.createSVGPoint();
+                pt.x = x; pt.y = y;
+                return pt.matrixTransform(svg.getScreenCTM().inverse());
+            }
+
+            function updateDets(idx, dIdx, rect) {
+                const svg = document.getElementById(`svg-${idx}`);
+                const dets = JSON.parse(svg.dataset.detections);
+                const x = parseFloat(rect.getAttribute('x'));
+                const y = parseFloat(rect.getAttribute('y'));
+                const w = parseFloat(rect.getAttribute('width'));
+                const h = parseFloat(rect.getAttribute('height'));
+                dets[dIdx].bbox = [x, y, x + w, y + h];
+                syncDets(idx, dets);
+            }
+
+            function deleteBox(idx, dIdx) {
+                const svg = document.getElementById(`svg-${idx}`);
+                const dets = JSON.parse(svg.dataset.detections);
+                saveState(idx);
+                dets.splice(dIdx, 1);
+                syncDets(idx, dets);
+                selectedBox = null;
+            }
+
+            function syncDets(idx, dets) {
+                const svg = document.getElementById(`svg-${idx}`);
+                svg.dataset.detections = JSON.stringify(dets);
+                initSVG(idx);
+            }
+
             async function updateStatus(status) {
-                const res = await fetch('/api/update_asset_status', {
+                await fetch('/api/update_asset_status', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ asset_id: assetId, status: status })
@@ -192,57 +339,6 @@
                 window.location.href = '/admin';
             }
         });
-
-        function initSVG(idx) {
-            const img = document.getElementById(`img-${idx}`);
-            const svg = document.getElementById(`svg-${idx}`);
-            if (!img || !svg) return;
-
-            const raw = svg.dataset.detections;
-            let dets = [];
-            try { dets = JSON.parse(raw); } catch(e) { console.error(e); }
-            
-            svg.innerHTML = '';
-            dets.forEach((det, dIdx) => {
-                const [x1, y1, x2, y2] = det.bbox;
-                const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                group.className = "box-overlay";
-                
-                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                rect.setAttribute("x", x1);
-                rect.setAttribute("y", y1);
-                rect.setAttribute("width", x2 - x1);
-                rect.setAttribute("height", y2 - y1);
-                rect.setAttribute("stroke", "#3b82f6");
-                rect.setAttribute("stroke-width", "2");
-                rect.setAttribute("fill", "rgba(59, 130, 246, 0.1)");
-                
-                // Right click to delete
-                rect.oncontextmenu = (e) => {
-                    e.preventDefault();
-                    if (confirm(`Delete this ${det.label} detection?`)) {
-                        dets.splice(dIdx, 1);
-                        svg.dataset.detections = JSON.stringify(dets);
-                        initSVG(idx);
-                    }
-                };
-
-                // Left click to relabel
-                rect.onclick = () => {
-                   const newLabel = prompt("Enter new label for this component:", det.label);
-                   if (newLabel) {
-                       det.label = newLabel.toUpperCase();
-                       svg.dataset.detections = JSON.stringify(dets);
-                       initSVG(idx);
-                   }
-                };
-                
-                group.appendChild(rect);
-                svg.appendChild(group);
-            });
-
-            svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
-        }
     </script>
 </body>
 </html>

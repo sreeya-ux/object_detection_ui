@@ -35,10 +35,69 @@ let isDrawing = false;
 let drawStart = null; 
 let pendingBbox = null; 
 
+// History & Shortcuts
+let historyStack = [];
+let redoStack = [];
+const MAX_HISTORY = 50;
+let lastSaveTime = Date.now();
+
+function saveToHistory() {
+    if (historyStack.length >= MAX_HISTORY) historyStack.shift();
+    historyStack.push(JSON.stringify(detections));
+    redoStack = []; // Clear redo on new action
+}
+
+function undo() {
+    if (historyStack.length > 1) {
+        redoStack.push(historyStack.pop());
+        detections = JSON.parse(historyStack[historyStack.length - 1]);
+        renderResults();
+        renderBoxes();
+        showToast("Undo", "primary");
+    }
+}
+
+function redo() {
+    if (redoStack.length > 0) {
+        const state = redoStack.pop();
+        historyStack.push(state);
+        detections = JSON.parse(state);
+        renderResults();
+        renderBoxes();
+        showToast("Redo", "primary");
+    }
+}
+
+function saveDraft() {
+    if (activeBatchIndex !== -1) {
+        batchImages[activeBatchIndex].detections = [...detections];
+        lastSaveTime = Date.now();
+        showToast("Draft saved", "success");
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const uploadInput = document.getElementById('upload');
     const previewImg = document.getElementById('preview');
     const dropZone = document.getElementById('dropZone');
+
+    // Auto-save timer (30 seconds)
+    setInterval(() => {
+        if (Date.now() - lastSaveTime > 30000 && activeBatchIndex !== -1) {
+            saveDraft();
+        }
+    }, 10000);
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            if (e.key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+            if (e.key === 's') { e.preventDefault(); saveDraft(); }
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            // Logic to delete selected box if applicable
+        }
+    });
 
     if (uploadInput) {
         uploadInput.addEventListener('change', handleUpload);
@@ -318,6 +377,8 @@ async function processImage() {
 
         renderResults();
         renderBoxes();
+        saveToHistory(); // Initial state after prediction
+        saveDraft(); // Auto-save draft immediately after detection
         showToast("Analysis complete", "success");
     } catch (err) {
         showToast("Cloud connection error", "danger");
@@ -327,6 +388,64 @@ async function processImage() {
         loader.classList.add('hidden');
     }
 }
+
+async function saveDraft() {
+    if (!uploadedFile || detections.length === 0) return;
+    
+    try {
+        const payload = {
+            id: uploadedFile.name + "_" + (sessionStorage.getItem('username') || 'worker'),
+            type: 'worker',
+            data: JSON.stringify({
+                detections: detections,
+                master: masterResult,
+                dimensions: imageDimensions
+            })
+        };
+        await fetch('/api/save_draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        lastSaveTime = Date.now();
+        console.log("Draft auto-saved");
+    } catch (e) {
+        console.warn("Draft save failed", e);
+    }
+}
+
+// Auto-save every 30 seconds
+setInterval(() => {
+    if (Date.now() - lastSaveTime > 30000) {
+        saveDraft();
+    }
+}, 30000);
+
+// Keyboard Shortcuts
+window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        undo();
+    }
+    if (e.ctrlKey && e.key === 'y') {
+        e.preventDefault();
+        redo();
+    }
+    if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        saveDraft();
+        showToast("Draft Saved", "success");
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Only delete if a box is highlighted/selected
+        const highlighted = document.querySelector('.detection-box.highlighted');
+        if (highlighted) {
+            const idx = parseInt(highlighted.id.split('-')[1]);
+            removeDetection(idx);
+            showToast("Object Removed", "warning");
+        }
+    }
+});
 
 function renderResults() {
     const container = document.getElementById("resultBox");
@@ -524,6 +643,7 @@ function toggleConfirm(index) {
 }
 
 function removeDetection(index) {
+    saveToHistory();
     detections.splice(index, 1);
     renderResults();
     renderBoxes();
@@ -682,6 +802,37 @@ function renderBoxes() {
 
 window.addEventListener('resize', renderBoxes);
 
+/**
+ * Compresses an image using Canvas before submission.
+ * Reduces resolution to max 1280px and quality to 0.7 for optimal server speed.
+ */
+async function compressImage(src, maxWidth = 1200, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            if (width > maxWidth) {
+                height *= maxWidth / width;
+                width = maxWidth;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Convert to JPEG with specified quality
+            const b64 = canvas.toDataURL('image/jpeg', quality);
+            resolve(b64.split(',')[1]); // Return raw b64 data
+        };
+        img.onerror = reject;
+    });
+}
+
 async function submitAsset() {
     if (batchImages.length === 0) return;
 
@@ -696,21 +847,30 @@ async function submitAsset() {
             images: []
         };
 
-        // Process each image in the batch
+        // Process each image in the batch with compression
         for (const item of batchImages) {
-            // Need the B64 format for the database
-            const blob = await fetch(item.src).then(r => r.blob());
-            const b64 = await new Promise(resolve => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
-
-            payload.images.push({
-                image_b64: b64,
-                detections: item.detections,
-                pole_angle: item.pole_angle || (item.detections.find(d => d.label === 'POLE')?.lean || 0.0)
-            });
+            try {
+                const b64 = await compressImage(item.src);
+                payload.images.push({
+                    image_b64: b64,
+                    detections: item.detections,
+                    pole_angle: item.pole_angle || (item.detections.find(d => d.label === 'POLE')?.lean || 0.0)
+                });
+            } catch (pErr) {
+                console.warn("Compression failed for an image, using original", pErr);
+                // Fallback to original fetching if canvas fails
+                const blob = await fetch(item.src).then(r => r.blob());
+                const b64 = await new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                    reader.readAsDataURL(blob);
+                });
+                payload.images.push({
+                    image_b64: b64,
+                    detections: item.detections,
+                    pole_angle: item.pole_angle || (item.detections.find(d => d.label === 'POLE')?.lean || 0.0)
+                });
+            }
         }
 
         const res = await fetch('/api/save_asset', {
@@ -1052,6 +1212,7 @@ function saveManualDraw(labelOverride = null) {
     };
 
     detections.push(newDet);
+    saveToHistory();
     
     // Add to CLASS_OPTIONS if new
     if (custom && !CLASS_OPTIONS.includes(custom)) {

@@ -178,6 +178,7 @@ class InfrastructurePipeline:
         # ── Step 3: Parse results into typed lists (Separate Streams) ────
         insulator_boxes  = []   # (box, conf, angle_deg)
         pole_boxes_raw   = []   # (box, conf, angle_deg)
+        crossarm_boxes   = []   # (box, conf, angle_deg)
         conductor_boxes  = []   # (box, conf)
         street_light_boxes = [] # (box, conf, poly)
         other_boxes        = [] # (label, box, conf, poly)
@@ -220,13 +221,13 @@ class InfrastructurePipeline:
                     if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif conf_val >= 0.05: # Default for other flags like DTR/AB Cable
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
 
             if boxes is not None and len(boxes) > 0:
                 for box_obj in boxes:
@@ -246,13 +247,13 @@ class InfrastructurePipeline:
                     if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif conf_val >= 0.05:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags, polygon=poly)
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
         
         # Process specialized insulator detector output (Final Insulator Detections)
         for result in raw_insulator:
@@ -275,8 +276,9 @@ class InfrastructurePipeline:
                         self._categorise(
                             cls_name, box, conf_val, angle_deg,
                             insulator_boxes, pole_boxes_raw,
-                            crossarm_boxes, conductor_boxes, flags,
-                            polygon=poly
+                            crossarm_boxes, conductor_boxes,
+                            street_light_boxes, other_boxes,
+                            flags, polygon=poly
                         )
         
         # ── Deduplicate multi-scale detections (NMS) ─────────
@@ -476,7 +478,8 @@ class InfrastructurePipeline:
     def _categorise(
         self, cls_name, box, conf_val, angle_deg,
         insulator_boxes, pole_boxes_raw,
-        crossarm_boxes, conductor_boxes, flags,
+        crossarm_boxes, conductor_boxes,
+        street_light_boxes, other_boxes, flags,
         polygon=None
     ):
         """Routes a detection into the right typed list, including polygon data."""

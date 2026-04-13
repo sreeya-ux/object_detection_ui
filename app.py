@@ -450,6 +450,34 @@ def save_asset():
     
     return jsonify({"status": "success", "asset_id": asset_id})
 
+@app.route('/api/save_draft', methods=['POST'])
+@login_required
+def save_draft():
+    data = request.json # { id, type: 'worker'|'admin', data: json_string }
+    draft_id = data.get('id')
+    dtype = data.get('type', 'worker')
+    content = data.get('data')
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    conn = get_db_connection()
+    conn.execute('''
+        INSERT OR REPLACE INTO drafts (id, type, data, timestamp)
+        VALUES (?, ?, ?, ?)
+    ''', (draft_id, dtype, content, timestamp))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/get_draft/<draft_id>')
+@login_required
+def get_draft(draft_id):
+    conn = get_db_connection()
+    draft = conn.execute('SELECT * FROM drafts WHERE id = ?', (draft_id,)).fetchone()
+    conn.close()
+    if draft:
+        return jsonify({"status": "success", "data": json.loads(draft['data'])})
+    return jsonify({"status": "error", "message": "No draft found"}), 404
+
 @app.route('/api/get_assets')
 @login_required
 def get_assets():
@@ -578,6 +606,18 @@ def update_asset_detections():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+@app.route('/api/get_asset_history/<asset_id>')
+@admin_required
+def get_asset_history(asset_id):
+    conn = get_db_connection()
+    logs = conn.execute('''
+        SELECT * FROM activity_logs 
+        WHERE details LIKE ? 
+        ORDER BY timestamp DESC
+    ''', (f'%Asset: {asset_id}%',)).fetchall()
+    conn.close()
+    return jsonify([dict(l) for l in logs])
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
