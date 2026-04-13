@@ -110,6 +110,9 @@
                         <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [Y] Redo</span>
                         <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> [DEL] Delete</span>
                     </div>
+                    <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-4 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">
+                        <i class="fa-solid fa-pencil mr-2"></i> Draw New box
+                    </button>
                 </div>
                 {% for img in asset.images %}
                 <div class="studio-card p-4 space-y-4 asset-image-node" id="img-container-{{ loop.index0 }}" data-idx="{{ loop.index0 }}">
@@ -120,7 +123,7 @@
                         </div>
                     </div>
 
-                    <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner cursor-crosshair">
+                    <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
                         <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full h-auto block detection-img" id="img-{{ loop.index0 }}">
                         <svg class="absolute inset-0 w-full h-full pointer-events-auto detection-svg select-none" id="svg-{{ loop.index0 }}" 
                              data-detections='{{ img.detections|tojson }}'
@@ -133,6 +136,25 @@
     </div>
 
     <script>
+        let isDrawMode = false;
+        let isDrawing = false;
+        let drawStart = null;
+        let ghostBox = null;
+
+        function toggleDrawMode() {
+            isDrawMode = !isDrawMode;
+            const btn = document.getElementById('btnDrawMode');
+            if (isDrawMode) {
+                btn.classList.add('bg-blue-600', 'text-white');
+                btn.innerHTML = '<i class="fa-solid fa-mouse-pointer mr-2"></i> Exit Draw Mode';
+                document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'crosshair');
+            } else {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.innerHTML = '<i class="fa-solid fa-pencil mr-2"></i> Draw New Box';
+                document.querySelectorAll('.detection-svg').forEach(s => s.style.cursor = 'default');
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const assetId = "{{ asset.id }}";
             let activeIdx = 0;
@@ -186,10 +208,9 @@
             }
 
             function undo() {
-                if (historyStack.length > 1) {
-                    const state = historyStack.pop();
-                    redoStack.push(state);
-                    const last = historyStack[historyStack.length - 1];
+                if (historyStack.length > 0) {
+                    const last = historyStack.pop();
+                    redoStack.push({ idx: last.idx, data: document.getElementById(`svg-${last.idx}`).dataset.detections });
                     const svg = document.getElementById(`svg-${last.idx}`);
                     svg.dataset.detections = last.data;
                     initSVG(last.idx);
@@ -198,11 +219,11 @@
 
             function redo() {
                 if (redoStack.length > 0) {
-                    const state = redoStack.pop();
-                    historyStack.push(state);
-                    const svg = document.getElementById(`svg-${state.idx}`);
-                    svg.dataset.detections = state.data;
-                    initSVG(state.idx);
+                    const next = redoStack.pop();
+                    historyStack.push({ idx: next.idx, data: document.getElementById(`svg-${next.idx}`).dataset.detections });
+                    const svg = document.getElementById(`svg-${next.idx}`);
+                    svg.dataset.detections = next.data;
+                    initSVG(next.idx);
                 }
             }
 
@@ -239,6 +260,60 @@
                 // Viewbox matches natural image size for precise coord scaling
                 svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
 
+                // Background Event Handlers for Drawing
+                svg.onmousedown = (e) => {
+                    if (!isDrawMode) return;
+                    isDrawing = true;
+                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
+                    drawStart = pt;
+                    
+                    ghostBox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    ghostBox.setAttribute("stroke", "#f43f5e");
+                    ghostBox.setAttribute("stroke-width", "4");
+                    ghostBox.setAttribute("fill", "rgba(244, 63, 94, 0.1)");
+                    ghostBox.setAttribute("stroke-dasharray", "8,8");
+                    svg.appendChild(ghostBox);
+                };
+
+                svg.onmousemove = (e) => {
+                    if (!isDrawing || !ghostBox) return;
+                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
+                    const x = Math.min(drawStart.x, pt.x);
+                    const y = Math.min(drawStart.y, pt.y);
+                    const w = Math.abs(drawStart.x - pt.x);
+                    const h = Math.abs(drawStart.y - pt.y);
+                    ghostBox.setAttribute("x", x);
+                    ghostBox.setAttribute("y", y);
+                    ghostBox.setAttribute("width", w);
+                    ghostBox.setAttribute("height", h);
+                };
+
+                svg.onmouseup = (e) => {
+                    if (!isDrawing) return;
+                    isDrawing = false;
+                    const pt = getSVGPoint(svg, e.clientX, e.clientY);
+                    const x = Math.min(drawStart.x, pt.x);
+                    const y = Math.min(drawStart.y, pt.y);
+                    const w = Math.abs(drawStart.x - pt.x);
+                    const h = Math.abs(drawStart.y - pt.y);
+                    
+                    if (ghostBox) ghostBox.remove();
+                    
+                    if (w > 10 && h > 10) {
+                        const label = prompt("Enter category for new box:", "OBJECT");
+                        if (label) {
+                            saveState(idx);
+                            dets.push({
+                                label: label.toUpperCase(),
+                                confidence: 1.0,
+                                bbox: [x, y, x + w, y + h],
+                                manual: true
+                            });
+                            syncDets(idx, dets);
+                        }
+                    }
+                };
+
                 dets.forEach((det, dIdx) => {
                     const [x1, y1, x2, y2] = det.bbox;
                     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -249,16 +324,17 @@
                     rect.setAttribute("y", y1);
                     rect.setAttribute("width", x2 - x1);
                     rect.setAttribute("height", y2 - y1);
-                    rect.setAttribute("stroke", "#3b82f6");
+                    rect.setAttribute("stroke", det.manual ? "#f43f5e" : "#3b82f6");
                     rect.setAttribute("stroke-width", "4");
-                    rect.setAttribute("fill", "rgba(59, 130, 246, 0.1)");
-                    rect.style.cursor = "move";
+                    rect.setAttribute("fill", det.manual ? "rgba(244, 63, 94, 0.1)" : "rgba(59, 130, 246, 0.1)");
+                    rect.style.cursor = isDrawMode ? "crosshair" : "move";
 
                     // Dragging Logic
                     let isDragging = false;
-                    let startPos = { x: 0, y: 0 };
+                    let dragOffset = { x: 0, y: 0 };
 
                     rect.onmousedown = (e) => {
+                        if (isDrawMode) return; // Background will handle click
                         e.stopPropagation();
                         isDragging = true;
                         selectedBox = { idx, dIdx };
@@ -266,14 +342,14 @@
                         rect.classList.add('box-selected');
                         
                         const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                        startPos = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
+                        dragOffset = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
                     };
 
                     window.addEventListener('mousemove', (e) => {
                         if (isDragging) {
                             const pt = getSVGPoint(svg, e.clientX, e.clientY);
-                            const newX = pt.x - startPos.x;
-                            const newY = pt.y - startPos.y;
+                            const newX = pt.x - dragOffset.x;
+                            const newY = pt.y - dragOffset.y;
                             rect.setAttribute('x', newX);
                             rect.setAttribute('y', newY);
                         }
@@ -290,7 +366,7 @@
                     // Relabel
                     rect.ondblclick = () => {
                         const L = prompt("New category:", det.label);
-                        if (L) { det.label = L.toUpperCase(); syncDets(idx, dets); }
+                        if (L) { saveState(idx); det.label = L.toUpperCase(); syncDets(idx, dets); }
                     };
 
                     g.appendChild(rect);
@@ -340,5 +416,7 @@
             }
         });
     </script>
+</body>
+</html>
 </body>
 </html>
