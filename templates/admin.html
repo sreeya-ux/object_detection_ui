@@ -341,8 +341,9 @@
                         }).join('');
                         return '<div class="rounded-2xl overflow-hidden border border-white/5 bg-gray-900/60">'+
                                '<div class="relative bg-black">'+
-                               '<img src="data:image/jpeg;base64,'+img.image_b64+'" class="w-full h-auto block" style="max-height:300px;object-fit:contain;">'+
-                               '<svg class="absolute inset-0 w-full h-full" style="pointer-events:none" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid meet">'+boxes+'</svg>'+
+                               '<img src="data:image/jpeg;base64,'+img.image_b64+'" loading="lazy" class="w-full h-auto block" style="max-height:400px;object-fit:contain;" '+
+                               'onload="this.nextElementSibling.setAttribute(\'viewBox\', \'0 0 \' + this.naturalWidth + \' \' + this.naturalHeight)">'+
+                               '<svg class="absolute inset-0 w-full h-full" style="pointer-events:none" preserveAspectRatio="xMidYMid meet">'+boxes+'</svg>'+
                                '</div>'+
                                '<div class="p-3 flex items-center justify-between flex-wrap gap-2">'+
                                '<span class="text-[9px] text-gray-500 font-bold uppercase">Frame '+(idx+1)+'</span>'+
