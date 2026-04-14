@@ -18,6 +18,7 @@ import torch
 import segmentation_models_pytorch as smp
 from pipeline import InfrastructurePipeline
 from training_pipeline import export_asset_to_training, get_training_stats
+from report_generator import generate_asset_pdf, generate_asset_excel
 
 # =========================
 # GLOBAL INITIALIZATION

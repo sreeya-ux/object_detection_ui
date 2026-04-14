@@ -653,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Countdown tick every second
     setInterval(() => {
         saveCountdownVal--;
-        if (saveCountdownEl) countdownEl.textContent = saveCountdownVal + 's';
+        if (countdownEl) countdownEl.textContent = saveCountdownVal + 's';
 
         if (saveCountdownVal <= 5) {
             saveDotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 transition-all animate-pulse';
