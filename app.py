@@ -589,6 +589,24 @@ def update_asset_status():
     
     return jsonify({"status": "success"})
 
+@app.route('/api/delete_asset/<asset_id>', methods=['DELETE'])
+@admin_required
+def delete_asset(asset_id):
+    conn = get_db_connection()
+    try:
+        # Note: Foreign key cascade should handle asset_images if configured, 
+        # but let's be explicit just in case.
+        conn.execute('DELETE FROM asset_images WHERE asset_id = ?', (asset_id,))
+        conn.execute('DELETE FROM assets WHERE id = ?', (asset_id,))
+        conn.commit()
+        log_activity(session['user'], "asset_delete_full", f"Permanently deleted Asset: {asset_id}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
 @app.route('/api/update_asset_detections', methods=['POST'])
 @admin_required
 def update_asset_detections():

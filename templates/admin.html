@@ -212,7 +212,13 @@
             tasks.reverse();
     
             list.innerHTML = tasks.map(task => `
-                <div class="task-card group hover:border-blue-500 transition-all">
+                <div class="task-card group hover:border-blue-500 transition-all relative">
+                    <!-- Delete Button -->
+                    <button onclick="event.stopPropagation(); deleteAsset('${task.id}')" 
+                        class="absolute -top-2 -right-2 w-7 h-7 bg-gray-900 border border-white/10 text-gray-500 hover:text-rose-500 hover:border-rose-500/30 rounded-full flex items-center justify-center transition-all z-10 opacity-0 group-hover:opacity-100 shadow-xl">
+                        <i class="fa-solid fa-trash-can text-[10px]"></i>
+                    </button>
+
                     <a href="/admin/asset/${task.id}" class="block">
                         <div class="flex justify-between items-start mb-3">
                             <div>
@@ -383,6 +389,24 @@
         function closeHistoryModal() {
             document.getElementById('historyModal').classList.add('hidden');
             document.getElementById('historyModal').classList.remove('flex');
+        }
+
+        async function deleteAsset(assetId) {
+            if (!confirm('PERMANENTLY DELETE this entire asset and all its images? \n\nThis action cannot be undone and is for cleanup purposes.')) return;
+            
+            try {
+                const res = await fetch(`/api/delete_asset/${assetId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    // Refresh current view
+                    loadTasks();
+                    updateStats();
+                } else {
+                    alert('Delete failed: ' + (data.message || 'Error'));
+                }
+            } catch(e) {
+                alert('Network error while deleting asset.');
+            }
         }
 
         // ── Training Pool Panel ──────────────────────────────────────────────
