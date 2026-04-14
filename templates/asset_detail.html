@@ -57,6 +57,12 @@
                             <span id="saveLabel" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Auto-save on</span>
                             <span id="saveCountdown" class="text-[9px] font-mono text-gray-600">30s</span>
                         </span>
+                        <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
+                        <!-- Help Trigger -->
+                        <button onclick="toggleHelp()" class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all cursor-help" title="View Documentation">
+                            <i class="fa-solid fa-circle-question text-[10px]"></i>
+                            <span class="text-[9px] font-bold uppercase tracking-widest">Quick Guide</span>
+                        </button>
                     </div>
             </div>
         </div>
@@ -727,8 +733,91 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 1000);
 
+    function toggleHelp() {
+        const modal = document.getElementById('helpModal');
+        modal.classList.toggle('hidden');
+    }
+
     document.getElementById('saveLabel').textContent = 'Auto-save on';
 });
 </script>
+
+    <!-- HELP MODAL -->
+    <div id="helpModal" class="hidden fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div class="studio-card max-w-2xl w-full p-8 space-y-6 shadow-[0_0_50px_rgba(59,130,246,0.1)] border-blue-500/20">
+            <div class="flex justify-between items-center border-b border-white/10 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
+                        <i class="fa-solid fa-book-open text-blue-400"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold font-['Outfit'] text-white">Studio Quick Guide</h2>
+                        <p class="text-[10px] text-gray-400 uppercase tracking-widest font-semibold mt-0.5">Reference Documentation</p>
+                    </div>
+                </div>
+                <button onclick="toggleHelp()" class="p-2 hover:bg-white/10 rounded-lg transition-all text-gray-500 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Shortcuts -->
+                <div class="space-y-4">
+                    <h3 class="text-[9px] text-blue-400 font-black uppercase tracking-[0.2em]">Keyboard Shortcuts</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
+                            <span class="text-[10px] text-gray-400 font-bold uppercase">Undo Action</span>
+                            <kbd class="px-2 py-0.5 rounded bg-gray-800 border border-gray-700 text-[10px] font-mono text-gray-300">CTRL + Z</kbd>
+                        </div>
+                        <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
+                            <span class="text-[10px] text-gray-400 font-bold uppercase">Redo Action</span>
+                            <kbd class="px-2 py-0.5 rounded bg-gray-800 border border-gray-700 text-[10px] font-mono text-gray-300">CTRL + Y</kbd>
+                        </div>
+                        <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
+                            <span class="text-[10px] text-gray-400 font-bold uppercase">Save Progress</span>
+                            <kbd class="px-2 py-0.5 rounded bg-gray-800 border border-gray-700 text-[10px] font-mono text-gray-300">CTRL + S</kbd>
+                        </div>
+                        <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
+                            <span class="text-[10px] text-gray-400 font-bold uppercase">Delete Selected Box</span>
+                            <kbd class="px-2 py-0.5 rounded bg-gray-800 border border-gray-700 text-[10px] font-mono text-gray-300">DEL / BKSP</kbd>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interaction -->
+                <div class="space-y-4">
+                    <h3 class="text-[9px] text-emerald-400 font-black uppercase tracking-[0.2em]">Core Interactions</h3>
+                    <div class="space-y-3">
+                        <div class="flex gap-3">
+                            <i class="fa-solid fa-mouse-pointer text-gray-500 text-xs mt-1"></i>
+                            <div>
+                                <p class="text-[10px] font-bold text-gray-200">Point & Selection</p>
+                                <p class="text-[9px] text-gray-500 leading-relaxed mt-0.5">Click any detection box to select it for editing or deletion.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <i class="fa-solid fa-object-ungroup text-gray-500 text-xs mt-1"></i>
+                            <div>
+                                <p class="text-[10px] font-bold text-gray-200">Draw New Box</p>
+                                <p class="text-[9px] text-gray-500 leading-relaxed mt-0.5">Click and drag on any image to create a manual annotation.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <i class="fa-solid fa-wand-magic-sparkles text-gray-500 text-xs mt-1"></i>
+                            <div>
+                                <p class="text-[10px] font-bold text-gray-200">Re-run AI</p>
+                                <p class="text-[9px] text-gray-500 leading-relaxed mt-0.5">Use the magic wand on a frame to restore all original AI detections.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4 p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+                <i class="fa-solid fa-clock-rotate-left text-blue-400/50 text-xl"></i>
+                <p class="text-[10px] text-gray-400 italic">This session is automatically backed up every 30 seconds. You can safely close the browser at any time without losing your progress.</p>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
