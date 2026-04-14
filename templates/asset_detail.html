@@ -87,6 +87,19 @@
                     </div>
                 </div>
 
+                <!-- History Controls -->
+                <div>
+                    <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Controls</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="undo()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2 border border-white/5">
+                            <i class="fa-solid fa-rotate-left"></i> Undo
+                        </button>
+                        <button onclick="redo()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2 border border-white/5">
+                            <i class="fa-solid fa-rotate-right"></i> Redo
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Gallery -->
                 <div>
                     <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Gallery</h3>
@@ -150,9 +163,14 @@
                         <span class="w-6 h-6 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 text-xs font-bold border border-blue-500/10">{{ loop.index }}</span>
                         <h4 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Frame {{ loop.index }} — {{ img.detections | length }} detections</h4>
                     </div>
-                    <button onclick="deleteImage({{ img.id }}, {{ loop.index0 }})" class="p-2 text-gray-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all group" title="Delete Frame">
-                        <i class="fa-solid fa-trash-can text-[10px] group-hover:scale-110 transition-transform"></i>
-                    </button>
+                    <div class="flex items-center gap-1">
+                        <button onclick="rerunAI({{ loop.index0 }})" class="p-2 text-gray-600 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all group" title="Re-run AI Analysis">
+                            <i class="fa-solid fa-wand-magic-sparkles text-[10px] group-hover:rotate-12 transition-transform"></i>
+                        </button>
+                        <button onclick="deleteImage({{ img.id }}, {{ loop.index0 }})" class="p-2 text-gray-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all group" title="Delete Frame">
+                            <i class="fa-solid fa-trash-can text-[10px] group-hover:scale-110 transition-transform"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Annotated Image Canvas -->
@@ -602,6 +620,45 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedBox = null;
         }
     });
+
+    async function rerunAI(idx) {
+        const img = document.getElementById(`img-${idx}`);
+        const svg = document.getElementById(`svg-${idx}`);
+        
+        // Visual feedback
+        const wrapper = document.getElementById(`canvas-wrapper-${idx}`);
+        wrapper.classList.add('animate-pulse', 'ring-2', 'ring-blue-500/50');
+        showSaveToast('Re-running AI', 'Analyzing frame again for original detections...', false);
+
+        try {
+            // Convert B64 to file-like object
+            const b64Data = img.src.split(',')[1];
+            const res = await fetch('/predict', {
+                method: 'POST',
+                body: (() => {
+                    const fd = new FormData();
+                    const byteCharacters = atob(b64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {type: 'image/jpeg'});
+                    fd.append('image', blob, 'rerun.jpg');
+                    return fd;
+                })()
+            });
+            
+            const data = await res.json();
+            if (data.detections) {
+                saveState(idx);
+                syncDets(idx, data.detections);
+                showSaveToast('AI Restored', `Found ${data.detections.length} components.`);
+            }
+        } catch(e) {
+            showSaveToast('Error', 'Failed to reach inference server.', true);
+        } finally {
+            wrapper.classList.remove('animate-pulse', 'ring-2', 'ring-blue-500/50');
+        }
+    }
 
     async function deleteImage(imageId, idx) {
         const remainingImages = document.querySelectorAll('.asset-image-node').length;
