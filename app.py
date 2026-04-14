@@ -620,6 +620,24 @@ def update_asset_detections():
     finally:
         conn.close()
 
+@app.route('/api/delete_asset_image', methods=['POST'])
+@admin_required
+def delete_asset_image():
+    data = request.json
+    image_id = data.get('image_id')
+    
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM asset_images WHERE id = ?', (image_id,))
+        conn.commit()
+        log_activity(session['user'], "asset_image_delete", f"Deleted Image ID: {image_id}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
 @app.route('/api/get_asset_history/<asset_id>')
 @admin_required
 def get_asset_history(asset_id):
