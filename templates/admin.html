@@ -115,6 +115,35 @@
         </main>
     </div>
 
+    <!-- ANNOTATION HISTORY MODAL -->
+    <div id="historyModal" class="fixed inset-0 z-[200] hidden items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-md" onclick="closeHistoryModal()"></div>
+        <div class="relative z-10 w-full max-w-6xl max-h-[92vh] flex flex-col bg-gray-950 border border-white/10 rounded-3xl shadow-[0_40px_80px_rgba(0,0,0,0.8)] overflow-hidden">
+            <div class="flex items-center justify-between p-6 border-b border-white/5 shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-white font-['Outfit']">Annotation History</h2>
+                        <p id="historySubtitle" class="text-[10px] text-gray-500 font-mono"></p>
+                    </div>
+                </div>
+                <button onclick="closeHistoryModal()" class="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all text-lg">&times;</button>
+            </div>
+            <div class="flex flex-col lg:flex-row overflow-hidden flex-1 min-h-0">
+                <div class="lg:w-[58%] p-5 overflow-y-auto border-r border-white/5">
+                    <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Annotated Frames</p>
+                    <div id="historyImageGallery" class="space-y-4"><div class="text-[10px] text-gray-600 italic">Loading...</div></div>
+                </div>
+                <div class="lg:w-[42%] p-5 overflow-y-auto">
+                    <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-4">Activity Timeline</p>
+                    <div id="historyTimeline" class="relative"><div class="text-[10px] text-gray-600 italic">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Review Modal -->
     <div id="modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-50 animate-in fade-in duration-300">
         <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-5xl w-full p-6 relative overflow-hidden flex flex-col md:flex-row gap-8">
@@ -183,21 +212,24 @@
             tasks.reverse();
     
             list.innerHTML = tasks.map(task => `
-                <a href="/admin/asset/${task.id}" class="task-card group hover:border-blue-500 transition-all cursor-pointer">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <p class="text-[10px] text-gray-500 font-mono mb-1">ASSET ID: ${task.id.split('-')[0]}</p>
-                            <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors">${task.worker_name}</h4>
+                <div class="task-card group hover:border-blue-500 transition-all">
+                    <a href="/admin/asset/${task.id}" class="block">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-[10px] text-gray-500 font-mono mb-1">ASSET ID: ${task.id.split('-')[0]}</p>
+                                <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors">${task.worker_name}</h4>
+                            </div>
+                            <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
                         </div>
-                        <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
-                    </div>
-                    <div class="relative overflow-hidden rounded-lg aspect-video bg-black border border-gray-800">
-                        <img src="data:image/jpeg;base64,${task.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
-                        <div class="absolute inset-0 flex items-center justify-center bg-blue-600/0 hover:bg-blue-600/10 transition-all">
-                             <i class="fa-solid fa-expand text-white opacity-0 group-hover:opacity-100 transform scale-75 group-hover:scale-100 transition-all text-2xl"></i>
+                        <div class="relative overflow-hidden rounded-lg aspect-video bg-black border border-gray-800">
+                            <img src="data:image/jpeg;base64,${task.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
                         </div>
-                    </div>
-                </a>
+                    </a>
+                    <button onclick="event.stopPropagation(); openHistory('${task.id}', '${task.worker_name}')" 
+                        class="mt-3 w-full py-2 bg-white/5 hover:bg-purple-500/10 border border-white/5 hover:border-purple-500/30 text-gray-500 hover:text-purple-400 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left"></i> Logs
+                    </button>
+                </div>
             `).join('');
         }
 
@@ -261,6 +293,95 @@
             const modal = document.getElementById('modal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+        }
+
+        // ── Annotation History Modal ─────────────────────────
+        const HCOLORS = { INSULATOR:'#f59e0b', POLE:'#8b5cf6', CONDUCTOR:'#06b6d4', CROSSARM:'#10b981', STREET_LIGHT:'#f97316', DTR:'#a78bfa', OBJECT:'#ec4899' };
+        const ACTION_META = {
+            'asset_submitted':        { icon:'fa-cloud-arrow-up',  color:'text-blue-400',    label:'Submitted' },
+            'asset_status_update':    { icon:'fa-flag',            color:'text-amber-400',   label:'Status Changed' },
+            'asset_annotation_edit':  { icon:'fa-pen',             color:'text-purple-400',  label:'Annotations Edited' },
+            'training_data_exported': { icon:'fa-brain',           color:'text-emerald-400', label:'Training Export' },
+        };
+
+        async function openHistory(assetId, workerName) {
+            const modal = document.getElementById('historyModal');
+            document.getElementById('historySubtitle').textContent = 'Worker: ' + workerName + '  ·  ' + assetId.split('-')[0] + '...';
+            document.getElementById('historyImageGallery').innerHTML = '<div class="text-[10px] text-gray-600 italic">Loading frames...</div>';
+            document.getElementById('historyTimeline').innerHTML = '<div class="text-[10px] text-gray-600 italic">Loading logs...</div>';
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            try {
+                const res = await fetch('/api/get_asset_history/' + assetId);
+                const data = await res.json();
+
+                // Render Annotated Images
+                const gallery = document.getElementById('historyImageGallery');
+                const imgs = data.images || [];
+                if (imgs.length === 0) {
+                    gallery.innerHTML = '<div class="text-[10px] text-gray-600 italic">No frames found.</div>';
+                } else {
+                    gallery.innerHTML = imgs.map((img, idx) => {
+                        const dets = img.detections || [];
+                        const classGroups = {};
+                        dets.forEach(d => { const l = (d.label||'OBJ').toUpperCase(); classGroups[l] = (classGroups[l]||0)+1; });
+                        const pills = Object.entries(classGroups).map(([l,c]) => {
+                            const col = HCOLORS[l] || '#a8a29e';
+                            return '<span style="color:'+col+';border-color:'+col+'40;background:'+col+'15" class="text-[8px] font-bold px-2 py-0.5 rounded-full border">'+l+' x'+c+'</span>';
+                        }).join('');
+                        const boxes = dets.map(d => {
+                            if (!d.bbox || d.bbox.length < 4) return '';
+                            const [x1,y1,x2,y2] = d.bbox;
+                            const col = HCOLORS[(d.label||'').toUpperCase()] || '#a8a29e';
+                            const lbl = (d.label||'OBJ').toUpperCase();
+                            return '<rect x="'+x1+'" y="'+y1+'" width="'+(x2-x1)+'" height="'+(y2-y1)+'" fill="'+col+'20" stroke="'+col+'" stroke-width="3" rx="3"/>'+
+                                   '<rect x="'+x1+'" y="'+(y1-26)+'" width="'+(lbl.length*11+12)+'" height="22" fill="'+col+'44" rx="4"/>'+
+                                   '<text x="'+(x1+6)+'" y="'+(y1-9)+'" font-size="16" font-family="Inter" font-weight="700" fill="'+col+'">'+lbl+'</text>';
+                        }).join('');
+                        return '<div class="rounded-2xl overflow-hidden border border-white/5 bg-gray-900/60">'+
+                               '<div class="relative bg-black">'+
+                               '<img src="data:image/jpeg;base64,'+img.image_b64+'" class="w-full h-auto block" style="max-height:300px;object-fit:contain;">'+
+                               '<svg class="absolute inset-0 w-full h-full" style="pointer-events:none" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid meet">'+boxes+'</svg>'+
+                               '</div>'+
+                               '<div class="p-3 flex items-center justify-between flex-wrap gap-2">'+
+                               '<span class="text-[9px] text-gray-500 font-bold uppercase">Frame '+(idx+1)+'</span>'+
+                               '<div class="flex flex-wrap gap-1">'+(pills||'<span class="text-[8px] text-gray-700">No detections</span>')+'</div>'+
+                               '<span class="text-[9px] font-mono text-gray-600">'+dets.length+' boxes</span></div></div>';
+                    }).join('');
+                }
+
+                // Render Timeline
+                const timeline = document.getElementById('historyTimeline');
+                const logs = data.logs || [];
+                const submitEntry = { action:'asset_submitted', user_name: data.worker_name, timestamp: data.submitted_at, details: 'Initial submission by field worker' };
+                const allEvents = [submitEntry, ...logs];
+
+                timeline.innerHTML = '<div class="absolute left-4 top-0 bottom-0 w-px bg-white/5"></div><div class="space-y-3 pl-9">' +
+                    allEvents.map((ev, i) => {
+                        const meta = ACTION_META[ev.action] || { icon:'fa-circle-dot', color:'text-gray-400', label: (ev.action||'').replace(/_/g,' ') };
+                        const isFirst = i === 0;
+                        const isLast = i === allEvents.length - 1;
+                        return '<div class="relative">'+
+                               '<div class="absolute -left-9 top-1.5 w-5 h-5 rounded-full bg-gray-900 border-2 '+(isFirst?'border-blue-500':isLast?'border-purple-500':'border-gray-700')+' flex items-center justify-center">'+
+                               '<i class="fa-solid '+meta.icon+' '+meta.color+' text-[6px]"></i></div>'+
+                               '<div class="p-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 rounded-xl transition-all">'+
+                               '<div class="flex justify-between items-start gap-2 mb-1">'+
+                               '<span class="text-[9px] font-bold '+meta.color+' uppercase tracking-wider">'+meta.label+'</span>'+
+                               '<span class="text-[8px] text-gray-600 font-mono shrink-0">'+(ev.timestamp||'')+'</span></div>'+
+                               '<p class="text-[9px] text-gray-400"><i class="fa-solid fa-user text-[7px] mr-1"></i>'+(ev.user_name||'System')+'</p>'+
+                               (ev.details ? '<p class="text-[8px] text-gray-600 leading-relaxed border-t border-white/5 pt-1 mt-1">'+ev.details.replace(/\|/g,' · ')+'</p>' : '')+
+                               '</div></div>';
+                    }).join('') + '</div>';
+
+            } catch(e) {
+                document.getElementById('historyImageGallery').innerHTML = '<div class="text-[10px] text-rose-400">Failed to load history.</div>';
+            }
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').classList.add('hidden');
+            document.getElementById('historyModal').classList.remove('flex');
         }
 
         // ── Training Pool Panel ──────────────────────────────────────────────
