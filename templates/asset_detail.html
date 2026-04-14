@@ -15,11 +15,23 @@
         .box-selected { filter: drop-shadow(0 0 8px #3b82f6); }
         .det-item { transition: all 0.2s; border: 1px solid rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.6rem 0.8rem; background: rgba(255,255,255,0.03); }
         .det-item:hover { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
-        /* Category Picker Modal */
         #adminPickerModal { position: fixed; z-index: 999; background: rgba(9,11,21,0.95); backdrop-filter: blur(20px); border-radius: 1.25rem; border: 1px solid rgba(255,255,255,0.08); padding: 1.5rem; min-width: 280px; box-shadow: 0 25px 60px rgba(0,0,0,0.7); }
         .picker-btn { display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; border: 1px solid transparent; transition: all 0.15s; margin-bottom: 0.3rem; cursor: pointer; background: rgba(255,255,255,0.04); }
         .picker-btn:hover { background: rgba(59,130,246,0.15); color: #60a5fa; border-color: rgba(59,130,246,0.3); }
-        /* Auto-save indicator */
+        /* Auto-save toast */
+        #autoSaveToast {
+            position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+            background: rgba(17,24,39,0.95); backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 1rem;
+            padding: 0.75rem 1.25rem; display: flex; align-items: center; gap: 0.75rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            transform: translateY(100px); opacity: 0;
+            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+        }
+        #autoSaveToast.show {
+            transform: translateY(0); opacity: 1;
+        }
         #autoSaveStatus { transition: all 0.3s; }
     </style>
 </head>
@@ -34,13 +46,18 @@
             </a>
             <div>
                 <h1 class="text-xl font-bold tracking-tight text-white font-['Outfit']">Asset Studio <span class="text-blue-500">v3.0</span></h1>
-                <div class="flex items-center gap-2 mt-0.5">
-                    <span class="text-[9px] text-gray-500 uppercase font-bold tracking-widest">ID: {{ asset.id[:8] }}...</span>
-                    <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
-                    <span class="text-[9px] text-blue-400/80 font-bold uppercase tracking-widest">{{ asset.asset_class or 'Unclassified' }}</span>
-                    <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
-                    <span id="autoSaveStatus" class="text-[9px] text-gray-600 font-bold uppercase tracking-widest"><i class="fa-solid fa-circle-notch fa-spin mr-1 hidden" id="savingIcon"></i><span id="saveLabel">Not saved</span></span>
-                </div>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="text-[9px] text-gray-500 uppercase font-bold tracking-widest">ID: {{ asset.id[:8] }}...</span>
+                        <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
+                        <span class="text-[9px] text-blue-400/80 font-bold uppercase tracking-widest">{{ asset.asset_class or 'Unclassified' }}</span>
+                        <div class="h-1 w-1 bg-gray-700 rounded-full"></div>
+                        <!-- Auto-save indicator with live countdown -->
+                        <span id="autoSaveStatus" class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
+                            <span id="saveDot" class="w-1.5 h-1.5 rounded-full bg-gray-600 transition-all"></span>
+                            <span id="saveLabel" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Auto-save on</span>
+                            <span id="saveCountdown" class="text-[9px] font-mono text-gray-600">30s</span>
+                        </span>
+                    </div>
             </div>
         </div>
         <div class="flex items-center gap-3">
@@ -146,7 +163,17 @@
     </main>
 </div>
 
-<!-- Category Picker Modal -->
+<!-- Auto-save toast notification -->
+<div id="autoSaveToast">
+    <div id="toastIcon" class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+        <i class="fa-solid fa-floppy-disk text-emerald-400 text-xs"></i>
+    </div>
+    <div>
+        <p id="toastTitle" class="text-xs font-bold text-white">Draft Auto-Saved</p>
+        <p id="toastMsg" class="text-[9px] text-gray-500">All annotations saved to server</p>
+    </div>
+</div>
+
 <div id="adminPickerBackdrop" class="fixed inset-0 z-[998] hidden" onclick="cancelAdminDraw()"></div>
 <div id="adminPickerModal" class="hidden">
     <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Select Category</p>
@@ -425,14 +452,25 @@ function getSVGPoint(svg, x, y) {
 }
 
 // === SAVE MODIFICATIONS ===
+let toastTimer = null;
+function showSaveToast(title, msg, isError = false) {
+    const toast = document.getElementById('autoSaveToast');
+    const icon  = document.getElementById('toastIcon');
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastMsg').textContent   = msg;
+    icon.className = `w-7 h-7 rounded-lg flex items-center justify-center ${isError ? 'bg-red-500/20 border border-red-500/30' : 'bg-emerald-500/20 border border-emerald-500/30'}`;
+    icon.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-red-400' : 'fa-floppy-disk text-emerald-400'} text-xs"></i>`;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
 async function saveModifications(silent = false) {
-    const btn = document.getElementById('btnSave');
-    const icon = document.getElementById('savingIcon');
-    const label = document.getElementById('saveLabel');
+    const btn      = document.getElementById('btnSave');
+    const saveDot  = document.getElementById('saveDot');
+    const saveLabel = document.getElementById('saveLabel');
 
     if (!silent) { btn.disabled = true; }
-    icon.classList.remove('hidden');
-    label.textContent = 'Saving...';
 
     const updates = [];
     document.querySelectorAll('.detection-svg').forEach(svg => {
@@ -448,15 +486,25 @@ async function saveModifications(silent = false) {
         const data = await res.json();
         if (data.status === 'success') {
             lastSaveTime = Date.now();
-            label.textContent = 'Saved ✓';
-            setTimeout(() => { label.textContent = 'Auto-save on'; icon.classList.add('hidden'); }, 2000);
-            if (!silent) loadHistory();
+            if (silent) {
+                const now = new Date().toLocaleTimeString();
+                showSaveToast('Auto-Saved ✓', `Annotations saved at ${now}`);
+            } else {
+                showSaveToast('Saved Manually ✓', 'All changes saved to server');
+                btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Saved';
+                loadHistory();
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes (Ctrl+S)';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        } else {
+            showSaveToast('Save Failed', data.message || 'Server error', true);
         }
     } catch(e) {
-        label.textContent = 'Save failed!';
+        showSaveToast('Save Failed', 'Network error — check connection', true);
     } finally {
         if (!silent) btn.disabled = false;
-        setTimeout(() => { icon.classList.add('hidden'); }, 2000);
     }
 }
 
@@ -550,12 +598,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Auto-save every 30 seconds
+    // ── Auto-save every 30 seconds with visible countdown ──────────────────
+    let saveCountdownVal = 30;
+    const countdownEl = document.getElementById('saveCountdown');
+    const saveDotEl   = document.getElementById('saveDot');
+    const saveLabelEl = document.getElementById('saveLabel');
+
+    // Countdown tick every second
     setInterval(() => {
-        if (Date.now() - lastSaveTime > 30000) {
-            saveModifications(true);
+        saveCountdownVal--;
+        if (saveCountdownEl) countdownEl.textContent = saveCountdownVal + 's';
+
+        if (saveCountdownVal <= 5) {
+            saveDotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 transition-all animate-pulse';
         }
-    }, 30000);
+
+        if (saveCountdownVal <= 0) {
+            saveCountdownVal = 30;
+            saveDotEl.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 transition-all';
+            saveLabelEl.textContent = 'Saving...';
+            saveModifications(true).then(() => {
+                saveLabelEl.textContent = 'Auto-save on';
+                saveDotEl.className = 'w-1.5 h-1.5 rounded-full bg-gray-600 transition-all';
+            });
+        }
+    }, 1000);
 
     document.getElementById('saveLabel').textContent = 'Auto-save on';
 });
