@@ -151,11 +151,18 @@
 
             <!-- Toolbar -->
             <div class="flex flex-wrap items-center justify-between bg-white/5 border border-white/5 p-3 rounded-xl gap-3 sticky top-0 z-10 backdrop-blur-md">
-                <div class="flex items-center gap-3 text-[9px] uppercase font-bold tracking-widest text-gray-500">
-                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> Ctrl+Z Undo</span>
-                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> Ctrl+Y Redo</span>
-                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> DEL Remove</span>
-                    <span class="text-blue-400"><i class="fa-solid fa-keyboard mr-1"></i> DblClick Relabel</span>
+                <div class="flex items-center gap-2">
+                    <button onclick="undo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Undo (Ctrl+Z)">
+                        <i class="fa-solid fa-rotate-left"></i> Undo
+                    </button>
+                    <button onclick="redo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Redo (Ctrl+Y)">
+                        <i class="fa-solid fa-rotate-right"></i> Redo
+                    </button>
+                    <div class="h-4 w-px bg-white/10 mx-2"></div>
+                    <div class="flex items-center gap-3 text-[9px] uppercase font-bold tracking-widest text-gray-500">
+                        <span class="text-blue-400/60"><i class="fa-solid fa-keyboard mr-1"></i> DEL Remove</span>
+                        <span class="text-blue-400/60"><i class="fa-solid fa-keyboard mr-1"></i> DblClick Relabel</span>
+                    </div>
                 </div>
                 <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-4 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[9px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2">
                     <i class="fa-solid fa-pencil"></i> Draw Box

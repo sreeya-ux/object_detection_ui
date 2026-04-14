@@ -30,6 +30,14 @@
                     <div class="text-sm text-gray-500 uppercase tracking-wider">Logged in as</div>
                     <div class="font-bold text-blue-400">Administrator</div>
                 </div>
+                <div class="flex items-center gap-2 mr-4 border-r border-gray-800 pr-4">
+                    <button id="btnAdminUndo" onclick="undoAdminAction()" disabled class="btn-glass flex items-center gap-2 text-[10px] font-bold px-3 py-2 rounded-lg">
+                        <i class="fa-solid fa-rotate-left"></i> Undo
+                    </button>
+                    <button id="btnAdminRedo" onclick="redoAdminAction()" disabled class="btn-glass flex items-center gap-2 text-[10px] font-bold px-3 py-2 rounded-lg">
+                        <i class="fa-solid fa-rotate-right"></i> Redo
+                    </button>
+                </div>
                 <a href="/admin/export" class="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/20 mr-2">
                     <i class="fa-solid fa-file-csv"></i> Reports
                 </a>
@@ -181,14 +189,17 @@
     <script>
         let currentTaskId = null;
         let currentFilter = 'pending';
+        let adminHistoryStack = [];
+        let adminRedoStack = [];
+        let allTasksCached = [];
 
         async function updateStats() {
             const allRes = await fetch('/api/get_assets');
-            const allTasks = await allRes.json();
+            allTasksCached = await allRes.json();
             
-            const pending = allTasks.filter(t => t.status === 'pending').length;
-            const approved = allTasks.filter(t => t.status === 'approved').length;
-            const rejected = allTasks.filter(t => t.status === 'rejected').length;
+            const pending = allTasksCached.filter(t => t.status === 'pending').length;
+            const approved = allTasksCached.filter(t => t.status === 'approved').length;
+            const rejected = allTasksCached.filter(t => t.status === 'rejected').length;
 
             document.getElementById('statPending').textContent = pending;
             document.getElementById('statApproved').textContent = approved;
@@ -240,9 +251,7 @@
         }
 
         async function openReview(taskId) {
-            const res = await fetch('/api/get_assets');
-            const tasks = await res.json();
-            const task = tasks.find(t => t.id === taskId);
+            const task = allTasksCached.find(t => t.id === taskId);
             if (!task) return;
 
             currentTaskId = taskId;
@@ -275,8 +284,18 @@
             }
         }
 
-        async function updateStatus(status) {
+        async function updateStatus(status, isUndoRedo = false) {
             if (!currentTaskId) return;
+
+            if (!isUndoRedo) {
+                const task = allTasksCached.find(t => t.id === currentTaskId);
+                if (task) {
+                    adminHistoryStack.push({ taskId: currentTaskId, status: task.status });
+                    adminRedoStack = []; // Clear redo on new action
+                    updateUndoRedoButtons();
+                }
+            }
+
             const res = await fetch('/api/update_asset_status', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -284,9 +303,58 @@
             });
             const data = await res.json();
             if (data.status === 'success') {
-                closeModal();
+                if (!isUndoRedo) closeModal();
                 loadTasks();
                 updateStats();
+            }
+        }
+
+        async function undoAdminAction() {
+            if (adminHistoryStack.length === 0) return;
+            const last = adminHistoryStack.pop();
+            const currentTask = allTasksCached.find(t => t.id === last.taskId);
+            if (currentTask) {
+                adminRedoStack.push({ taskId: last.taskId, status: currentTask.status });
+            }
+            currentTaskId = last.taskId;
+            await updateStatus(last.status, true);
+            updateUndoRedoButtons();
+        }
+
+        async function redoAdminAction() {
+            if (adminRedoStack.length === 0) return;
+            const last = adminRedoStack.pop();
+            const currentTask = allTasksCached.find(t => t.id === last.taskId);
+            if (currentTask) {
+                adminHistoryStack.push({ taskId: last.taskId, status: currentTask.status });
+            }
+            currentTaskId = last.taskId;
+            await updateStatus(last.status, true);
+            updateUndoRedoButtons();
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('btnAdminUndo');
+            const redoBtn = document.getElementById('btnAdminRedo');
+            
+            if (adminHistoryStack.length > 0) {
+                undoBtn.disabled = false;
+                undoBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'text-gray-500');
+                undoBtn.classList.add('text-gray-400');
+            } else {
+                undoBtn.disabled = true;
+                undoBtn.classList.add('opacity-50', 'cursor-not-allowed', 'text-gray-500');
+                undoBtn.classList.remove('text-gray-400');
+            }
+            
+            if (adminRedoStack.length > 0) {
+                redoBtn.disabled = false;
+                redoBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'text-gray-500');
+                redoBtn.classList.add('text-gray-400');
+            } else {
+                redoBtn.disabled = true;
+                redoBtn.classList.add('opacity-50', 'cursor-not-allowed', 'text-gray-500');
+                redoBtn.classList.remove('text-gray-400');
             }
         }
 

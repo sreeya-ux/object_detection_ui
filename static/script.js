@@ -744,6 +744,7 @@ function renderResults() {
 }
 
 function updateLabel(index, val) {
+    saveToHistory();
     if (val === "Custom") {
         const customVal = prompt("Enter custom class name:");
         if (customVal) {
@@ -757,6 +758,7 @@ function updateLabel(index, val) {
 }
 
 function toggleConfirm(index) {
+    saveToHistory();
     detections[index].confirmed = !detections[index].confirmed;
     renderResults();
     renderBoxes();
