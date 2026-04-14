@@ -54,6 +54,47 @@
             </div>
         </div>
 
+        <!-- Training Pool Panel -->
+        <div class="card p-6 space-y-4 border border-purple-500/20 bg-purple-900/5">
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-bold flex items-center gap-2 text-purple-300">
+                    <i class="fa-solid fa-brain text-purple-400"></i> Active Learning Pool
+                    <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 font-bold">LIVE</span>
+                </h2>
+                <span class="text-[10px] text-gray-500" id="lastApprovedTime">Loading...</span>
+            </div>
+
+            <!-- Progress bar to next retrain -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Samples Until Auto-Retrain</span>
+                    <span class="text-[10px] text-purple-400 font-bold" id="sampleProgressLabel">0 / 50</span>
+                </div>
+                <div class="w-full bg-gray-800 rounded-full h-2">
+                    <div id="sampleProgressBar" class="bg-gradient-to-r from-purple-600 to-blue-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Per-class breakdown -->
+            <div>
+                <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-2">Training Samples by Class</p>
+                <div id="classBreakdown" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div class="text-[9px] text-gray-600 italic col-span-full">Loading class stats...</div>
+                </div>
+            </div>
+
+            <!-- Weak classes alert -->
+            <div id="weakClassAlert" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <p class="text-[10px] text-amber-400 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Classes needing more data: <span id="weakClassList"></span></p>
+            </div>
+
+            <!-- Recent training runs -->
+            <div id="recentRunsSection" class="hidden">
+                <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-2">Recent Training Runs</p>
+                <div id="recentRunsList" class="space-y-1"></div>
+            </div>
+        </div>
+
         <div class="flex items-center justify-between">
             <h2 class="text-xl font-bold flex items-center gap-2">
                 <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
@@ -222,12 +263,82 @@
             modal.classList.remove('flex');
         }
 
+        // ── Training Pool Panel ──────────────────────────────────────────────
+        const CLASS_COLORS_TRAIN = {
+            POLE: '#8b5cf6', INSULATOR: '#f59e0b', CONDUCTOR: '#06b6d4',
+            CROSSARM: '#10b981', STREET_LIGHT: '#f97316', DTR: '#a78bfa', OBJECT: '#ec4899'
+        };
+
+        async function loadTrainingStats() {
+            try {
+                const res = await fetch('/api/training_stats');
+                if (!res.ok) return;
+                const s = await res.json();
+
+                // Progress bar
+                const pct = Math.min(100, (s.total_samples / s.threshold) * 100);
+                document.getElementById('sampleProgressBar').style.width = pct + '%';
+                document.getElementById('sampleProgressLabel').textContent = `${s.total_samples} / ${s.threshold}`;
+                document.getElementById('lastApprovedTime').textContent = 
+                    s.last_approved ? `Last: ${s.last_approved}` : 'No samples yet';
+
+                // Class breakdown
+                const breakdown = document.getElementById('classBreakdown');
+                const byClass = s.by_class || {};
+                if (Object.keys(byClass).length === 0) {
+                    breakdown.innerHTML = '<div class="text-[9px] text-gray-600 italic col-span-full">No samples exported yet. Approve assets to begin collecting training data.</div>';
+                } else {
+                    breakdown.innerHTML = Object.entries(byClass).map(([cls, cnt]) => {
+                        const color = CLASS_COLORS_TRAIN[cls] || '#a8a29e';
+                        const pctBar = Math.min(100, (cnt / 300) * 100);
+                        return `<div class="p-2 bg-gray-900/50 rounded-lg border border-white/5">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[9px] font-bold uppercase" style="color:${color}">${cls}</span>
+                                <span class="text-[9px] font-mono text-gray-400">${cnt}</span>
+                            </div>
+                            <div class="w-full bg-gray-800 rounded-full h-1">
+                                <div class="h-1 rounded-full transition-all" style="width:${pctBar}%;background:${color}"></div>
+                            </div>
+                            <div class="text-[7px] text-gray-600 mt-0.5">${cnt < 300 ? `Need ${300-cnt} more` : '✓ Ready'}</div>
+                        </div>`;
+                    }).join('');
+                }
+
+                // Weak class alert
+                if (s.weak_classes && s.weak_classes.length > 0) {
+                    document.getElementById('weakClassAlert').classList.remove('hidden');
+                    document.getElementById('weakClassList').textContent = s.weak_classes.join(', ');
+                } else {
+                    document.getElementById('weakClassAlert').classList.add('hidden');
+                }
+
+                // Recent training runs
+                if (s.recent_runs && s.recent_runs.length > 0) {
+                    document.getElementById('recentRunsSection').classList.remove('hidden');
+                    document.getElementById('recentRunsList').innerHTML = s.recent_runs.map(r => `
+                        <div class="flex justify-between items-center text-[9px] p-2 bg-white/3 rounded-lg border border-white/5">
+                            <span class="text-gray-400">${r.triggered_at}</span>
+                            <span class="text-gray-500">${r.sample_count} samples</span>
+                            <span class="font-bold px-2 py-0.5 rounded ${r.status === 'done' ? 'text-emerald-400 bg-emerald-500/10' : r.status === 'queued' ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 bg-white/5'}">${r.status}</span>
+                        </div>
+                    `).join('');
+                }
+
+            } catch(e) {
+                // Silently fail — training pipeline optional
+                document.getElementById('classBreakdown').innerHTML = 
+                    '<div class="text-[9px] text-gray-600 italic col-span-full">Training stats unavailable.</div>';
+            }
+        }
+
         // Initialize
         updateStats();
         loadTasks();
+        loadTrainingStats();
         setInterval(() => {
             updateStats();
             loadTasks();
+            loadTrainingStats();
         }, 30000); // Refresh every 30s
     </script>
 </body>

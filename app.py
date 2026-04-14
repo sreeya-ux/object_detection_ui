@@ -17,6 +17,7 @@ from functools import wraps
 import torch
 import segmentation_models_pytorch as smp
 from pipeline import InfrastructurePipeline
+from training_pipeline import export_asset_to_training, get_training_stats
 
 # =========================
 # GLOBAL INITIALIZATION
@@ -574,6 +575,18 @@ def update_asset_status():
     
     log_activity(session['user'], "asset_status_update", f"Asset: {asset_id}, Status: {status}")
     
+    # When admin APPROVES → auto-export annotations as YOLO training data
+    if status == 'approved':
+        try:
+            result = export_asset_to_training(asset_id, approved_by=session['user'])
+            log_activity(
+                session['user'],
+                "training_data_exported",
+                f"Asset: {asset_id} | Exported: {result['exported']} images | Classes: {json.dumps(result['classes'])} | Pool: {result['total_pool']}"
+            )
+        except Exception as e:
+            print(f"[app] Training export error: {e}")
+    
     return jsonify({"status": "success"})
 
 @app.route('/api/update_asset_detections', methods=['POST'])
@@ -618,6 +631,27 @@ def get_asset_history(asset_id):
     ''', (f'%Asset: {asset_id}%',)).fetchall()
     conn.close()
     return jsonify([dict(l) for l in logs])
+
+
+# =========================
+# TRAINING PIPELINE API
+# =========================
+@app.route('/api/training_stats')
+@admin_required
+def training_stats():
+    """Returns training pool stats for the Admin dashboard."""
+    stats = get_training_stats()
+    return jsonify(stats)
+
+@app.route('/api/training_export/<asset_id>', methods=['POST'])
+@admin_required
+def manual_training_export(asset_id):
+    """Manually trigger export for a specific asset (re-export if needed)."""
+    try:
+        result = export_asset_to_training(asset_id, approved_by=session['user'])
+        return jsonify({"status": "success", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
