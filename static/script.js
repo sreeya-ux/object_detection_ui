@@ -69,11 +69,127 @@ function redo() {
 }
 
 function saveDraft() {
+    // In-memory save for active batch image
     if (activeBatchIndex !== -1) {
         batchImages[activeBatchIndex].detections = [...detections];
-        lastSaveTime = Date.now();
-        showToast("Draft saved", "success");
     }
+    // Persist to localStorage immediately
+    persistDraftToStorage();
+    lastSaveTime = Date.now();
+}
+
+// ─── localStorage Draft Persistence ──────────────────────────────────────────
+const DRAFT_KEY = 'asakta_worker_draft';
+
+function persistDraftToStorage() {
+    if (!batchImages.length) return;
+    try {
+        const payload = {
+            savedAt: Date.now(),
+            batchImages: batchImages.map(b => ({
+                src:        b.src,
+                name:       b.file?.name || b.name || 'image.jpg',
+                detections: b.detections || [],
+                master:     b.master || null,
+                dims:       b.dims || {},
+                processed:  b.processed || false
+            })),
+            activeBatchIndex,
+            detections,
+            masterResult,
+            imageDimensions
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+    } catch(e) {
+        console.warn('[Draft] localStorage write failed', e);
+    }
+}
+
+function clearDraftStorage() {
+    localStorage.removeItem(DRAFT_KEY);
+}
+
+function checkAndRestoreDraft() {
+    try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        if (!draft || !draft.batchImages || draft.batchImages.length === 0) return;
+
+        const ageMinutes = Math.round((Date.now() - draft.savedAt) / 60000);
+        const imageCount = draft.batchImages.length;
+        const processedCount = draft.batchImages.filter(b => b.processed).length;
+
+        // Show restore banner
+        const banner = document.getElementById('draftRestoreBanner');
+        if (!banner) return;
+
+        document.getElementById('draftInfo').textContent =
+            `${imageCount} image${imageCount > 1 ? 's' : ''} · ${processedCount} analysed · saved ${ageMinutes < 1 ? 'just now' : ageMinutes + 'm ago'}`;
+
+        banner.classList.remove('hidden');
+        banner.onclick = () => {};
+
+        document.getElementById('btnRestoreDraft').onclick = () => {
+            batchImages = draft.batchImages.map(b => ({
+                file:       { name: b.name },
+                name:       b.name,
+                src:        b.src,
+                detections: b.detections || [],
+                master:     b.master || null,
+                dims:       b.dims || {},
+                processed:  b.processed || false
+            }));
+            activeBatchIndex     = draft.activeBatchIndex >= 0 ? draft.activeBatchIndex : 0;
+            detections           = draft.detections || [];
+            masterResult         = draft.masterResult || null;
+            imageDimensions      = draft.imageDimensions || {};
+
+            // Restore preview image
+            if (batchImages[activeBatchIndex]?.src) {
+                const preview = document.getElementById('preview');
+                if (preview) preview.src = batchImages[activeBatchIndex].src;
+                const imgContainer = document.getElementById('imageContainer');
+                const submitSection = document.getElementById('submitSection');
+                if (imgContainer) imgContainer.classList.remove('hidden');
+                if (submitSection) submitSection.classList.remove('hidden');
+            }
+
+            renderBatchStrip();
+            renderResults();
+            renderBoxes();
+
+            banner.classList.add('hidden');
+            showToast('Draft restored!', 'success');
+        };
+
+        document.getElementById('btnDiscardDraft').onclick = () => {
+            clearDraftStorage();
+            banner.classList.add('hidden');
+        };
+
+    } catch(e) {
+        console.warn('[Draft] Restore check failed', e);
+    }
+}
+
+// Warn user before closing tab if work is in progress
+window.addEventListener('beforeunload', (e) => {
+    const hasWork = batchImages.some(b => b.processed) || detections.length > 0;
+    if (hasWork) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved annotations. Are you sure you want to leave?';
+        return e.returnValue;
+    }
+});
+
+// After final submission, clear the draft
+function clearDraftAfterSubmit() {
+    clearDraftStorage();
+    batchImages = [];
+    activeBatchIndex = -1;
+    detections = [];
+    masterResult = null;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -81,10 +197,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const previewImg = document.getElementById('preview');
     const dropZone = document.getElementById('dropZone');
 
-    // Auto-save timer (30 seconds)
+    // Check for saved draft on page load
+    checkAndRestoreDraft();
+
+    // Auto-save to localStorage every 10 seconds if work is in progress
     setInterval(() => {
-        if (Date.now() - lastSaveTime > 30000 && activeBatchIndex !== -1) {
-            saveDraft();
+        if (batchImages.some(b => b.processed) || detections.length > 0) {
+            persistDraftToStorage();
         }
     }, 10000);
 
@@ -389,17 +508,19 @@ async function processImage() {
     }
 }
 
-async function saveDraft() {
-    if (!uploadedFile || detections.length === 0) return;
+async function saveDraftToServer() {
+    if (!batchImages.length) return;
     
     try {
         const payload = {
-            id: uploadedFile.name + "_" + (sessionStorage.getItem('username') || 'worker'),
+            id: (batchImages[0]?.name || 'session') + '_' + (sessionStorage.getItem('username') || 'worker'),
             type: 'worker',
             data: JSON.stringify({
                 detections: detections,
                 master: masterResult,
-                dimensions: imageDimensions
+                dimensions: imageDimensions,
+                batchCount: batchImages.length,
+                processedCount: batchImages.filter(b => b.processed).length
             })
         };
         await fetch('/api/save_draft', {
@@ -408,13 +529,12 @@ async function saveDraft() {
             body: JSON.stringify(payload)
         });
         lastSaveTime = Date.now();
-        console.log("Draft auto-saved");
     } catch (e) {
-        console.warn("Draft save failed", e);
+        console.warn('[Draft] Server save failed', e);
     }
 }
 
-// Auto-save every 30 seconds
+// Auto-save to server every 30 seconds
 setInterval(() => {
     if (Date.now() - lastSaveTime > 30000) {
         saveDraft();
