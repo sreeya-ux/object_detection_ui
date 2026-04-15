@@ -65,27 +65,27 @@ def classify_by_aspect_ratio(
     bbox_height: float,
 ) -> tuple:
     """
-    Fast heuristic: height/width ratio → pin / disc / uncertain.
-
-    This is a heuristic, not a guaranteed rule.
-    Camera angle and mounting style can affect results.
-    Uncertain cases go to the crop classifier.
+    Refined heuristic based on user constraint:
+    - PIN: "Stands straight" (Vertical, height > width)
+    - DISC: "Sleeps on wire" (Horizontal, width > height)
     """
     if bbox_width == 0:
         return "uncertain", "low"
 
     ratio = bbox_height / bbox_width
 
-    if ratio > INSULATOR_PIN_RATIO_MIN:
-        confidence = "high" if ratio > 2.5 else "medium"
+    # PIN: Stands straight (Vertical)
+    if ratio >= 1.1:
+        confidence = "high" if ratio > 2.0 else "medium"
         return "pin", confidence
 
-    elif ratio < INSULATOR_DISC_RATIO_MAX:
-        confidence = "high" if ratio < 0.4 else "medium"
+    # DISC: Sleeps on wire (Horizontal)
+    elif ratio <= 0.9:
+        confidence = "high" if ratio < 0.5 else "medium"
         return "disc", confidence
 
     else:
-        # Ambiguous: ratio between 0.7 and 1.5
+        # Ambiguous: nearly square
         return "uncertain", "low"
 
 
@@ -203,20 +203,25 @@ class ShedCounter:
     @staticmethod
     def to_voltage(shed_count: int, insulator_type: str = "pin") -> str:
         """
-        Maps disc/shed count to voltage.
+        Maps disc/shed count to voltage based on user constraints.
         Rules (Indian Distribution Standard):
-          PIN:  1-2 sheds=6.3kV, 3=11kV, >3=33kV
-          DISC: 1 disc=11kV, 3 discs=33kV
+          11kV: 3 sheds (Pin) or 1 disc (Disc)
+          33kV: >3 sheds (Pin) or 3 discs (Disc)
         """
         if insulator_type == "disc":
             if shed_count >= 3: return "33kV"
             if shed_count >= 1: return "11kV"
             return "unknown"
         
-        # Default Pin logic
-        if shed_count > 3:
-            return SHED_VOLTAGE_GT3
-        return SHED_VOLTAGE_MAP.get(shed_count, "unknown")
+        # Pin logic
+        if shed_count >= 4:
+            return "33kV"
+        if shed_count >= 3:
+            return "11kV"
+        if shed_count > 0:
+            return "6.3kV" # or LT
+            
+        return "unknown"
 
 
 # ── Step 4: Adjustment fault checker ─────────────────────────

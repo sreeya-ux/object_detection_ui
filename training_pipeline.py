@@ -35,13 +35,21 @@ DB_PATH           = "database.db"
 
 # Map class names → YOLO class index (must match your model's classes.txt)
 CLASS_MAP = {
-    "POLE":         0,
-    "INSULATOR":    1,
-    "CONDUCTOR":    2,
-    "CROSSARM":     3,
-    "STREET_LIGHT": 4,
-    "DTR":          5,
-    "OBJECT":       6,
+    "POLE_9M":           0,
+    "POLE_11M":          1,
+    "POLE_8.1M":         2,
+    "INS_PIN":           3,
+    "INS_DISC":          4,
+    "T_RISING":          5,
+    "TAPPING_CHANNEL":   6,
+    "SIDE_ARM_CHANNEL":  7,
+    "V_CROSS":           8,
+    "CONDUCTOR":         9,
+    "STREET_LIGHT":      10,
+    "DTR":               11,
+    "WIRE_BROKEN":       12,
+    "VEGETATION":        13,
+    "OBJECT":            14,
 }
 
 # ─── Setup ────────────────────────────────────────────────────────────────────

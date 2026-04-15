@@ -51,6 +51,8 @@ SHED_VOLTAGE_MAP = {
     1: "6.3kV",
     2: "6.3kV",
     3: "11kV",
+    4: "33kV",
+    5: "33kV"
 }
 SHED_VOLTAGE_GT3 = "33kV"
 
@@ -93,17 +95,27 @@ OBB_CLASS_KEYWORDS = {
 }
 
 # ── Component classes (YOLO Model) ───────────────────────────
-# 6 core physical components for the component detection model.
-# The pipeline uses these detections to run the rule engine.
+# Expanded classes for granular infrastructure detection
 COMPONENT_CLASSES = [
-    "insulator",      # 0 
-    "pole",           # 1 
-    "crossarm",       # 2 
-    "conductor",      # 3 
+    "POLE_9M",           # 0
+    "POLE_11M",          # 1
+    "POLE_8.1M",         # 2
+    "INS_PIN",           # 3
+    "INS_DISC",          # 4
+    "T_RISING",          # 5
+    "TAPPING_CHANNEL",   # 6
+    "SIDE_ARM_CHANNEL",  # 7
+    "V_CROSS",           # 8
+    "CONDUCTOR",         # 9
+    "STREET_LIGHT",      # 10
+    "DTR",               # 11
+    "WIRE_BROKEN",       # 12
+    "VEGETATION",        # 13
+    "OBJECT",            # 14
 ]
 
 
-# ── Final 15 pole classes (Rule Engine) ───────────────────────
+# ── Final asset classes (Rule Engine) ───────────────────────
 POLE_CLASSES = [
     "33kV_pole",         # 0
     "33kV_HT_pole",      # 1
@@ -120,6 +132,11 @@ POLE_CLASSES = [
     "street_light_pole", # 12
     "HT_tapping_point",  # 13
     "M9_tower",          # 14
+    "POLE_9M_11kV",      # 15
+    "POLE_11M_33kV",     # 16
+    "POLE_8.1M_LT",      # 17
+    "T_RISING_POLE",     # 18
+    "V_CROSS_POLE",      # 19
 ]
 
 # ── Datasets ──────────────────────────────────────────────────
@@ -215,13 +232,15 @@ DS_CLASS_MAPS = {
 # ── Component class keyword mapping ──────────────────────────
 # Used to route model class names to correct pipeline streams.
 OBB_CLASS_KEYWORDS = {
-    "insulator": ["insulator", "hardware"],
-    "pole":      ["pole", "support", "backbone"],
-    "crossarm":  ["crossarm", "arm", "bracket"],
+    "insulator": ["insulator", "hardware", "ins_pin", "ins_disc"],
+    "pole":      ["pole", "support", "backbone", "pole_9m", "pole_11m", "pole_8.1m"],
+    "crossarm":  ["crossarm", "arm", "bracket", "t_rising", "v_cross", "channel"],
     "conductor": ["conductor", "wire", "line", "cable"],
     "dtr_tank":  ["transformer", "dtr", "tank"],
     "lamp_head": ["lamp", "street_light", "st_light"],
     "ab_cable":  ["ab_cable", "bundle", "hanging_cable"],
     "lattice":   ["lattice", "tower_frame"],
     "jumper":    ["jumper", "loop", "tap_wire"],
+    "broken_wire": ["wire_broken", "broken_wire", "snapped"],
+    "vegetation": ["vegetation", "tree", "plant", "bush"],
 }

@@ -10,16 +10,30 @@ let activeBatchIndex = -1;
 let masterResult = null; 
 let imageDimensions = { width: 0, height: 0 };
 let CLASS_OPTIONS = [
-    "CONDUCTOR", "POLE", "CROSSARM", "TRANSFORMER", "INSULATOR"
+    "POLE_9M", "POLE_11M", "POLE_8.1M",
+    "INS_PIN", "INS_DISC",
+    "T_RISING", "TAPPING_CHANNEL", "SIDE_ARM_CHANNEL", "V_CROSS",
+    "CONDUCTOR", "STREET_LIGHT", "DTR", 
+    "WIRE_BROKEN", "VEGETATION", "OBJECT"
 ];
 
-// Distinct Premium Color Palette matching the desired clean backend inference look!
+// Distinct Premium Color Palette
 const CLASS_COLORS = {
-    "CONDUCTOR": "#00ffff",   // Cyan outline
-    "POLE": "#0ea5e9",        // Cyan-Blue
-    "CROSSARM": "#ff00ff",    // Magenta
-    "TRANSFORMER": "#f59e0b", // Amber
-    "INSULATOR": "#00ff00"    // Bright Green
+    "POLE_9M": "#0ea5e9",        // Cyan-Blue
+    "POLE_11M": "#38bdf8",       // Lighter Cyan
+    "POLE_8.1M": "#0284c7",      // Darker Cyan
+    "INS_PIN": "#00ff00",        // Bright Green
+    "INS_DISC": "#22c55e",       // Emerald Green
+    "T_RISING": "#ff00ff",       // Magenta
+    "TAPPING_CHANNEL": "#d946ef", // Fuchsia
+    "SIDE_ARM_CHANNEL": "#a855f7", // Purple
+    "V_CROSS": "#f43f5e",        // Rose
+    "CONDUCTOR": "#00ffff",      // Cyan
+    "STREET_LIGHT": "#f59e0b",   // Amber
+    "DTR": "#8b5cf6",            // Violet
+    "WIRE_BROKEN": "#ef4444",    // Bright Red (Fault)
+    "VEGETATION": "#fbbf24",     // Amber (Encroachment)
+    "OBJECT": "#a8a29e"          // Stone
 };
 
 // UI Persistence State
@@ -682,21 +696,30 @@ function renderResults() {
                 }
             };
 
-            // Dynamic Detail Meta-Data from Rule Engine
+            // Dynamic details based on component type
+            let detailStr = "";
+            let metaIcon = "fa-tag";
             const fakeConfStr = getFakeConfidenceValue(obj.confidence);
 
-            if (obj.label === 'INSULATOR' && obj.details) {
-                detailStr = `${obj.details.voltage} | ${obj.details.shed_count} sheds | Conf: ${fakeConfStr}`;
-                metaIcon = "fa-bolt-lightning";
-            } else if (obj.label === 'CONDUCTOR' && obj.thickness) {
-                detailStr = `Thickness: ${obj.thickness}px | Conf: ${fakeConfStr}`;
-                metaIcon = "fa-ruler-combined";
-            } else if (obj.label === 'CROSSARM' && obj.details) {
+            if (obj.label.includes('INS') && obj.details) {
+                detailStr = `${obj.details.type} (${obj.details.voltage}) | Sheds: ${obj.details.sheds} | Conf: ${fakeConfStr}`;
+                metaIcon = "fa-bolt";
+            } else if (obj.label.includes('CROSSARM') && obj.details) {
                 detailStr = `Geometry: ${obj.details.shape} | Conf: ${fakeConfStr}`;
                 metaIcon = "fa-compass-drafting";
-            } else if (obj.label === 'POLE' && obj.details) {
-                detailStr = `${obj.details.type} | Lean: ${obj.details.lean}° | Conf: ${fakeConfStr}`;
-                metaIcon = "fa-mountain";
+            } else if (obj.label.includes('POLE') && obj.details) {
+                const lean = obj.details.lean || 0;
+                const isExtreme = lean > 10;
+                const leanColor = isExtreme ? 'text-rose-400 font-black' : (lean > 5 ? 'text-amber-400' : 'text-emerald-400');
+                const abnormalityTag = isExtreme ? `<span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[7px] border border-rose-500/30 ml-2 animate-pulse">ABNORMALITY</span>` : "";
+                detailStr = `<span class="${leanColor}">LEAN: ${lean}°</span>${abnormalityTag} | ${obj.details.type} | <span class="text-white/60">Conf: ${fakeConfStr}</span>`;
+                metaIcon = "fa-triangle-exclamation";
+            } else if (obj.label === 'WIRE_BROKEN') {
+                detailStr = `<span class="text-rose-500 font-bold underline">CRITICAL: SNAPPED CONDUCTOR</span> | Conf: ${fakeConfStr}`;
+                metaIcon = "fa-scissors";
+            } else if (obj.label === 'VEGETATION') {
+                detailStr = `<span class="text-amber-500 font-bold">ENCROACHMENT DETECTED</span> | Conf: ${fakeConfStr}`;
+                metaIcon = "fa-leaf";
             } else {
                 detailStr = `Confidence: ${fakeConfStr}`;
             }
@@ -812,7 +835,12 @@ function renderBoxes() {
         labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
         const currentCount = labelCounts[baseLabel];
         const confText = getFakeConfidenceValue(obj.confidence);
-        const labelText = `${baseLabel} ${confText}`;
+        
+        // Add lean angle to label text if it's a pole
+        let labelText = `${baseLabel} ${confText}`;
+        if (baseLabel.includes('POLE') && obj.details && obj.details.lean !== undefined) {
+            labelText += ` | LEAN: ${obj.details.lean}°`;
+        }
 
         const [x1, y1, x2, y2] = obj.bbox;
         const w = (x2 - x1) * scaleX;

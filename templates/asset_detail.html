@@ -93,14 +93,13 @@
                     </div>
                 </div>
 
-                <!-- History Controls -->
                 <div>
                     <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Controls</h3>
                     <div class="grid grid-cols-2 gap-2">
-                        <button onclick="undo()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2 border border-white/5">
+                        <button onclick="undo()" class="btn-glass p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2" title="Undo (Ctrl+Z)">
                             <i class="fa-solid fa-rotate-left"></i> Undo
                         </button>
-                        <button onclick="redo()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2 border border-white/5">
+                        <button onclick="redo()" class="btn-glass p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2" title="Redo (Ctrl+Y)">
                             <i class="fa-solid fa-rotate-right"></i> Redo
                         </button>
                     </div>
@@ -221,10 +220,18 @@
 
 <script>
 const CLASS_COLORS = {
-    INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4',
-    CROSSARM: '#10b981', STREET_LIGHT: '#f97316', OBJECT: '#ec4899', DTR: '#a78bfa'
+    POLE_9M: '#0ea5e9', POLE_11M: '#38bdf8', "POLE_8.1M": '#0284c7',
+    INS_PIN: '#00ff00', INS_DISC: '#22c55e',
+    T_RISING: '#ff00ff', TAPPING_CHANNEL: '#d946ef', SIDE_ARM_CHANNEL: '#a855f7', V_CROSS: '#f43f5e',
+    CONDUCTOR: '#00ffff', STREET_LIGHT: '#f59e0b', DTR: '#8b5cf6', 
+    WIRE_BROKEN: '#ef4444', VEGETATION: '#fbbf24', OBJECT: '#a8a29e'
 };
-const CLASS_OPTIONS = ['INSULATOR','POLE','CONDUCTOR','CROSSARM','STREET_LIGHT','DTR','OBJECT'];
+const CLASS_OPTIONS = [
+    'POLE_9M', 'POLE_11M', 'POLE_8.1M',
+    'INS_PIN', 'INS_DISC',
+    'T_RISING', 'TAPPING_CHANNEL', 'SIDE_ARM_CHANNEL', 'V_CROSS',
+    'CONDUCTOR', 'STREET_LIGHT', 'DTR', 'WIRE_BROKEN', 'VEGETATION', 'OBJECT'
+];
 
 // === STATE ===
 let isDrawMode = false;
