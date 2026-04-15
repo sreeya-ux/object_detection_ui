@@ -38,6 +38,8 @@ class ComponentSignals:
     has_lattice:      bool  = False
     has_jumper:       bool  = False
     has_ht_and_lt:    bool  = False
+    has_broken_wire:  bool  = False
+    has_vegetation:   bool  = False
 
     # Pole geometry
     pole_type:        str   = "vertical_pole"   # "vertical_pole" | "strut_pole"
@@ -89,6 +91,12 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
             
         if signals.insulator_type == "unknown" and signals.conductor_count > 0:
             found_faults.append("MISSING INSULATOR / BROKEN MOUNT")
+
+        if signals.has_broken_wire:
+            found_faults.append("CRITICAL: SNAPPED/BROKEN CONDUCTOR")
+            
+        if signals.has_vegetation:
+            found_faults.append("VEGETATION ENCROACHMENT")
 
         if found_faults:
             reason = " { FAULT DETECTED } " + reason + " | " + ", ".join(found_faults)

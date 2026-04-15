@@ -413,6 +413,8 @@ class InfrastructurePipeline:
             has_lattice  = flags["has_lattice"],
             has_jumper   = flags["has_jumper"],
             has_ht_and_lt= flags["has_ht_and_lt"],
+            has_broken_wire = flags["has_broken_wire"],
+            has_vegetation  = flags["has_vegetation"],
 
             pole_type      = pole_result.pole_type      if pole_result else "vertical_pole",
             lean_angle_deg = pole_result.lean_angle_deg if pole_result else 0.0,
@@ -511,12 +513,18 @@ class InfrastructurePipeline:
         elif _match_keyword(cls_name, "lattice_frame"):
             flags["has_lattice"] = True
             other_boxes.append(("Lattice Frame", box, conf_val, polygon))
-        elif _match_keyword(cls_name, "jumper_wire"):
+        elif _match_keyword(cls_name, "jumper"):
             flags["has_jumper"] = True
             other_boxes.append(("Jumper Wire", box, conf_val, polygon))
+        elif _match_keyword(cls_name, "broken_wire"):
+            flags["has_broken_wire"] = True
+            other_boxes.append(("WIRE_BROKEN", box, conf_val, polygon))
+        elif _match_keyword(cls_name, "vegetation"):
+            flags["has_vegetation"] = True
+            other_boxes.append(("VEGETATION", box, conf_val, polygon))
         else:
             # Catch-all for any other model classes not explicitly handled
-            other_boxes.append((cls_name.replace("_", " ").title(), box, conf_val, polygon))
+            other_boxes.append((cls_name.upper(), box, conf_val, polygon))
 
     def _infer_pole_if_missing(
         self, insulator_boxes, crossarm_boxes, img_h, img_w
