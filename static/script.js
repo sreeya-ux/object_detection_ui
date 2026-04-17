@@ -1427,3 +1427,148 @@ function showToast(msg, type = "primary") {
         setTimeout(() => toast.remove(), 300);
     }, 4000);
 }
+
+// ==========================================
+// AR STREAMING LOGIC
+// ==========================================
+let arStream = null;
+let arInterval = null;
+
+async function toggleARMode() {
+    if (arStream) {
+        stopAR();
+    } else {
+        await startAR();
+    }
+}
+
+async function startAR() {
+    const arVideo = document.getElementById('arVideo');
+    const arContainer = document.getElementById('arContainer');
+    const arCanvas = document.getElementById('arCanvas');
+    
+    try {
+        arStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (arVideo) {
+            arVideo.srcObject = arStream;
+            arContainer.classList.remove('hidden');
+            
+            // Hide normal upload UI
+            document.getElementById('dropZone').classList.add('hidden');
+            document.getElementById('imageContainer').classList.add('hidden');
+            document.getElementById('submitSection').classList.add('hidden');
+            
+            arVideo.onloadedmetadata = () => {
+                arCanvas.width = arVideo.videoWidth;
+                arCanvas.height = arVideo.videoHeight;
+                arInterval = setInterval(processARFrame, 800); // sample every 800ms
+            };
+        }
+        showToast("AR Mode Active", "success");
+    } catch (err) {
+        showToast("Camera access denied or unavailable", "danger");
+        console.error("AR Start Error:", err);
+    }
+}
+
+function stopAR() {
+    const arContainer = document.getElementById('arContainer');
+    const arCanvas = document.getElementById('arCanvas');
+
+    if (arStream) {
+        arStream.getTracks().forEach(t => t.stop());
+        arStream = null;
+    }
+    if (arInterval) clearInterval(arInterval);
+    arInterval = null;
+    
+    if (arContainer && document.getElementById('dropZone')) {
+        arContainer.classList.add('hidden');
+        document.getElementById('dropZone').classList.remove('hidden');
+    }
+    if (arCanvas) {
+        const ctx = arCanvas.getContext('2d');
+        ctx.clearRect(0, 0, arCanvas.width, arCanvas.height);
+    }
+    showToast("AR Mode Stopped", "info");
+}
+
+async function processARFrame() {
+    const arVideo = document.getElementById('arVideo');
+    const arCanvas = document.getElementById('arCanvas');
+    
+    if (!arVideo || !arCanvas || !arStream) return;
+    
+    const ctx = arCanvas.getContext('2d');
+    
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = arVideo.videoWidth;
+    tempCanvas.height = arVideo.videoHeight;
+    tempCanvas.getContext('2d').drawImage(arVideo, 0, 0);
+    const frameBase64 = tempCanvas.toDataURL('image/jpeg', 0.6);
+    
+    document.getElementById('arOverlayLoading').classList.remove('hidden');
+
+    try {
+        const response = await fetch('/predict_stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: frameBase64 })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            drawARBoxes(ctx, data.detections, data.width, data.height);
+            
+            // Sync side-panel
+            detections = data.detections.map(d => ({ ...d, label: d.label.toUpperCase(), confirmed: false }));
+            masterResult = data.master;
+            renderResults();
+        }
+    } catch (e) {
+        console.warn("AR Frame drop", e);
+    } finally {
+        document.getElementById('arOverlayLoading').classList.add('hidden');
+    }
+}
+
+function drawARBoxes(ctx, detectionsData, origW, origH) {
+    if (!ctx) return;
+    const arCanvas = document.getElementById('arCanvas');
+    ctx.clearRect(0, 0, arCanvas.width, arCanvas.height);
+    
+    const scaleX = arCanvas.width / origW;
+    const scaleY = arCanvas.height / origH;
+    
+    detectionsData.forEach(d => {
+        const color = CLASS_COLORS[d.label.toUpperCase()] || "#00ff00";
+        if (d.polygon && d.polygon.length > 0) {
+            ctx.beginPath();
+            ctx.moveTo(d.polygon[0][0] * scaleX, d.polygon[0][1] * scaleY);
+            for(let i=1; i<d.polygon.length; i++) {
+                ctx.lineTo(d.polygon[i][0] * scaleX, d.polygon[i][1] * scaleY);
+            }
+            ctx.closePath();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+            ctx.fillStyle = color + "33";
+            ctx.fill();
+        } else if (d.bbox && d.bbox.length === 4) {
+            const [x1, y1, x2, y2] = d.bbox;
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = color;
+            ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2-x1) * scaleX, (y2-y1) * scaleY);
+        }
+        
+        // draw label
+        const cx = (d.bbox && !!d.bbox.length ? d.bbox[0] * scaleX : d.polygon[0][0] * scaleX);
+        const cy = (d.bbox && !!d.bbox.length ? d.bbox[1] * scaleY : d.polygon[0][1] * scaleY);
+        
+        ctx.fillStyle = color;
+        ctx.fillRect(cx, cy - 20, ctx.measureText(d.label).width + 10, 20);
+        ctx.fillStyle = "#000000";
+        ctx.font = "bold 12px Inter";
+        ctx.fillText(d.label.toUpperCase(), cx + 5, cy - 5);
+    });
+}

@@ -183,14 +183,19 @@ class ShedCounter:
             return 0
         
         # ── Pre-processing: Contrast Enhancement (CLAHE) ─────
-        # Makes hardware rings (sheds) more visible against bright backgrounds
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        # Apply CLAHE to Lightness channel only to preserve color features!
+        # If we convert it to raw Grayscale, YOLO models trained on RGB will fail to detect.
+        lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        cl = clahe.apply(gray)
-        crop = cv2.cvtColor(cl, cv2.COLOR_GRAY2BGR)
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+        crop_enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
         from config import SHED_MODEL_CONF
-        results = self.model(crop, conf=SHED_MODEL_CONF, verbose=False)
+        # iou=0.6 is crucial here: Sheds sit tightly stacked! 
+        # Standard NMS (0.45) will delete overlapping sheds thinking they are duplicates.
+        results = self.model(crop_enhanced, conf=SHED_MODEL_CONF, iou=0.6, verbose=False)
         count = 0
         for r in results:
             if r.boxes is not None:

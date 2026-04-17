@@ -317,6 +317,27 @@ def process_image_file(file_stream):
 # =========================
 # FLASK ROUTES
 # =========================
+@app.route('/predict_stream', methods=['POST'])
+@login_required
+def predict_stream():
+    """Lightweight endpoint for AR Camera Stream."""
+    data = request.json
+    if not data or 'image' not in data:
+        return jsonify({"error": "No image payload"}), 400
+    
+    img_b64 = data['image'].split(',')[1] if ',' in data['image'] else data['image']
+    img_data = base64.b64decode(img_b64)
+    file_stream = io.BytesIO(img_data)
+    
+    try:
+        result = process_image_file(file_stream)
+        # Strip annotated image to save bandwidth for the stream
+        if "annotated_image" in result:
+            del result["annotated_image"]
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/')
 @login_required
 def home():

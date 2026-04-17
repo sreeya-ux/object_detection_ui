@@ -70,9 +70,22 @@
             <!-- Left Side: Input & Preview -->
             <div class="space-y-6">
                 <div class="card bg-gray-900/60 border-white/5 shadow-inner">
-                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                        <i class="fa-solid fa-camera-retro text-blue-500"></i> Capture / Input Data
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6 flex items-center justify-between">
+                        <span class="flex items-center gap-2"><i class="fa-solid fa-camera-retro text-blue-500"></i> Capture / Input Data</span>
+                        <button id="btnARMode" onclick="toggleARMode()" class="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 border border-emerald-500/20 shadow-lg active:scale-95">
+                            <i class="fa-solid fa-vr-cardboard"></i> Live AR Mode
+                        </button>
                     </h2>
+
+                    <!-- AR Video Container -->
+                    <div id="arContainer" class="relative hidden rounded-xl border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.1)] overflow-hidden w-full h-[500px] mb-6 bg-black flex items-center justify-center group">
+                        <video id="arVideo" autoplay playsinline class="absolute top-0 left-0 w-full h-full object-cover"></video>
+                        <canvas id="arCanvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
+                        <div id="arOverlayLoading" class="absolute inset-0 bg-black/50 backdrop-blur-sm hidden flex-col items-center justify-center z-10 transition-all">
+                            <div class="loader mb-4 w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                            <p class="text-emerald-400 font-bold uppercase tracking-widest text-[10px]">Analyzing Feed...</p>
+                        </div>
+                    </div>
 
                     <!-- Manual Annotation Controls -->
                     <div
