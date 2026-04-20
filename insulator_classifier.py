@@ -364,9 +364,13 @@ class InsulatorClassifier:
             # Crop and count for all types (Pin and Disc) using best_disc.pt
             shed_count = self.shed_counter.count(img, box)
             
-            # SANITY OVERRIDE: 3 sheds = 11kV Pin Insulator in almost all cases.
-            # If the model counted 3, we force the type to pin.
-            if shed_count == 3:
+            # USER REQUESTED OVERRIDE: 
+            # > 3 sheds = Disc Insulator
+            # <= 3 sheds = Pin Insulator (as long as it counted at least 1)
+            if shed_count > 3:
+                type_final = "disc"
+                confidence = "high"
+            elif shed_count > 0 and shed_count <= 3:
                 type_final = "pin"
                 confidence = "high"
             
