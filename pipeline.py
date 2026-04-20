@@ -325,14 +325,15 @@ class InfrastructurePipeline:
 
         # ── Classify crossarm shapes ──────────────────────────
         crossarm_results = []
-        for box, conf, ang, poly in crossarm_boxes:
+        for box, conf, ang, poly, native_cls in crossarm_boxes:
             cr = classify_crossarm_shape(
                 box,
                 [c[0] for c in conductor_boxes],
                 [p[0] for p in pole_boxes_raw],
                 (img_h, img_w),
                 obb_angle_deg=ang,
-                insulator_results=insulator_results
+                insulator_results=insulator_results,
+                native_class=native_cls
             )
             cr.detection_conf = conf
             cr.obb_polygon = poly
@@ -491,11 +492,12 @@ class InfrastructurePipeline:
         elif _match_keyword(cls_name, "pole"):
             pole_boxes_raw.append(det)
         elif _match_keyword(cls_name, "crossarm"):
+            native = cls_name.lower()
             # Structural Guard: Crossarms MUST be horizontal. 
             # We allow a small tolerance (1.2x) for significantly tilted arms.
             w, h = box[2] - box[0], box[3] - box[1]
-            if (w * 1.2) > h:
-                crossarm_boxes.append(det)
+            if (w * 1.2) > h or "t_rising" in native or "side_arm" in native:
+                crossarm_boxes.append((box, conf_val, angle_deg, polygon, native))
             else:
                 # If it's vertical but high confidence, maybe it's a pole?
                 if conf_val > 0.40:
@@ -534,8 +536,8 @@ class InfrastructurePipeline:
         infer a vertical pole box from the component alignment.
         """
         all_box_coords = []
-        for b, _, _ in insulator_boxes: all_box_coords.append(b)
-        for b, _, _ in crossarm_boxes:    all_box_coords.append(b)
+        for item in insulator_boxes: all_box_coords.append(item[0])
+        for item in crossarm_boxes:  all_box_coords.append(item[0])
         
         if not all_box_coords:
             return None

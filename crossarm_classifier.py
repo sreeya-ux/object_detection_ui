@@ -199,9 +199,10 @@ def classify_crossarm_shape(
     img_shape: tuple,
     obb_angle_deg: Optional[float] = None,
     insulator_results: list = None,
+    native_class: str = "",
 ) -> CrossarmResult:
     """
-    Classifies crossarm as straight / v_arm / t_raising.
+    Classifies crossarm as straight / v_arm / t_raising (or native labels).
     Also checks for crossarm alignment fault.
 
     Args:
@@ -211,6 +212,7 @@ def classify_crossarm_shape(
         img_shape      : (height, width)
         obb_angle_deg  : from OBB detection (None = not available)
         insulator_results: list of InsulatorResult objects
+        native_class   : original YOLO class string
     """
     x1, y1, x2, y2 = crossarm_box
     c_w   = x2 - x1
@@ -222,7 +224,33 @@ def classify_crossarm_shape(
     # ── Adjustment fault check ────────────────────────────────
     fault, severity, tilt, fault_note = check_crossarm_fault(obb_angle_deg)
 
-    # ── T-Raising Arm (Vertical Profile) ──────────────────────
+    # ── AI Native Label Override ──────────────────────────────
+    if "t_rising" in native_class or "t_arm" in native_class:
+        return CrossarmResult(
+            box=crossarm_box, shape="t_raising", confidence="high",
+            aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
+            adjustment_fault=fault, fault_severity=severity,
+            tilt_deg=tilt, fault_note=fault_note,
+            note=f"Trusting YOLO Native Label: {native_class}"
+        )
+    if "v_cross" in native_class or "v_arm" in native_class:
+        return CrossarmResult(
+            box=crossarm_box, shape="v_arm", confidence="high",
+            aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
+            adjustment_fault=fault, fault_severity=severity,
+            tilt_deg=tilt, fault_note=fault_note,
+            note=f"Trusting YOLO Native Label: {native_class}"
+        )
+    if native_class in ["side_arm_channel", "tapping_channel"]:
+        return CrossarmResult(
+            box=crossarm_box, shape=native_class, confidence="high",
+            aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
+            adjustment_fault=fault, fault_severity=severity,
+            tilt_deg=tilt, fault_note=fault_note,
+            note=f"Trusting YOLO Native Label: {native_class}"
+        )
+
+    # ── T-Raising Arm (Vertical Profile) Fallback ──────────────
     # Usually vertical (AR < 2) and centered on pole.
     # High-Priority check for T-Arms as they are structurally unique.
     if pole_boxes:
