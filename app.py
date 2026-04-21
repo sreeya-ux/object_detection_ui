@@ -61,13 +61,15 @@ def log_activity(user, action, details=None):
 
 def get_ngrok_url():
     try:
-        response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=0.1)
+        # Increased timeout to 2.0s to prevent false negatives under high load
+        response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=2.0)
         if response.status_code == 200:
             tunnels = response.json().get('tunnels', [])
             for tunnel in tunnels:
                 if tunnel.get('proto') == 'https':
                     return tunnel.get('public_url')
-    except:
+    except Exception as e:
+        print(f"[Ngrok] Connection failed: {e}")
         return None
     return None
 
@@ -403,7 +405,9 @@ def predict_stream():
             del result["annotated_image"]
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Inference Error: {str(e)}"}), 500
 
 @app.route('/')
 @login_required
@@ -493,7 +497,9 @@ def predict():
         result = process_image_file(file)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Inference Error: {str(e)}"}), 500
 
 # =========================
 # API ENDPOINTS

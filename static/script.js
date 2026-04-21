@@ -477,7 +477,10 @@ async function processImage() {
             body: formData
         });
         
-        if (!response.ok) throw new Error("Inference failed");
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Server Error: ${response.status}`);
+        }
         
         const data = await response.json();
         
