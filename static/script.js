@@ -594,12 +594,40 @@ function renderResults() {
         document.getElementById("masterReason").textContent = masterResult.reason;
         
         const confEl = document.getElementById("masterConfidence");
-        const confScore = masterResult.confidence.toLowerCase();
-        confEl.textContent = `Confidence: ${masterResult.confidence}`;
-        
         if (confScore === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
         else if (confScore === 'medium') confEl.className = "text-[8px] font-bold text-amber-400/80 uppercase tracking-widest";
         else confEl.className = "text-[8px] font-bold text-rose-400/80 uppercase tracking-widest";
+
+        // 1.1 Update Pole Stability Row
+        const stabilityRow = document.getElementById("poleStabilityRow");
+        const angleEl = document.getElementById("poleLeanAngle");
+        const statusBadge = document.getElementById("poleStatusBadge");
+
+        if (masterResult.pole_lean_angle !== undefined) {
+            stabilityRow.classList.remove("hidden");
+            const angle = parseFloat(masterResult.pole_lean_angle);
+            angleEl.textContent = `${angle.toFixed(1)}°`;
+
+            // Categorization logic based on config thresholds
+            let status = "Vertical";
+            let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            
+            if (masterResult.pole_type === 'strut_pole') {
+                status = "Strut Pole";
+                badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
+            } else if (angle >= 10.0) {
+                status = "Critical lean";
+                badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+            } else if (angle >= 5.0) {
+                status = "Leaning";
+                badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+            }
+
+            statusBadge.textContent = status;
+            statusBadge.className = `px-2 py-0.5 rounded text-[8px] font-bold uppercase ${badgeClass}`;
+        } else {
+            stabilityRow.classList.add("hidden");
+        }
     } else {
         masterCard.classList.add('hidden');
     }

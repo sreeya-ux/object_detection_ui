@@ -359,7 +359,9 @@ def process_image_file(file_stream):
             "final_class": pipe_res.final_class,
             "voltage": pipe_res.voltage,
             "reason": pipe_res.reason,
-            "confidence": pipe_res.confidence
+            "confidence": pipe_res.confidence,
+            "pole_lean_angle": pipe_res.pole_orientation.lean_angle_deg if pipe_res.pole_orientation else 0.0,
+            "pole_type": pipe_res.pole_orientation.pole_type if pipe_res.pole_orientation else "none"
         }
 
         # Encode for response
