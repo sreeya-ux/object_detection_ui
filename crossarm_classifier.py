@@ -162,18 +162,22 @@ def classify_pole_orientation(
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → steep strut"
     else:
-        # Fallback: aspect ratio
-        lean = 0.0
+        # Fallback: Use Aspect Ratio (AR) to infer lean if OBB angle is missing
+        # A leaning pole has a wider bounding box -> lower AR.
+        # Vertical poles typically have AR > 5.0 (height is 5x more than width)
         if ar > 5.0:
             pole_type, confidence = "vertical_pole", "medium"
-            note = f"AR={ar:.1f} → assumed vertical (no OBB angle)"
-        elif ar > 2.0:
+            lean = 0.0
+            note = f"AR={ar:.1f} → assumed vertical"
+        elif ar > 2.5:
             pole_type, confidence = "vertical_pole", "low"
-            note = f"AR={ar:.1f} → likely vertical"
+            # Infer a small lean if AR starts dropping
+            lean = round(max(0, (5.0 - ar) * 4), 1) 
+            note = f"AR={ar:.1f} → slight lean inferred"
         else:
             pole_type, confidence = "strut_pole", "low"
             lean = 30.0
-            note = f"AR={ar:.1f} → wide bbox suggests strut"
+            note = f"AR={ar:.1f} → wide bbox suggests significant lean/strut"
 
     # ── Adjustment fault check ────────────────────────────────
     fault, severity, fault_note = check_pole_fault(lean, pole_type)
