@@ -615,10 +615,10 @@ function renderResults() {
             if (masterResult.pole_type === 'strut_pole') {
                 status = "Strut Pole";
                 badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
-            } else if (angle >= 10.0) {
+            } else if (masterResult.pole_status === 'fault') {
                 status = "Critical lean";
                 badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
-            } else if (angle >= 5.0) {
+            } else if (masterResult.pole_status === 'warning') {
                 status = "Leaning";
                 badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
             }
