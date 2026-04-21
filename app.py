@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response, send_file
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 import requests
 import csv
 import io
@@ -18,7 +18,7 @@ import torch
 import segmentation_models_pytorch as smp
 from pipeline import InfrastructurePipeline
 from training_pipeline import export_asset_to_training, get_training_stats
-from report_generator import generate_asset_pdf, generate_asset_excel
+from report_generator import generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
 
 # =========================
 # GLOBAL INITIALIZATION
@@ -113,10 +113,74 @@ def login():
     
     return render_template('login.html', ngrok_url=get_ngrok_url())
 
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        confirm_password = request.form.get('confirm_password', '').strip()
+
+        if not username or not password:
+            return render_template('signup.html', error="All fields are required")
+        if password != confirm_password:
+            return render_template('signup.html', error="Passwords do not match")
+
+        conn = get_db_connection()
+        existing = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        if existing:
+            conn.close()
+            return render_template('signup.html', error="Username already exists")
+
+        hashed_pw = generate_password_hash(password)
+        conn.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', (username, hashed_pw, 'user'))
+        conn.commit()
+        
+        # Log them in automatically
+        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        conn.close()
+        
+        session['user'] = user['username']
+        session['role'] = user['role']
+        log_activity(username, "signup", "New user registered via web UI")
+        
+        return redirect(url_for('home'))
+
+    return render_template('signup.html')
+
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+# =========================
+# ADMIN USER MANAGEMENT
+# =========================
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def get_all_users():
+    conn = get_db_connection()
+    users = conn.execute('SELECT id, username, role FROM users').fetchall()
+    conn.close()
+    return jsonify([dict(u) for u in users])
+
+@app.route('/api/admin/users/<username>', methods=['DELETE'])
+@admin_required
+def delete_user(username):
+    # Prevent self-deletion
+    if username == session.get('user'):
+        return jsonify({'status': 'error', 'message': 'Cannot delete active session user'}), 400
+        
+    conn = get_db_connection()
+    cursor = conn.execute('DELETE FROM users WHERE username = ?', (username,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    
+    if deleted:
+        log_activity(session.get('user', 'admin'), "delete_user", f"Deleted user: {username}")
+        return jsonify({'status': 'success'})
+    else:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
 
 # =========================
 # IMAGE PROCESSING
@@ -349,42 +413,44 @@ def home():
 def admin_dashboard():
     return render_template('admin.html')
 
-@app.route('/admin/export')
+@app.route('/admin/export/global/excel')
 @admin_required
-def export_tasks():
+def export_global_excel():
     conn = get_db_connection()
-    tasks = conn.execute('SELECT * FROM tasks ORDER BY timestamp DESC').fetchall()
+    assets = conn.execute('SELECT * FROM assets ORDER BY timestamp DESC').fetchall()
+    asset_images = conn.execute('SELECT * FROM asset_images').fetchall()
     conn.close()
 
-    # Create CSV in memory
-    si = io.StringIO()
-    cw = csv.writer(si)
-    cw.writerow(['TASK_ID', 'TIMESTAMP', 'WORKER', 'STATUS', 'LABEL', 'CONFIDENCE', 'X1', 'Y1', 'X2', 'Y2', 'MANUAL_ENTRY'])
-    
-    for task in tasks:
-        try:
-            detections = json.loads(task['detections'])
-            for d in detections:
-                bbox = d.get('bbox', [0,0,0,0])
-                cw.writerow([
-                    task['id'],
-                    task['timestamp'],
-                    task['worker_name'],
-                    task['status'],
-                    d.get('label', 'UNKNOWN'),
-                    f"{float(d.get('confidence', 0)):.2f}",
-                    bbox[0], bbox[1], bbox[2], bbox[3],
-                    d.get('manual', False)
-                ])
-        except Exception as e:
-            print(f"Error exporting task {task['id']}: {e}")
-            continue
-            
-    output = make_response(si.getvalue())
-    filename = f"asakta_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    output.headers["Content-Disposition"] = f"attachment; filename={filename}"
-    output.headers["Content-type"] = "text/csv"
-    return output
+    # Group images by asset
+    img_map = {}
+    for img in asset_images:
+        aid = img['asset_id']
+        if aid not in img_map: img_map[aid] = []
+        parsed_img = dict(img)
+        parsed_img['detections'] = json.loads(img['detections'])
+        img_map[aid].append(parsed_img)
+
+    assets_list = []
+    for a in assets:
+        a_dict = dict(a)
+        a_dict['images'] = img_map.get(a['id'], [])
+        assets_list.append(a_dict)
+
+    excel_buffer = generate_global_excel(assets_list)
+    filename = f"Global_Inspection_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(excel_buffer, download_name=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@app.route('/admin/export/global/pdf')
+@admin_required
+def export_global_pdf():
+    conn = get_db_connection()
+    assets = conn.execute('SELECT * FROM assets ORDER BY timestamp DESC').fetchall()
+    conn.close()
+
+    assets_list = [dict(a) for a in assets]
+    pdf_buffer = generate_global_pdf(assets_list)
+    filename = f"Global_Inspection_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return send_file(pdf_buffer, download_name=filename, as_attachment=True, mimetype='application/pdf')
 
 @app.route('/admin/asset/<asset_id>')
 @admin_required

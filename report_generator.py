@@ -138,3 +138,103 @@ def generate_asset_excel(asset_data):
     
     buffer.seek(0)
     return buffer
+
+def generate_global_pdf(assets_list):
+    """
+    Generates a global summary PDF for multiple assets.
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle(
+        'TitleStyle', parent=styles['Heading1'], fontSize=24,
+        textColor=colors.HexColor("#1e293b"), spaceAfter=10, fontName='Helvetica-Bold'
+    )
+    
+    story = []
+    story.append(Paragraph("ASAKTA VISION AI", styles['Heading4']))
+    story.append(Paragraph("GLOBAL INFRASTRUCTURE REPORT", title_style))
+    story.append(Paragraph(f"Total Assets: {len(assets_list)}", styles['Normal']))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+
+    if not assets_list:
+        story.append(Paragraph("No assets found in the database.", styles['Normal']))
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    # Table Header
+    data = [["Asset ID", "Worker", "Status", "Class", "Timestamp"]]
+    
+    for a in assets_list:
+        short_id = a['id'][:8] + "..." if len(a['id']) > 8 else a['id']
+        data.append([
+            short_id,
+            a['worker_name'],
+            a['status'],
+            a['asset_class'] or "N/A",
+            a['timestamp']
+        ])
+    
+    t = Table(data, colWidths=[100, 100, 60, 100, 140])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_global_excel(assets_list):
+    """
+    Generates a global detailed Excel report.
+    """
+    df_data = []
+    for a in assets_list:
+        if not a.get('images'):
+            df_data.append({
+                "Asset_ID": a['id'],
+                "Worker": a['worker_name'],
+                "Timestamp": a['timestamp'],
+                "Status": a['status'],
+                "Category": a['asset_class'],
+                "Voltage": a['voltage'],
+                "Component": "None",
+                "Confidence": "",
+                "Manual_Edit": ""
+            })
+            continue
+            
+        for i, img in enumerate(a['images']):
+            for det in img.get('detections', []):
+                df_data.append({
+                    "Asset_ID": a['id'],
+                    "Worker": a['worker_name'],
+                    "Timestamp": a['timestamp'],
+                    "Status": a['status'],
+                    "Category": a['asset_class'],
+                    "Voltage": a['voltage'],
+                    "Frame_No": i + 1,
+                    "Component": det.get('label', 'UNKNOWN'),
+                    "Confidence": det.get('confidence', 1.0),
+                    "Manual_Edit": det.get('manual', False)
+                })
+    
+    if not df_data:
+        df_data.append({"Info": "No data found"})
+        
+    df = pd.DataFrame(df_data)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Global_Detection_Log')
+    
+    buffer.seek(0)
+    return buffer
