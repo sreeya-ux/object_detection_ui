@@ -1,0 +1,20 @@
+path: C:\Users\ASK037-PC\Documents\object_detection_ui\training_data
+train: images
+val: images
+nc: 15
+names:
+  0: POLE_9M
+  1: POLE_11M
+  2: POLE_8.1M
+  3: INS_PIN
+  4: INS_DISC
+  5: T_RISING
+  6: TAPPING_CHANNEL
+  7: SIDE_ARM_CHANNEL
+  8: V_CROSS
+  9: CONDUCTOR
+  10: STREET_LIGHT
+  11: DTR
+  12: WIRE_BROKEN
+  13: VEGETATION
+  14: OBJECT
