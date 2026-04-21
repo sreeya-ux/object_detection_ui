@@ -238,7 +238,7 @@ class InfrastructurePipeline:
                     b        = box_obj.xyxy[0].cpu().numpy()
                     box      = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
                     bw, bh   = b[2] - b[0], b[3] - b[1]
-                    angle_deg = 90.0 if bh > bw else 0.0
+                    angle_deg = None # Trigger aspect-ratio fallback
                     
                     # For non-OBB detections, the polygon is just the bbox corners
                     poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
@@ -265,7 +265,7 @@ class InfrastructurePipeline:
                     b        = box_obj.xyxy[0].cpu().numpy()
                     box      = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
                     bw, bh   = b[2] - b[0], b[3] - b[1]
-                    angle_deg = 90.0 if bh > bw else 0.0
+                    angle_deg = None
 
                     # Route to correct stream
                     poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
