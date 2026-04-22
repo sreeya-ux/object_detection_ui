@@ -228,7 +228,12 @@
         let currentFilter = 'pending';
         let adminHistoryStack = [];
         let adminRedoStack = [];
-        let allTasksCached = [];
+        // Helper to format B64 strings correctly and prevent double-prefixing
+        function formatB64(src) {
+            if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
+            if (src.startsWith('data:image')) return src;
+            return 'data:image/jpeg;base64,' + src;
+        }
 
         async function updateStats() {
             const allRes = await fetch('/api/get_assets');
@@ -279,8 +284,8 @@
                             </div>
                             <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
                         </div>
-                        <div class="relative overflow-hidden rounded-lg aspect-video bg-black border border-gray-800">
-                            <img src="data:image/jpeg;base64,${task.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div class="aspect-[4/3] bg-gray-800 rounded-xl overflow-hidden mb-3 border border-white/5 relative group-hover:border-blue-500/50 transition-all">
+                            <img src="${formatB64(task.thumbnail)}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
                         </div>
                     </a>
                     <div class="grid grid-cols-2 gap-2 mt-3">
@@ -303,7 +308,7 @@
 
             currentTaskId = taskId;
             const img = document.getElementById('modalImg');
-            img.src = 'data:image/jpeg;base64,' + task.thumbnail;
+            img.src = formatB64(task.thumbnail);
             document.getElementById('modalUserIn').textContent = `ID: ${task.id.split('-')[0]} | SUBMITTED BY: ${task.worker_name}`;
             
             // Set Summary Details
