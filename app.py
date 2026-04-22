@@ -54,10 +54,17 @@ def get_db_connection():
 def clean_b64(b64_str):
     """Robustly strips prefixes and fixes padding for b64 strings."""
     if not b64_str: return ""
-    if ',' in b64_str:
-        b64_str = b64_str.split(',')[1]
-    # Remove whitespace
-    b64_str = b64_str.strip()
+    b64_str = str(b64_str).strip()
+    
+    # Handle multiple prefixes (take the last part)
+    if 'base64,' in b64_str:
+        b64_str = b64_str.split('base64,')[-1]
+    elif ',' in b64_str:
+        b64_str = b64_str.split(',')[-1]
+        
+    # Remove any internal whitespace that might disrupt padding calculation
+    b64_str = "".join(b64_str.split())
+    
     # Add padding if needed
     missing_padding = len(b64_str) % 4
     if missing_padding:
