@@ -268,7 +268,7 @@
             }
             
             cleaned = cleaned.trim().replace(/\s/g, '');
-            if (cleaned.startsWith('http')) return cleaned;
+            if (cleaned.startsWith('http') || cleaned.startsWith('/uploads/')) return cleaned;
             return 'data:image/jpeg;base64,' + cleaned;
         }
 

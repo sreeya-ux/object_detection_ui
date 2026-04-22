@@ -284,7 +284,7 @@ function formatB64(src) {
     
     // 2. Final normalization & Whitespace Stripping
     cleaned = cleaned.trim().replace(/\s/g, '');
-    if (cleaned.startsWith('http')) return cleaned;
+    if (cleaned.startsWith('http') || cleaned.startsWith('/uploads/')) return cleaned;
     
     // 3. Re-apply a single, clean prefix
     return 'data:image/jpeg;base64,' + cleaned;
