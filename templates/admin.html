@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Asakta Vision AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        if (window.console) {
+            const _warn = console.warn;
+            console.warn = function() {
+                if (arguments[0] && typeof arguments[0] === 'string' && arguments[0].includes('cdn.tailwindcss.com')) return;
+                _warn.apply(console, arguments);
+            }
+        }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -231,11 +240,13 @@
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
             if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
-            let clean = src.toString();
-            // Aggressive strip of double prefixes if they exist
-            while (clean.includes('base64,data:image')) {
-                clean = clean.split('base64,')[1];
-            }
+            let clean = src.toString().trim();
+            if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
+
+            // Handle double-prefixing by taking the last segment
+            const parts = clean.split('base64,');
+            clean = parts[parts.length - 1];
+
             if (clean.startsWith('data:image')) return clean;
             return 'data:image/jpeg;base64,' + clean;
         }
