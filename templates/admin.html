@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Asakta Vision AI</title>
+    <title>Admin Dashboard v3.1 [UPDATED]</title>
     <script>
         (function() {
             const _warn = console.warn;
@@ -239,25 +239,31 @@
         let adminRedoStack = [];
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
-            if (!src || src === 'None' || src === 'null' || src.length < 20) {
+            if (!src || src === 'None' || src === 'null' || src.length < 30) {
                 return 'https://via.placeholder.com/400x300?text=No+Asset+Image';
             }
             
-            let clean = src.toString().trim();
+            let str = src.toString().trim();
+            const prefixPatterns = [
+                /^data:image\/[a-z]+;base64,/, 
+                /base64,/g,
+                /^data:base64,/,
+                /data:image\/jpeg;base64,/g
+            ];
             
-            // Remove any data:image/...;base64, prefixes recursively
-            const b64Regex = /^data:image\/[a-z]+;base64,/;
-            while (b64Regex.test(clean) || clean.includes('base64,')) {
-                if (clean.includes('base64,')) {
-                    clean = clean.split('base64,').pop();
-                } else {
-                    clean = clean.replace(b64Regex, '');
-                }
+            let cleaned = str;
+            let changed = true;
+            while(changed) {
+                let before = cleaned;
+                prefixPatterns.forEach(p => {
+                    cleaned = cleaned.replace(p, '');
+                });
+                changed = (before !== cleaned);
             }
             
-            // Final check: if it's a URL, return it, otherwise add single prefix
-            if (clean.startsWith('http')) return clean;
-            return 'data:image/jpeg;base64,' + clean;
+            cleaned = cleaned.trim();
+            if (cleaned.startsWith('http')) return cleaned;
+            return 'data:image/jpeg;base64,' + cleaned;
         }
 
         async function updateStats() {

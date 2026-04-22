@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Asset Analysis Studio - Asakta Vision AI</title>
+    <title>Asset Studio v3.1 [UPDATED]</title>
     <script>
         (function() {
             const _warn = console.warn;
@@ -248,19 +248,41 @@ const CLASS_OPTIONS = [
 
 // === STATE ===
 // Helper to format B64 strings correctly and prevent double-prefixing
+/**
+ * NUCLEAR formatB64: Recursively cleans a string of ANY prefixing patterns
+ * ensures we get a clean base64 data core.
+ */
 function formatB64(src) {
-    if (!src || src === 'None' || src === 'null') return 'https://via.placeholder.com/400x300?text=No+Data';
-    let clean = src.toString().trim();
-    if (!clean) return 'https://via.placeholder.com/400x300?text=Empty+Source';
-    if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
+    if (!src || src === 'None' || src === 'null' || src.length < 30) {
+        return 'https://via.placeholder.com/400x300?text=No+Capture+Data';
+    }
     
-    // Handle double-prefixing by taking the last segment
-    const parts = clean.split('base64,');
-    clean = parts[parts.length - 1];
+    let str = src.toString().trim();
     
-    if (clean.startsWith('data:image')) return clean;
-    if (clean.length < 10) return 'https://via.placeholder.com/400x300?text=Invalid+Data';
-    return 'data:image/jpeg;base64,' + clean;
+    // 1. Recursive removal of ALL possible prefix patterns
+    const prefixPatterns = [
+        /^data:image\/[a-z]+;base64,/, 
+        /base64,/g,
+        /^data:base64,/,
+        /data:image\/jpeg;base64,/g
+    ];
+    
+    let cleaned = str;
+    let changed = true;
+    while(changed) {
+        let before = cleaned;
+        prefixPatterns.forEach(p => {
+            cleaned = cleaned.replace(p, '');
+        });
+        changed = (before !== cleaned);
+    }
+    
+    // 2. Final normalization
+    cleaned = cleaned.trim();
+    if (cleaned.startsWith('http')) return cleaned;
+    
+    // 3. Re-apply a single, clean prefix
+    return 'data:image/jpeg;base64,' + cleaned;
 }
 
 function downloadAnnotated() {
