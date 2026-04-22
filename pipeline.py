@@ -169,14 +169,14 @@ class InfrastructurePipeline:
         import torch
 
         # ── Step 1: Run component detector (Optimized Single Scale) ────
-        # 1280px is the sweet spot for structural detail and thin conductor detection.
-        # Single-pass reduces memory usage by ~60% compared to triple-pass.
-        raw_combined_res = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=1280)
+        # 800px serves as a high-stability resolution for 1.7GB RAM environments.
+        # This significantly reduces memory spikes and prevents NGrok timeouts.
+        raw_combined_res = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=800)
         raw_structural = list(raw_combined_res)
         
         # ── Step 2: Run specialized insulator detector (Hardware Detail) ──
-        # Reduce resolution to 1280px to save RAM while maintaining accuracy.
-        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=1280, verbose=False)
+        # Matching resolution to 800px to maintain consistent feature scale.
+        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=800, verbose=False)
 
         # Proactive memory cleanup
         gc.collect()

@@ -224,10 +224,13 @@ def process_image_file(file_stream):
             out = unet_model(tensor)
             mask = torch.sigmoid(out).squeeze().cpu().numpy()
             log_mem("After UNet")
+            del out
         
-        # Explicitly free tensor memory
+        # Explicitly free memory
         del tensor
         gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             
@@ -396,9 +399,19 @@ def process_image_file(file_stream):
             "height": h
         }
     finally:
+        # Final safety cleanup for 1.7GB RAM environment
+        if 'img' in locals(): del img
+        if 'pipe_res' in locals(): del pipe_res
+        if 'mask' in locals(): del mask
+        if 'tensor' in locals(): del tensor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # Cleanup temporary image file
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
+        log_mem("Request End")
 
 # =========================
 # FLASK ROUTES
