@@ -155,6 +155,34 @@ def login():
     
     return render_template('login.html', ngrok_url=get_ngrok_url())
 
+def sanitize_database():
+    """Permanent fix: Strips all legacy prefixes from the DB so clean_b64 never fails."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute('SELECT id, image_b64 FROM asset_images').fetchall()
+        count = 0
+        for r in rows:
+            b = r['image_b64']
+            if b and (',' in b or 'base64' in b):
+                # Take only the standard b64 part
+                cleaned = b.split(',')[-1].split('base64,').pop().strip()
+                conn.execute('UPDATE asset_images SET image_b64 = ? WHERE id = ?', (cleaned, r['id']))
+                count += 1
+        conn.commit()
+        if count > 0:
+            print(f"--- [DATABASE SANITIZER] Cleaned {count} malformed image rows ---")
+    except Exception as e:
+        print(f"Sanitizer Error: {e}")
+    finally:
+        conn.close()
+
+# Run cleanup on start
+with app.app_context():
+    try:
+        sanitize_database()
+    except Exception as e:
+        print(f"Sanitizer skipped: {e}")
+
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':

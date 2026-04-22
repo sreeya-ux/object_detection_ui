@@ -239,16 +239,24 @@
         let adminRedoStack = [];
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
-            if (!src || src === 'None' || src === 'null') return 'https://via.placeholder.com/400x300?text=No+Data';
+            if (!src || src === 'None' || src === 'null' || src.length < 20) {
+                return 'https://via.placeholder.com/400x300?text=No+Asset+Image';
+            }
+            
             let clean = src.toString().trim();
-            if (!clean) return 'https://via.placeholder.com/400x300?text=Empty+Source';
-            if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
-
-            const parts = clean.split('base64,');
-            clean = parts[parts.length - 1];
-
-            if (clean.startsWith('data:image')) return clean;
-            if (clean.length < 10) return 'https://via.placeholder.com/400x300?text=Invalid+Data';
+            
+            // Remove any data:image/...;base64, prefixes recursively
+            const b64Regex = /^data:image\/[a-z]+;base64,/;
+            while (b64Regex.test(clean) || clean.includes('base64,')) {
+                if (clean.includes('base64,')) {
+                    clean = clean.split('base64,').pop();
+                } else {
+                    clean = clean.replace(b64Regex, '');
+                }
+            }
+            
+            // Final check: if it's a URL, return it, otherwise add single prefix
+            if (clean.startsWith('http')) return clean;
             return 'data:image/jpeg;base64,' + clean;
         }
 
