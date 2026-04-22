@@ -682,7 +682,6 @@ def get_draft(draft_id):
 def download_annotated(asset_id):
     """Generates and serves the annotated image for an asset."""
     conn = get_db_connection()
-    # Get the first image of the asset
     row = conn.execute('SELECT image_b64, detections FROM asset_images WHERE asset_id = ? LIMIT 1', (asset_id,)).fetchone()
     conn.close()
     
@@ -693,15 +692,20 @@ def download_annotated(asset_id):
     annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections'] or '[]'))
     
     # Ensure any prefix is stripped before final decode
-    img_data = base64.b64decode(clean_b64(annotated_b64))
-    buffer = io.BytesIO(img_data)
-    
-    return send_file(
-        buffer,
-        mimetype='image/jpeg',
-        as_attachment=True,
-        download_name=f"Annotated_Asset_{asset_id[:8]}.jpg"
-    )
+    try:
+        cleaned = clean_b64(annotated_b64)
+        img_data = base64.b64decode(cleaned)
+        buffer = io.BytesIO(img_data)
+        
+        return send_file(
+            buffer,
+            mimetype='image/jpeg',
+            as_attachment=True,
+            download_name=f"Annotated_Asset_{asset_id[:8]}.jpg"
+        )
+    except Exception as e:
+        print("Base64 decode failed:", e)
+        return jsonify({"error": "Invalid image data"}), 400
 @app.route('/api/get_assets')
 @login_required
 def get_assets():
