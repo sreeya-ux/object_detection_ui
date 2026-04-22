@@ -62,13 +62,20 @@ def clean_b64(b64_str):
     elif ',' in b64_str:
         b64_str = b64_str.split(',')[-1]
         
-    # Remove any internal whitespace that might disrupt padding calculation
+    # Remove any internal whitespace or problematic chars
     b64_str = "".join(b64_str.split())
+    
+    # Standardize URL-safe base64 to standard base64
+    b64_str = b64_str.replace('-', '+').replace('_', '/')
     
     # Add padding if needed
     missing_padding = len(b64_str) % 4
-    if missing_padding:
+    if missing_padding == 1:
+        # One extra char is invalid in B64; discarding it to prevent crash
+        b64_str = b64_str[:-1]
+    elif missing_padding > 1:
         b64_str += '=' * (4 - missing_padding)
+        
     return b64_str
 
 # =========================
