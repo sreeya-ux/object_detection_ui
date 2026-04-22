@@ -251,8 +251,12 @@
                     <a href="/admin/asset/${task.id}" class="block">
                         <div class="flex justify-between items-start mb-3">
                             <div>
-                                <p class="text-[10px] text-gray-500 font-mono mb-1">ASSET ID: ${task.id.split('-')[0]}</p>
-                                <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors">${task.worker_name}</h4>
+                                <p class="text-[10px] text-gray-500 font-mono mb-0.5">ID: ${task.id.split('-')[0]}</p>
+                                <h4 class="font-bold text-white group-hover:text-blue-400 transition-colors leading-tight">${task.worker_name}</h4>
+                                <div class="flex items-center gap-2 mt-1.5">
+                                    <span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest">${task.asset_class || 'PENDING'}</span>
+                                    <span class="text-[9px] text-gray-600 font-mono">${task.voltage || '--'}</span>
+                                </div>
                             </div>
                             <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
                         </div>

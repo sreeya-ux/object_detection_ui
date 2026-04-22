@@ -1609,6 +1609,62 @@ function drawARBoxes(ctx, detectionsData, origW, origH) {
         ctx.fillText(d.label.toUpperCase(), cx + 5, cy - 5);
     });
 }
+async function submitAsset() {
+    if (!detections || detections.length === 0) {
+        showToast("No active results to submit", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('finalSubmitBtn');
+    btn.disabled = true;
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = `<div class="loader w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> SUBMITTING...`;
+
+    try {
+        // Collect all images in the batch to send to Admin
+        const imagesToSubmit = batchImages.map(img => ({
+            image_b64: img.src,
+            detections: img.detections || [],
+            pole_angle: img.master ? img.master.pole_lean_angle : (masterResult ? masterResult.pole_lean_angle : 0.0)
+        }));
+
+        if (imagesToSubmit.length === 0) {
+            showToast("No images to submit", "danger");
+            btn.disabled = false;
+            btn.innerHTML = originalContent;
+            return;
+        }
+
+        const payload = {
+            images: imagesToSubmit,
+            master: masterResult || (batchImages[0] ? batchImages[0].master : {})
+        };
+
+        const response = await fetch('/api/save_asset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (data.status === 'success') {
+            showToast("Success! Submitted for Review", "success");
+            // Auto-reset after a delay
+            setTimeout(() => {
+                resetSession();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 2000);
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (err) {
+        console.error("Submission Error:", err);
+        showToast(`Submission failed: ${err.message}`, "danger");
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+}
+
 async function downloadCurrentResult() {
     if (!detections || detections.length === 0) {
         showToast("No active results to download", "warning");
@@ -1616,9 +1672,10 @@ async function downloadCurrentResult() {
     }
 
     try {
-        showToast("Preparing Assets...", "primary");
+        showToast("Preparing Admin Studio...", "primary");
         
-        // 1. Prepare asset payload
+        const activeImg = activeBatchIndex !== -1 ? batchImages[activeBatchIndex] : null;
+
         const assetData = {
             id: `TEMP_${Date.now()}`,
             worker_name: "Local Session",
@@ -1628,17 +1685,12 @@ async function downloadCurrentResult() {
             voltage: masterResult ? masterResult.voltage : "Unknown",
             reason: masterResult ? masterResult.reason : "Manual Review",
             images: [{
-                image_b64: uploadedFile, // original from memory
+                image_b64: activeImg ? activeImg.src : null,
                 detections: detections
             }]
         };
 
-        // 2. Add Annotated Image for direct save if requested
-        // Instead of a separate API call, we'll use a hidden link to trigger the download
-        // of the annotated image from the server once an asset is SAVED, 
-        // or just download the canvas/B64 directly.
-        
-        // We'll use the existing PDF generation for the main download
+        // Save as draft first so the admin studio can read it
         const response = await fetch('/api/save_draft', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1646,11 +1698,7 @@ async function downloadCurrentResult() {
         });
 
         if (response.ok) {
-             // For the PDF report, we trigger a print or server-side gen
-             // In this system, we'll offer the PDF summary.
-             showToast("Report Ready", "success");
-             // Note: In a real system we'd redirect to a PDF route.
-             // For now, we'll let the user know it's saved in their History.
+             showToast("Opening Admin Studio", "success");
              window.location.href = `/admin/asset/${assetData.id}`;
         }
     } catch (err) {

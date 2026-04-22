@@ -53,11 +53,23 @@ def get_db_connection():
 
 def log_activity(user, action, details=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # DEEP LOGGING: Identify exactly what is being sent to the DB
+    print(f"[DB_LOG] user={user} ({type(user)}), action={action} ({type(action)}), details={details} ({type(details)})")
+    
+    # Defensive casting
+    u = str(user) if user is not None else "system"
+    a = str(action) if action is not None else "unknown"
+    d = json.dumps(details) if isinstance(details, (dict, list)) else (str(details) if details is not None else "")
+
     conn = get_db_connection()
-    conn.execute('INSERT INTO activity_logs (user_name, action, details, timestamp) VALUES (?, ?, ?, ?)',
-                 (user, action, details, timestamp))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute('INSERT INTO activity_logs (user_name, action, details, timestamp) VALUES (?, ?, ?, ?)',
+                     (u, a, d, timestamp))
+        conn.commit()
+    except Exception as e:
+        print(f"[DB_ERROR] log_activity failed: {e}")
+    finally:
+        conn.close()
 
 def get_ngrok_url():
     try:
@@ -443,7 +455,7 @@ def predict_stream():
 @login_required
 def home():
     ngrok_url = get_ngrok_url()
-    return render_template('index.html', ngrok_url=ngrok_url)
+    return render_template('index.html', ngrok_url=ngrok_url, role=session.get('role', 'user'))
 
 @app.route('/admin')
 @admin_required
@@ -554,19 +566,39 @@ def save_asset():
     
     conn = get_db_connection()
     try:
+        # DEEP LOGGING: Header
+        print(f"[DB_LOG] save_asset Header: ID={asset_id}, Worker={worker_name}, Class={master.get('final_class')}, Volt={master.get('voltage')}")
+
         # 1. Save Asset Header
+        a_class = master.get('final_class')
+        a_volt  = master.get('voltage')
+        a_reason = master.get('reason')
+        
+        if isinstance(a_class, (dict, list)): a_class = json.dumps(a_class)
+        if isinstance(a_volt, (dict, list)):  a_volt = json.dumps(a_volt)
+        if isinstance(a_reason, (dict, list)): a_reason = json.dumps(a_reason)
+
         conn.execute('''
             INSERT INTO assets (id, worker_name, status, timestamp, asset_class, voltage, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (asset_id, worker_name, 'pending', timestamp, 
-              master.get('final_class'), master.get('voltage'), master.get('reason')))
+        ''', (str(asset_id), str(worker_name), 'pending', str(timestamp), 
+              str(a_class) if a_class is not None else None,
+              str(a_volt) if a_volt is not None else None,
+              str(a_reason) if a_reason is not None else None))
         
         # 2. Save Images
-        for img_data in data['images']:
+        for idx, img_data in enumerate(data['images']):
+            # Ensure detections is properly serialized
+            dets = img_data['detections']
+            det_str = json.dumps(dets) if not isinstance(dets, str) else dets
+            
+            # DEEP LOGGING: Image
+            print(f"[DB_LOG] save_asset Image[{idx}]: b64_len={len(img_data['image_b64']) if img_data.get('image_b64') else 'NONE'}, dets_len={len(det_str)}")
+
             conn.execute('''
                 INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
                 VALUES (?, ?, ?, ?)
-            ''', (asset_id, img_data['image_b64'], json.dumps(img_data['detections']), img_data.get('pole_angle', 0.0)))
+            ''', (str(asset_id), str(img_data['image_b64']), det_str, float(img_data.get('pole_angle', 0.0))))
             
         conn.commit()
         log_activity(worker_name, "asset_submission", f"Asset: {asset_id}, Images: {len(data['images'])}")
@@ -581,10 +613,17 @@ def save_asset():
 @app.route('/api/save_draft', methods=['POST'])
 @login_required
 def save_draft():
-    data = request.json # { id, type: 'worker'|'admin', data: json_string }
+    data = request.json # { id, type: 'worker'|'admin', data: any }
     draft_id = data.get('id')
     dtype = data.get('type', 'worker')
     content = data.get('data')
+    
+    # Force content to string if it's a dict/list
+    if isinstance(content, (dict, list)):
+        content = json.dumps(content)
+    else:
+        content = str(content) if content is not None else ""
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     conn = get_db_connection()
