@@ -143,9 +143,23 @@ def classify_pole_orientation(
 
     # ── Determine pole type + lean ────────────────────────────
     if obb_angle_deg is not None:
+        # Initial lean from orientation
         lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(obb_angle_deg)), 1)
-
-        if lean >= POLE_STRUT_THRESHOLD_DEG:
+        
+        # BEND CROSS-CHECK: If the pole is near vertical but "fat", it is BENT
+        # A vertical straight pole has AR > 6.0. An AR < 4.0 is extremely wide for a pole.
+        # This catches "C-shaped" or "bowed" poles that stay vertical overall.
+        if lean < 5.0 and ar < 4.5:
+            pole_type  = "vertical_pole"
+            confidence = "high"
+            # Estimate "Effective Lean" from the width expansion (the bend)
+            inferred_bend = round(math.degrees(math.asin(max(0, 1/ar - 0.1))), 1)
+            if inferred_bend > lean:
+                lean = inferred_bend
+                note = f"OBB={obb_angle_deg:.1f} AR={ar:.1f} → detected EXTREME BENDING"
+            else:
+                note = f"OBB angle={obb_angle_deg:.1f}° → vertical"
+        elif lean >= POLE_STRUT_THRESHOLD_DEG:
             pole_type  = "strut_pole"
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → intentional strut"

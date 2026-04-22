@@ -83,7 +83,7 @@ SHED_MODEL_CONF         = 0.25
 
 # ── Augmentation ─────────────────────────────────────────────
 AUG_TARGET_COUNT    = 800   # boost any class below this count
-AUG_SILHOUETTE_PROB = 0.25  # 25% chance of silhouette-style augmentation
+AUG_SILHOUETTE_PROB = 0.0   # Disabled as per user request to remove silhouettes
 
 # ── OBB component class keywords ─────────────────────────────
 OBB_CLASS_KEYWORDS = {

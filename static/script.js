@@ -471,15 +471,20 @@ async function processImage() {
     formData.append("image", imageToUpload, "image.jpg");
 
     try {
+        // Prevent indefinite hanging with a 60s timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
         const response = await fetch("/predict", { 
             method: "POST",
             headers: { "ngrok-skip-browser-warning": "69420" },
-            body: formData
-        });
+            body: formData,
+            signal: controller.signal
+        }).finally(() => clearTimeout(timeoutId));
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Server Error: ${response.status}`);
+            throw new Error(errorData.error || `System Error (${response.status})`);
         }
         
         const data = await response.json();
@@ -517,7 +522,7 @@ async function processImage() {
         saveDraft(); // Auto-save draft immediately after detection
         showToast("Analysis complete", "success");
     } catch (err) {
-        showToast("Cloud connection error", "danger");
+        showToast(err.message || "Cloud connection error", "danger");
     } finally {
         btn.disabled = false;
         btnText.textContent = "Run Detection";

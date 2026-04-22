@@ -56,6 +56,8 @@ class InsulatorResult:
     adjustment_fault: bool  = False            # True if misaligned
     fault_severity:   str   = "none"           # "none" | "warning" | "fault"
     fault_note:       str   = ""               # human-readable reason
+    note:             str   = ""
+    is_silhouette:    bool  = False            # True if ROI is too dark (backlit)
 
 
 # ── Step 1: Aspect ratio heuristic ───────────────────────────
@@ -387,6 +389,23 @@ class InsulatorClassifier:
             type_final, obb_angle_deg, ar
         )
 
+        # ── Step 5: Silhouette Check (Brightness Filter) ─────
+        # If the crop is extremely dark, it's a silhouette — ignore it
+        # because the shed counter/fault engine cannot see detail.
+        is_sil = False
+        img_h, img_w = img.shape[:2]
+        if detection_conf >= INSULATOR_MIN_CONF:
+            pad = 5
+            x1, y1, x2, y2 = [int(v) for v in box]
+            crop = img[max(0,y1-pad):min(img_h,y2+pad), max(0,x1-pad):min(img_w,x2+pad)]
+            if crop.size > 0:
+                avg_brightness = np.mean(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY))
+                if avg_brightness < 45: # 45/255 = ~17% brightness
+                    is_sil = True
+                    # Downgrade confidence if it looks like a black shape
+                    confidence = "low"
+                    fault_note = "SILHOUETTE: Image too dark for reliable inspection"
+
         return InsulatorResult(
             box             = box,
             aspect_ratio    = ar,
@@ -401,4 +420,5 @@ class InsulatorClassifier:
             adjustment_fault= adj_fault,
             fault_severity  = severity,
             fault_note      = fault_note,
+            is_silhouette   = is_sil
         )

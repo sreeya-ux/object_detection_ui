@@ -193,15 +193,25 @@ def process_image_file(file_stream):
     Combines Rule Engine (InfrastructurePipeline) with UNet Conductor Segmentation.
     """
     # Create a temporary file to run the pipeline.predict (which expects a path)
-    temp_filename = f"temp_{uuid.uuid4()}.jpg"
-    with open(temp_filename, "wb") as f:
-        f.write(file_stream.read())
+    import gc
+    import psutil
     
+    def log_mem(step):
+        m = psutil.Process().memory_info().rss / (1024 * 1024)
+        print(f"[Memory] {step}: {m:.1f} MB")
+
+    log_mem("Start Inference")
+    temp_filename = f"temp_{uuid.uuid4()}.jpg"
     try:
-        # 1. Run the Rule Engine Pipeline
-        # This identifies structural components, classifies crossarms, and runs the master logic.
-        pipe_res = pipeline_engine.predict(temp_filename, visualize=False)
+        with open(temp_filename, "wb") as f:
+            f.write(file_stream.read())
         
+        # 1. Run the Rule Engine Pipeline (Optimized to single scale in pipeline.py)
+        log_mem("Before Pipeline")
+        pipe_res = pipeline_engine.predict(temp_filename, visualize=False)
+        log_mem("After Pipeline")
+        gc.collect()
+
         # Reload image for UNet processing and base64 response
         img = cv2.imread(temp_filename)
         h, w = img.shape[:2]
@@ -213,6 +223,13 @@ def process_image_file(file_stream):
         with torch.no_grad():
             out = unet_model(tensor)
             mask = torch.sigmoid(out).squeeze().cpu().numpy()
+            log_mem("After UNet")
+        
+        # Explicitly free tensor memory
+        del tensor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
             
         mask_binary = (mask > 0.25).astype(np.uint8) * 255
         mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)

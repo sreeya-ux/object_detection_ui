@@ -41,12 +41,12 @@ DATASET_DIR = "training_data"
 OUTPUT_MODEL_PATH = "models/main_best_v2.pt"
 
 # Training hyperparameters
-EPOCHS       = 50       # Increase to 100 for better accuracy (takes longer)
-IMAGE_SIZE   = 640      # Standard YOLO input size
-BATCH_SIZE   = 16       # Reduce to 8 if you get out-of-memory errors
-VAL_SPLIT    = 0.2      # 20% of images used for validation
-PATIENCE     = 15       # Early stopping patience (stops if no improvement)
-LR0          = 0.001    # Initial learning rate (lower = more careful fine-tuning)
+EPOCHS       = 100      # Higher epochs for better convergence
+IMAGE_SIZE   = 1280     # Match inference resolution for better precision
+BATCH_SIZE   = 4        # Significantly reduced for 1280 resolution on typical GPUs
+VAL_SPLIT    = 0.2      
+PATIENCE     = 50       # More patience for high-res training
+LR0          = 0.0005   # Slightly lower LR for stable high-res fine-tuning
 WORKERS      = 4        # Parallel data loader workers (set to 0 on Windows if errors)
 
 # Class names — must match your training labels order
@@ -276,16 +276,21 @@ def run_training():
         patience    = PATIENCE,
         workers     = WORKERS,
         project     = "training_runs",
-        name        = "finetune_10k",
+        name        = "finetune_highres",
         save        = True,
-        save_period = 10,      # Save checkpoint every 10 epochs
-        plots       = True,    # Generate training plots
+        save_period = 5,
+        plots       = True,
         val         = True,
         device      = "0" if _has_gpu() else "cpu",
-        augment     = True,    # Use built-in YOLO augmentations
-        # Fine-tuning specific: freeze backbone to preserve learned features
-        # Unfreeze after a few epochs to let the whole model adapt
-        freeze      = 10,      # Freeze first 10 layers (backbone) initially
+        # Advanced Augmentations
+        augment     = True,
+        mosaic      = 1.0,     # Strong mosaic for small object learning
+        mixup       = 0.1,     # Slight mixup for robustness
+        fliplr      = 0.5,     # Horizontal flip
+        degrees     = 15.0,    # Slight rotation for tilted infrastructure
+        
+        # Fine-tuning specific
+        freeze      = 10,
         verbose     = True,
     )
 

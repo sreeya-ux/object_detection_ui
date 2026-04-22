@@ -183,14 +183,21 @@ def export_asset_to_training(asset_id: str, approved_by: str) -> dict:
                 class_counts[label] = class_counts.get(label, 0) + 1
                 total_class_counts[label] = total_class_counts.get(label, 0) + 1
 
+            # Handle potential Negative Samples (images with no detections)
             if not yolo_lines:
-                # Remove image that has no valid annotations
-                if os.path.exists(img_path): os.remove(img_path)
-                continue
-
-            # Write YOLO label file
-            with open(lbl_path, "w") as f:
-                f.write("\n".join(yolo_lines))
+                # Include as negative sample with 10% probability
+                import random
+                if random.random() > 0.10:
+                    if os.path.exists(img_path): os.remove(img_path)
+                    continue
+                else:
+                    # Write blank label file for negative training
+                    open(lbl_path, "w").close()
+                    print(f"[TrainingPipeline] Exported background sample: {img_file}")
+            else:
+                # Write standard YOLO label file
+                with open(lbl_path, "w") as f:
+                    f.write("\n".join(yolo_lines))
 
             # Log to DB
             conn2 = _get_conn()
