@@ -253,11 +253,16 @@ const CLASS_OPTIONS = [
  * ensures we get a clean base64 data core.
  */
 function formatB64(src) {
-    if (!src || src === 'None' || src === 'null' || src.length < 30) {
+    if (!src || src === 'None' || src === 'null' || src.length < 5) {
         return 'https://via.placeholder.com/400x300?text=No+Capture+Data';
     }
     
     let str = src.toString().trim();
+
+    // Support for new file-based URLs
+    if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png')) {
+        return '/uploads/' + str;
+    }
     
     // 1. Recursive removal of ALL possible prefix patterns
     const prefixPatterns = [
@@ -277,8 +282,8 @@ function formatB64(src) {
         changed = (before !== cleaned);
     }
     
-    // 2. Final normalization
-    cleaned = cleaned.trim();
+    // 2. Final normalization & Whitespace Stripping
+    cleaned = cleaned.trim().replace(/\s/g, '');
     if (cleaned.startsWith('http')) return cleaned;
     
     // 3. Re-apply a single, clean prefix

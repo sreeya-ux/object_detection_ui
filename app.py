@@ -26,6 +26,13 @@ from report_generator import generate_asset_pdf, generate_asset_excel, generate_
 app = Flask(__name__)
 app.secret_key = "secret_key_for_session" # In production, use a strong random key
 DB_PATH = 'database.db'
+UPLOADS_FOLDER = 'uploads'
+if not os.path.exists(UPLOADS_FOLDER):
+    os.makedirs(UPLOADS_FOLDER)
+
+@app.route('/uploads/<filename>')
+def serve_upload(filename):
+    return send_from_directory(UPLOADS_FOLDER, filename)
 
 # Master Rule-Engine Pipeline
 # Centralizes component detection, classification, and rule-based logic.
@@ -651,16 +658,26 @@ def save_asset():
             # DEEP LOGGING: Image
             print(f"[DB_LOG] save_asset Image[{idx}]: b64_len={len(img_data['image_b64']) if img_data.get('image_b64') else 'NONE'}, dets_len={len(det_str)}")
 
-            # Clean B64 data (Strip prefix if exists)
+            # Extraction and File Save
             raw_b64 = str(img_data.get('image_b64', ''))
-            # Strip all prefixes and take only the final base64 data segment
-            if ',' in raw_b64:
-                raw_b64 = raw_b64.split(',').pop().strip()
+            b64_core = raw_b64.split(',').pop().strip()
+            
+            # Generate unique filename
+            img_filename = f"{uuid.uuid4()}.jpg"
+            img_path = os.path.join(UPLOADS_FOLDER, img_filename)
+            
+            # Save to disk
+            try:
+                with open(img_path, "wb") as f:
+                    f.write(base64.b64decode(b64_core))
+            except Exception as e:
+                print(f"[DISK_ERROR] Failed to save image: {e}")
+                raise e
 
             conn.execute('''
                 INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
                 VALUES (?, ?, ?, ?)
-            ''', (str(asset_id), raw_b64, det_str, float(img_data.get('pole_angle', 0.0))))
+            ''', (str(asset_id), img_filename, det_str, float(img_data.get('pole_angle', 0.0))))
             
         conn.commit()
         log_activity(worker_name, "asset_submission", f"Asset: {asset_id}, Images: {len(data['images'])}")

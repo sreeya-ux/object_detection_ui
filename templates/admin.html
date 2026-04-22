@@ -239,11 +239,17 @@
         let adminRedoStack = [];
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
-            if (!src || src === 'None' || src === 'null' || src.length < 30) {
+            if (!src || src === 'None' || src === 'null' || src.length < 5) {
                 return 'https://via.placeholder.com/400x300?text=No+Asset+Image';
             }
             
             let str = src.toString().trim();
+
+            // Support for new file-based URLs
+            if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png')) {
+                return '/uploads/' + str;
+            }
+
             const prefixPatterns = [
                 /^data:image\/[a-z]+;base64,/, 
                 /base64,/g,
@@ -261,7 +267,7 @@
                 changed = (before !== cleaned);
             }
             
-            cleaned = cleaned.trim();
+            cleaned = cleaned.trim().replace(/\s/g, '');
             if (cleaned.startsWith('http')) return cleaned;
             return 'data:image/jpeg;base64,' + cleaned;
         }
