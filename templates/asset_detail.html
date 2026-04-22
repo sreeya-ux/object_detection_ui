@@ -4,17 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asset Analysis Studio - Asakta Vision AI</title>
-    <script>window.tailwind={config:{borderColor:'rgba(255,255,255,0.1)'}}</script>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        if (window.console) {
+        (function() {
             const _warn = console.warn;
             console.warn = function() {
                 if (arguments[0] && typeof arguments[0] === 'string' && arguments[0].includes('cdn.tailwindcss.com')) return;
                 _warn.apply(console, arguments);
             };
-        }
+        })();
     </script>
+    <script>window.tailwind={config:{borderColor:'rgba(255,255,255,0.1)'}}</script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -249,8 +249,9 @@ const CLASS_OPTIONS = [
 // === STATE ===
 // Helper to format B64 strings correctly and prevent double-prefixing
 function formatB64(src) {
-    if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
+    if (!src || src === 'None' || src === 'null') return 'https://via.placeholder.com/400x300?text=No+Data';
     let clean = src.toString().trim();
+    if (!clean) return 'https://via.placeholder.com/400x300?text=Empty+Source';
     if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
     
     // Handle double-prefixing by taking the last segment
@@ -258,6 +259,7 @@ function formatB64(src) {
     clean = parts[parts.length - 1];
     
     if (clean.startsWith('data:image')) return clean;
+    if (clean.length < 10) return 'https://via.placeholder.com/400x300?text=Invalid+Data';
     return 'data:image/jpeg;base64,' + clean;
 }
 

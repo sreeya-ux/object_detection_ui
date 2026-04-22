@@ -5,16 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <title>Asakta Vision AI - Intelligent Detection Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        if (window.console) {
+        // Suppress Tailwind production warning immediately
+        (function() {
             const _warn = console.warn;
             console.warn = function() {
                 if (arguments[0] && typeof arguments[0] === 'string' && arguments[0].includes('cdn.tailwindcss.com')) return;
                 _warn.apply(console, arguments);
-            }
-        }
+            };
+        })();
     </script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap"
         rel="stylesheet">
