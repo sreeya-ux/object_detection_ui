@@ -47,10 +47,24 @@ unet_model.to(device)
 # DATABASE HELPERS
 # =========================
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
     return conn
 
+def clean_b64(b64_str):
+    """Robustly strips prefixes and fixes padding for b64 strings."""
+    if not b64_str: return ""
+    if ',' in b64_str:
+        b64_str = b64_str.split(',')[1]
+    # Remove whitespace
+    b64_str = b64_str.strip()
+    # Add padding if needed
+    missing_padding = len(b64_str) % 4
+    if missing_padding:
+        b64_str += '=' * (4 - missing_padding)
+    return b64_str
+
+# =========================
 def log_activity(user, action, details=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # DEEP LOGGING: Identify exactly what is being sent to the DB
@@ -662,9 +676,10 @@ def download_annotated(asset_id):
         return "Asset image not found", 404
         
     from report_generator import annotate_image
-    annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections']))
+    annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections'] or '[]'))
     
-    img_data = base64.b64decode(annotated_b64)
+    # Ensure any prefix is stripped before final decode
+    img_data = base64.b64decode(clean_b64(annotated_b64))
     buffer = io.BytesIO(img_data)
     
     return send_file(
