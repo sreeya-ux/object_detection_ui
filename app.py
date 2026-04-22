@@ -677,7 +677,7 @@ def get_assets():
     conn = get_db_connection()
     # Get assets along with the first image as a thumbnail
     query = '''
-        SELECT a.*, i.image_b64 as thumbnail 
+        SELECT a.*, i.image_b64 as thumbnail, i.detections as detections
         FROM assets a
         LEFT JOIN asset_images i ON i.id = (
             SELECT id FROM asset_images WHERE asset_id = a.id LIMIT 1
@@ -702,6 +702,11 @@ def get_assets():
     data = []
     for r in rows:
         d = dict(r)
+        if d.get('detections'):
+            try:
+                d['detections'] = json.loads(d['detections'])
+            except:
+                d['detections'] = []
         data.append(d)
     
     return jsonify(data)

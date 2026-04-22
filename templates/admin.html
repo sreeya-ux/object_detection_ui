@@ -175,8 +175,9 @@
         <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-5xl w-full p-6 relative overflow-hidden flex flex-col md:flex-row gap-8">
             <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500 hover:text-white text-3xl transition-colors">&times;</button>
             
-            <div class="flex-1 min-h-[300px] flex items-center justify-center bg-black rounded-lg overflow-hidden border border-gray-800">
+            <div class="flex-1 min-h-[300px] flex items-center justify-center bg-black rounded-lg overflow-hidden border border-gray-800 relative">
                 <img id="modalImg" class="max-w-full max-h-[70vh] object-contain">
+                <svg id="modalOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="xMidYMid meet"></svg>
             </div>
 
             <div class="w-full md:w-96 flex flex-col">
@@ -186,9 +187,27 @@
                 </div>
                 
                 <div class="flex-1 overflow-y-auto mb-6 pr-2">
+                    <div id="modalSummary" class="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl mb-4">
+                        <p id="modalMainClass" class="text-white font-bold text-sm">--</p>
+                        <p id="modalMainVolt" class="text-blue-400 text-[10px] font-bold">--</p>
+                        <p id="modalMainReason" class="text-gray-500 text-[10px] italic mt-1 leading-tight">--</p>
+                    </div>
+
                     <label class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 block">Detected Objects</label>
-                    <div id="modalDetections" class="space-y-2">
+                    <div id="modalDetections" class="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
                         <!-- Labels -->
+                    </div>
+
+                    <div class="mt-4 pt-4 border-t border-gray-800 space-y-2">
+                        <p class="text-[9px] text-gray-600 font-bold uppercase tracking-widest">Download Results</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <a id="modalDlAnnotated" href="#" class="px-2 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] font-bold uppercase rounded-lg border border-white/5 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-image"></i> JPG
+                            </a>
+                            <a id="modalDlPdf" href="#" class="px-2 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] font-bold uppercase rounded-lg border border-white/5 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-file-pdf"></i> PDF
+                            </a>
+                        </div>
                     </div>
                 </div>
 
@@ -264,10 +283,16 @@
                             <img src="data:image/jpeg;base64,${task.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
                         </div>
                     </a>
-                    <button onclick="event.stopPropagation(); openHistory('${task.id}', '${task.worker_name}')" 
-                        class="mt-3 w-full py-2 bg-white/5 hover:bg-purple-500/10 border border-white/5 hover:border-purple-500/30 text-gray-500 hover:text-purple-400 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-clock-rotate-left"></i> Logs
-                    </button>
+                    <div class="grid grid-cols-2 gap-2 mt-3">
+                        <button onclick="event.stopPropagation(); openReview('${task.id}')" 
+                            class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
+                            <i class="fa-solid fa-eye"></i> Review
+                        </button>
+                        <button onclick="event.stopPropagation(); openHistory('${task.id}', '${task.worker_name}')" 
+                            class="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/5 text-gray-500 hover:text-gray-300 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Logs
+                        </button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -277,19 +302,49 @@
             if (!task) return;
 
             currentTaskId = taskId;
-            document.getElementById('modalImg').src = 'data:image/jpeg;base64,' + task.image_b64;
-            document.getElementById('modalUserIn').textContent = `SUBMITTED BY: ${task.worker_name} @ ${task.timestamp}`;
+            const img = document.getElementById('modalImg');
+            img.src = 'data:image/jpeg;base64,' + task.thumbnail;
+            document.getElementById('modalUserIn').textContent = `ID: ${task.id.split('-')[0]} | SUBMITTED BY: ${task.worker_name}`;
             
+            // Set Summary Details
+            document.getElementById('modalMainClass').textContent = (task.asset_class || 'PENDING').toUpperCase();
+            document.getElementById('modalMainVolt').textContent = task.voltage || 'VOLLTAGE TBD';
+            document.getElementById('modalMainReason').textContent = task.reason || 'Deep analysis pending...';
+
+            // Set Download Links
+            document.getElementById('modalDlAnnotated').href = `/api/download_annotated/${taskId}`;
+            document.getElementById('modalDlPdf').href = `/admin/asset/pdf/${taskId}`;
+            
+            // Draw Overlay
+            const svg = document.getElementById('modalOverlay');
+            svg.innerHTML = '';
+            
+            img.onload = () => {
+                svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+                const dets = task.detections || [];
+                const colors = { INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4', CROSSARM: '#10b981' };
+                
+                svg.innerHTML = dets.map(d => {
+                    const [x1, y1, x2, y2] = d.bbox || [0,0,0,0];
+                    const col = colors[d.label?.toUpperCase()] || '#3b82f6';
+                    const lbl = (d.label || 'OBJ').toUpperCase();
+                    return `<rect x="${x1}" y="${y1}" width="${x2-x1}" height="${y2-y1}" stroke="${col}" stroke-width="4" fill="${col}22" rx="4"/>
+                            <rect x="${x1}" y="${y1-30}" width="${lbl.length*14+14}" height="28" fill="${col}" rx="4"/>
+                            <text x="${x1+6}" y="${y1-9}" font-size="18" font-family="Inter" font-weight="700" fill="white">${lbl}</text>`;
+                }).join('');
+            };
+            if(img.complete) img.onload();
+
             const detBox = document.getElementById('modalDetections');
-            detBox.innerHTML = task.detections.map(d => {
-                const confPercent = Math.round(d.confidence * 100);
+            detBox.innerHTML = (task.detections || []).map(d => {
+                const confPercent = Math.round((d.confidence || 1.0) * 100);
                 return `
-                <div class="flex justify-between items-center text-sm p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
-                    <span class="font-medium text-gray-200 capitalize">${d.label.toLowerCase().replace('_', ' ')}</span>
-                    <span class="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${confPercent}%</span>
+                <div class="flex justify-between items-center text-[10px] p-2 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <span class="font-bold text-gray-300 uppercase">${d.label.replace('_', ' ')}</span>
+                    <span class="font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${confPercent}%</span>
                 </div>
                 `;
-            }).join('');
+            }).join('') || '<p class="text-[10px] text-gray-600 italic">No automated detections found.</p>';
 
             const modal = document.getElementById('modal');
             modal.classList.remove('hidden');
@@ -299,10 +354,11 @@
             document.getElementById('btnReject').onclick = () => updateStatus('rejected');
 
             // Toggle visibility of buttons based on status
+            const btnGroup = document.getElementById('btnApprove').parentElement;
             if (task.status !== 'pending') {
-                 document.getElementById('btnApprove').parentElement.classList.add('hidden');
+                 btnGroup.classList.add('hidden');
             } else {
-                 document.getElementById('btnApprove').parentElement.classList.remove('hidden');
+                 btnGroup.classList.remove('hidden');
             }
         }
 
