@@ -509,9 +509,16 @@ async function processImage() {
         }
 
         if (data.annotated_image) {
-            // Check if it's already a full data URI or just b64
-            const imgSrc = data.annotated_image.startsWith('data:') ? data.annotated_image : `data:image/jpeg;base64,${data.annotated_image}`;
-            document.getElementById("preview").src = imgSrc;
+            function formatB64(src) {
+                if (!src) return 'https://via.placeholder.com/400x300?text=No+Data';
+                let clean = src.toString().trim();
+                if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
+                const parts = clean.split('base64,');
+                clean = parts[parts.length - 1];
+                if (clean.startsWith('data:image')) return clean;
+                return 'data:image/jpeg;base64,' + clean;
+            }
+            document.getElementById("preview").src = formatB64(data.annotated_image);
             document.getElementById("imageContainer").classList.remove("hidden");
             document.getElementById("submitSection").classList.remove("hidden");
         }

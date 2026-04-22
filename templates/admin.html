@@ -515,7 +515,7 @@
                         }).join('');
                         return '<div class="rounded-2xl overflow-hidden border border-white/5 bg-gray-900/60">'+
                                '<div class="relative bg-black">'+
-                               '<img src="data:image/jpeg;base64,'+img.image_b64+'" loading="lazy" class="w-full h-auto block" style="max-height:400px;object-fit:contain;" '+
+                               '<img src="'+formatB64(img.image_b64)+'" loading="lazy" class="w-full h-auto block" style="max-height:400px;object-fit:contain;" '+
                                'onload="this.nextElementSibling.setAttribute(\'viewBox\', \'0 0 \' + this.naturalWidth + \' \' + this.naturalHeight)">'+
                                '<svg class="absolute inset-0 w-full h-full" style="pointer-events:none" preserveAspectRatio="xMidYMid meet">'+boxes+'</svg>'+
                                '</div>'+
