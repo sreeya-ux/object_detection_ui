@@ -492,7 +492,7 @@ def predict_stream():
     if not data or 'image' not in data:
         return jsonify({"error": "No image payload"}), 400
     
-    img_b64 = data['image'].split(',')[1] if ',' in data['image'] else data['image']
+    img_b64 = data['image'].split(',').pop() if ',' in data['image'] else data['image']
     img_data = base64.b64decode(img_b64)
     file_stream = io.BytesIO(img_data)
     
@@ -653,7 +653,9 @@ def save_asset():
 
             # Clean B64 data (Strip prefix if exists)
             raw_b64 = str(img_data.get('image_b64', ''))
-            if ',' in raw_b64: raw_b64 = raw_b64.split(',')[1]
+            # Strip all prefixes and take only the final base64 data segment
+            if ',' in raw_b64:
+                raw_b64 = raw_b64.split(',').pop().strip()
 
             conn.execute('''
                 INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
