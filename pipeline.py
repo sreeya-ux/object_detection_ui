@@ -45,7 +45,8 @@ from ultralytics import YOLO
 from config import (
     DETECTION_CONF, DETECTION_IOU, HT_LT_HEIGHT_THRESHOLD,
     OBB_CLASS_KEYWORDS, POLE_CLASSES,
-    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR
+    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR,
+    GLOBAL_TILT_MAX_DEG
 )
 from insulator_classifier import InsulatorClassifier, InsulatorResult
 from crossarm_classifier  import (
@@ -306,6 +307,35 @@ class InfrastructurePipeline:
                 pole_boxes_raw.append((inferred[0], inferred[1], inferred[2], poly))
                 flags["inferred_pole"] = True
 
+        # ── Calculate Global Tilt Compensation ────────────────
+        # If camera is tilted, all straight components will share the same offset.
+        tilt_samples = []
+        for _, _, p_angle, _ in pole_boxes_raw:
+            if p_angle is not None:
+                # Pole ideal is 90
+                offset = p_angle - 90
+                # We normalize offset to [-45, 45]
+                if offset > 90: offset -= 180
+                if offset < -90: offset += 180
+                if abs(offset) < GLOBAL_TILT_MAX_DEG:
+                    tilt_samples.append(offset)
+        
+        for _, _, c_angle, _, _ in crossarm_boxes:
+            if c_angle is not None:
+                # Crossarm ideal is 0 (or 180)
+                offset = c_angle
+                if offset > 90: offset -= 180
+                if offset < -90: offset += 180
+                if abs(offset) < GLOBAL_TILT_MAX_DEG:
+                    tilt_samples.append(offset)
+        
+        global_tilt = 0.0
+        if tilt_samples:
+            import statistics
+            global_tilt = statistics.median(tilt_samples)
+            flags["tilt_compensated"] = True
+            flags["global_tilt_deg"] = round(global_tilt, 1)
+
         # ── Classify each insulator ───────────────────────────
         insulator_results = []
         for box, conf_val, angle_deg, polygon in insulator_boxes:
@@ -322,7 +352,7 @@ class InfrastructurePipeline:
             pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
             
             for i, (p_box, p_conf, p_angle, p_poly) in enumerate(pole_boxes_raw):
-                pr = classify_pole_orientation(p_box, p_angle)
+                pr = classify_pole_orientation(p_box, p_angle, tilt_compensation=global_tilt)
                 pr.detection_conf = p_conf
                 pr.obb_polygon = p_poly
                 all_poles.append(pr)
@@ -341,7 +371,8 @@ class InfrastructurePipeline:
                 (img_h, img_w),
                 obb_angle_deg=ang,
                 insulator_results=insulator_results,
-                native_class=native_cls
+                native_class=native_cls,
+                tilt_compensation=global_tilt
             )
             cr.detection_conf = conf
             cr.obb_polygon = poly

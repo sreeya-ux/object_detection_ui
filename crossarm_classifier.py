@@ -68,7 +68,7 @@ class PoleOrientationResult:
 
 # ── Adjustment fault checkers ─────────────────────────────────
 
-def check_crossarm_fault(obb_angle_deg: Optional[float]) -> tuple:
+def check_crossarm_fault(obb_angle_deg: Optional[float], tilt_compensation: float = 0.0) -> tuple:
     """
     Checks if a crossarm is misaligned (not level).
 
@@ -80,21 +80,21 @@ def check_crossarm_fault(obb_angle_deg: Optional[float]) -> tuple:
     if obb_angle_deg is None:
         return False, "none", 0.0, "no OBB angle available"
 
-    # For a horizontal crossarm, OBB angle should be near 0° (or 90° for
-    # the orthogonal interpretation — depends on labeling convention).
-    # We measure deviation from horizontal:
-    tilt = min(abs(obb_angle_deg), abs(90 - obb_angle_deg))
-    # Take the smaller of the two interpretations
-    tilt = min(tilt, abs(obb_angle_deg - CROSSARM_IDEAL_ANGLE_DEG))
+    # Standardize angle: Subtract global tilt
+    normalized_angle = obb_angle_deg - tilt_compensation
+    
+    # For a horizontal crossarm, OBB angle should be near 0°
+    tilt = min(abs(normalized_angle), abs(90 - normalized_angle))
+    tilt = min(tilt, abs(normalized_angle - CROSSARM_IDEAL_ANGLE_DEG))
 
     if tilt <= CROSSARM_TOLERANCE_DEG:
-        return False, "none", tilt, f"tilt={tilt:.1f}° within ±{CROSSARM_TOLERANCE_DEG}°"
+        return False, "none", tilt, f"tilt={tilt:.1f}° (comp={tilt_compensation:.1f}) within ±{CROSSARM_TOLERANCE_DEG}°"
     elif tilt <= CROSSARM_FAULT_DEG:
         return (True, "warning", tilt,
-                f"Crossarm tilted {tilt:.1f}° — check mounting bolts")
+                f"Crossarm tilted {tilt:.1f}° (comp={tilt_compensation:.1f})")
     else:
         return (True, "fault", tilt,
-                f"Crossarm tilted {tilt:.1f}° — adjustment required")
+                f"Crossarm tilted {tilt:.1f}° (comp={tilt_compensation:.1f})")
 
 
 def check_pole_fault(
@@ -128,6 +128,7 @@ def check_pole_fault(
 def classify_pole_orientation(
     box: tuple,
     obb_angle_deg: Optional[float] = None,
+    tilt_compensation: float = 0.0,
 ) -> PoleOrientationResult:
     """
     Classifies pole as vertical or strut, and checks for lean fault.
@@ -143,8 +144,12 @@ def classify_pole_orientation(
 
     # ── Determine pole type + lean ────────────────────────────
     if obb_angle_deg is not None:
-        # Initial lean from orientation
-        lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(obb_angle_deg)), 1)
+        # Standardize angle: Subtract global tilt to normalize the scene
+        # If camera is tilted 10deg left, obb_angle is 100deg. 100 - 10 = 90 (True Vertical)
+        normalized_angle = obb_angle_deg - tilt_compensation
+        
+        # Initial lean from orientation (Ideal vertical is 90)
+        lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(normalized_angle)), 1)
         
         # BEND CROSS-CHECK: If the pole is near vertical but "fat", it is BENT
         # A vertical straight pole has AR > 6.0. An AR < 4.0 is extremely wide for a pole.
@@ -163,18 +168,18 @@ def classify_pole_orientation(
             pole_type  = "strut_pole"
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → intentional strut"
-        elif obb_angle_deg >= 75:
+        elif normalized_angle >= 75:
             pole_type  = "vertical_pole"
             confidence = "high"
-            note       = f"OBB angle={obb_angle_deg:.1f}° → vertical"
-        elif obb_angle_deg >= 50:
+            note       = f"OBB angle={normalized_angle:.1f}° (comp={tilt_compensation:.1f}) → vertical"
+        elif normalized_angle >= 50:
             pole_type  = "strut_pole"
             confidence = "medium"
-            note       = f"OBB angle={obb_angle_deg:.1f}° → leaning {lean}°"
+            note       = f"OBB angle={normalized_angle:.1f}° (comp={tilt_compensation:.1f}) → leaning {lean}°"
         else:
             pole_type  = "strut_pole"
             confidence = "high"
-            note       = f"OBB angle={obb_angle_deg:.1f}° → steep strut"
+            note       = f"OBB angle={normalized_angle:.1f}° (comp={tilt_compensation:.1f}) → steep strut"
     else:
         # Fallback: Use Aspect Ratio (AR) to infer lean if OBB angle is missing
         # A leaning pole has a wider bounding box -> lower AR.
@@ -218,6 +223,7 @@ def classify_crossarm_shape(
     obb_angle_deg: Optional[float] = None,
     insulator_results: list = None,
     native_class: str = "",
+    tilt_compensation: float = 0.0,
 ) -> CrossarmResult:
     """
     Classifies crossarm as straight / v_arm / t_raising (or native labels).
@@ -240,7 +246,7 @@ def classify_crossarm_shape(
     img_h, img_w = img_shape[:2]
 
     # ── Adjustment fault check ────────────────────────────────
-    fault, severity, tilt, fault_note = check_crossarm_fault(obb_angle_deg)
+    fault, severity, tilt, fault_note = check_crossarm_fault(obb_angle_deg, tilt_compensation=tilt_compensation)
 
     # ── AI Native Label Override ──────────────────────────────
     if "t_rising" in native_class or "t_arm" in native_class:

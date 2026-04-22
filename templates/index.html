@@ -263,10 +263,15 @@
                         review.
                     </p>
                 </div>
-                <button id="finalSubmitBtn" onclick="submitAsset()" disabled
-                    class="btn btn-primary w-full py-4 opacity-50 cursor-not-allowed transition-all">
-                    <i class="fa-solid fa-cloud-arrow-up"></i> CONFIRM & SUBMIT TO ADMIN
-                </button>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button id="finalSubmitBtn" onclick="submitAsset()" disabled
+                        class="bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl opacity-50 cursor-not-allowed transition-all uppercase font-bold text-[11px] tracking-widest flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> CONFIRM & SUBMIT
+                    </button>
+                    <button id="btnDownloadReport" onclick="downloadCurrentResult()" class="bg-gray-800 hover:bg-gray-700 text-gray-300 py-4 rounded-xl transition-all uppercase font-bold text-[11px] tracking-widest flex items-center justify-center gap-2 border border-white/5 shadow-xl">
+                        <i class="fa-solid fa-file-pdf"></i> DOWNLOAD RESULTS
+                    </button>
+                </div>
             </div>
         </div>
     </div>

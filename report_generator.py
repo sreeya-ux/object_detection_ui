@@ -7,6 +7,60 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Tabl
 from io import BytesIO
 import base64
 from datetime import datetime
+import cv2
+import numpy as np
+import json
+
+def annotate_image(image_b64, detections):
+    """
+    Renders bounding boxes and labels onto an image for reporting.
+    """
+    try:
+        # Decode B64
+        img_data = base64.b64decode(image_b64)
+        nparr = np.frombuffer(img_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: return image_b64
+        
+        h, w = img.shape[:2]
+        
+        for det in detections:
+            label = det.get('label', 'object').upper()
+            box = det.get('bbox')
+            poly = det.get('polygon')
+            color = (246, 130, 59) # Default Blue (BGR for reportlab/cv2) -> Actually 130, 246, 59 is green.
+            # Lets use clear BGR colors
+            color = (255, 0, 0) # Blue
+            
+            # Label-specific colors
+            if 'INSULATOR' in label: color = (255, 0, 255) # Pink/Magenta
+            if 'POLE' in label:      color = (139, 0, 139) # Purple
+            if 'CROSSARM' in label:  color = (0, 255, 0)   # Green
+            if 'CONDUCTOR' in label: color = (0, 165, 255) # Orange
+            
+            # Draw Polygon if available
+            if poly:
+                pts = np.array(poly, np.int32)
+                pts = pts.reshape((-1, 1, 2))
+                cv2.polylines(img, [pts], True, color, 2)
+            
+            # Draw Box & Label
+            if box:
+                x1, y1, x2, y2 = [int(v) for v in box]
+                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+                
+                # Draw Label Background
+                label_txt = f"{label} {int(det.get('confidence', 1.0)*100)}%"
+                (tw, th), _ = cv2.getTextSize(label_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+                cv2.rectangle(img, (x1, y1-th-10), (x1+tw+10, y1), color, -1)
+                cv2.putText(img, label_txt, (x1+5, y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Re-encode to B64
+        _, buffer = cv2.imencode('.jpg', img)
+        return base64.b64encode(buffer).decode('utf-8')
+    except Exception as e:
+        print(f"Annotation failed: {e}")
+        return image_b64
 
 def generate_asset_pdf(asset_data):
     """
@@ -75,8 +129,9 @@ def generate_asset_pdf(asset_data):
     for i, img in enumerate(asset_data['images']):
         story.append(Paragraph(f"Frame #{i+1} Analysis", styles['Heading3']))
         
-        # Convert B64 to Temp Image
-        img_data = base64.b64decode(img['image_b64'])
+        # Convert B64 to Temp Image (Using Annotated version)
+        annotated_b64 = annotate_image(img['image_b64'], img['detections'])
+        img_data = base64.b64decode(annotated_b64)
         img_buffer = BytesIO(img_data)
         
         # Add Image

@@ -603,9 +603,33 @@ def get_draft(draft_id):
     draft = conn.execute('SELECT * FROM drafts WHERE id = ?', (draft_id,)).fetchone()
     conn.close()
     if draft:
-        return jsonify({"status": "success", "data": json.loads(draft['data'])})
-    return jsonify({"status": "error", "message": "No draft found"}), 404
+        return jsonify({"status": "success", "data": draft['data']})
+    return jsonify({"status": "error", "message": "Draft not found"}), 404
 
+@app.route('/api/download_annotated/<asset_id>')
+@login_required
+def download_annotated(asset_id):
+    """Generates and serves the annotated image for an asset."""
+    conn = get_db_connection()
+    # Get the first image of the asset
+    row = conn.execute('SELECT image_b64, detections FROM asset_images WHERE asset_id = ? LIMIT 1', (asset_id,)).fetchone()
+    conn.close()
+    
+    if not row:
+        return "Asset image not found", 404
+        
+    from report_generator import annotate_image
+    annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections']))
+    
+    img_data = base64.b64decode(annotated_b64)
+    buffer = io.BytesIO(img_data)
+    
+    return send_file(
+        buffer,
+        mimetype='image/jpeg',
+        as_attachment=True,
+        download_name=f"Annotated_Asset_{asset_id[:8]}.jpg"
+    )
 @app.route('/api/get_assets')
 @login_required
 def get_assets():

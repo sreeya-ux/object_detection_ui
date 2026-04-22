@@ -67,6 +67,9 @@
             </div>
         </div>
         <div class="flex items-center gap-3">
+            <button onclick="downloadAnnotated()" class="px-3 py-2 bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl text-[9px] font-bold uppercase transition-all flex items-center gap-2 border border-blue-500/20">
+                <i class="fa-solid fa-image"></i> Annotated JPG
+            </button>
             <a href="/admin/asset/pdf/{{ asset.id }}" class="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl text-[9px] font-bold uppercase transition-all flex items-center gap-2 border border-white/5">
                 <i class="fa-solid fa-file-pdf"></i> PDF
             </a>
@@ -234,6 +237,9 @@ const CLASS_OPTIONS = [
 ];
 
 // === STATE ===
+function downloadAnnotated() {
+    window.location.href = `/api/download_annotated/${assetId}`;
+}
 let isDrawMode = false;
 let isDrawing = false;
 let drawStart = null;

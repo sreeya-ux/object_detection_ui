@@ -44,6 +44,7 @@ POLE_TOLERANCE_DEG          = 5.0    # ±5° → ok
 POLE_FAULT_DEG              = 10.0   # beyond ±10° → adjustment fault
 # Note: strut poles lean intentionally — skip fault check if pole_type=strut
 POLE_STRUT_THRESHOLD_DEG    = 30.0   # lean > 30° → definitely strut, not fault
+GLOBAL_TILT_MAX_DEG         = 20.0   # Ignore camera tilts beyond 20° as they are too distorted
 
 # ── Shed count → voltage (Indian standard) ───────────────────
 SHED_VOLTAGE_MAP = {
