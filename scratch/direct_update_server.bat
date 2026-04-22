@@ -18,7 +18,7 @@ echo --- [1/3] TRANSFERRING FILES TO SERVER (%SERVER_IP%) ---
 scp -o StrictHostKeyChecking=no app.py config.py crossarm_classifier.py pipeline.py report_generator.py init_db.py %USER%@%SERVER_IP%:%REMOTE_DIR%/
 scp -o StrictHostKeyChecking=no scratch/patch_users.py %USER%@%SERVER_IP%:%REMOTE_DIR%/scratch/
 scp -o StrictHostKeyChecking=no -r static/script.js %USER%@%SERVER_IP%:%REMOTE_DIR%/static/
-scp -o StrictHostKeyChecking=no -r templates/asset_detail.html templates/index.html %USER%@%SERVER_IP%:%REMOTE_DIR%/templates/
+scp -o StrictHostKeyChecking=no -r templates/asset_detail.html templates/index.html templates/admin.html %USER%@%SERVER_IP%:%REMOTE_DIR%/templates/
 
 echo --- [2/3] MIGRATING DATABASE ON SERVER ---
 ssh -o StrictHostKeyChecking=no %USER%@%SERVER_IP% "cd %REMOTE_DIR% && venv/bin/python3 scratch/patch_users.py"
