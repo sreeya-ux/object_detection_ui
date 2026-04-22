@@ -595,10 +595,14 @@ def save_asset():
             # DEEP LOGGING: Image
             print(f"[DB_LOG] save_asset Image[{idx}]: b64_len={len(img_data['image_b64']) if img_data.get('image_b64') else 'NONE'}, dets_len={len(det_str)}")
 
+            # Clean B64 data (Strip prefix if exists)
+            raw_b64 = str(img_data.get('image_b64', ''))
+            if ',' in raw_b64: raw_b64 = raw_b64.split(',')[1]
+
             conn.execute('''
                 INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
                 VALUES (?, ?, ?, ?)
-            ''', (str(asset_id), str(img_data['image_b64']), det_str, float(img_data.get('pole_angle', 0.0))))
+            ''', (str(asset_id), raw_b64, det_str, float(img_data.get('pole_angle', 0.0))))
             
         conn.commit()
         log_activity(worker_name, "asset_submission", f"Asset: {asset_id}, Images: {len(data['images'])}")

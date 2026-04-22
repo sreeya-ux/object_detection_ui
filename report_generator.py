@@ -16,7 +16,8 @@ def annotate_image(image_b64, detections):
     Renders bounding boxes and labels onto an image for reporting.
     """
     try:
-        # Decode B64
+        # Decode B64 (Safety strip prefix if exists)
+        if ',' in image_b64: image_b64 = image_b64.split(',')[1]
         img_data = base64.b64decode(image_b64)
         nparr = np.frombuffer(img_data, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)

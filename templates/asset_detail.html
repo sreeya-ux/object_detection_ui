@@ -114,7 +114,7 @@
                     <div class="grid grid-cols-2 gap-2">
                         {% for img in asset.images %}
                         <div class="relative cursor-pointer thumb-link rounded-lg overflow-hidden border-2 transition-all border-transparent hover:border-blue-500" data-idx="{{ loop.index0 }}">
-                            <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full aspect-video object-cover">
+                            <img src="" class="lazy-thumb w-full aspect-video object-cover" data-src="{{ img.image_b64 }}">
                             <div class="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-bold text-white">#{{ loop.index }}</div>
                         </div>
                         {% endfor %}
@@ -190,7 +190,7 @@
 
                 <!-- Annotated Image Canvas -->
                 <div class="relative bg-black rounded-2xl overflow-hidden border border-white/5 shadow-inner" id="canvas-wrapper-{{ loop.index0 }}">
-                    <img src="data:image/jpeg;base64,{{ img.image_b64 }}" class="w-full h-auto block detection-img" id="img-{{ loop.index0 }}" draggable="false">
+                    <img src="" class="lazy-img w-full h-auto block detection-img" id="img-{{ loop.index0 }}" draggable="false" data-src="{{ img.image_b64 }}">
                     <svg class="absolute inset-0 w-full h-full detection-svg select-none" id="svg-{{ loop.index0 }}"
                          data-detections='{{ img.detections|tojson }}'
                          style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;"></svg>
@@ -237,6 +237,13 @@ const CLASS_OPTIONS = [
 ];
 
 // === STATE ===
+// Helper to format B64 strings correctly and prevent double-prefixing
+function formatB64(src) {
+    if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
+    if (src.startsWith('data:image')) return src;
+    return 'data:image/jpeg;base64,' + src;
+}
+
 function downloadAnnotated() {
     window.location.href = `/api/download_annotated/${assetId}`;
 }
@@ -601,6 +608,11 @@ async function approveAndNext() {
 
 // === INIT ===
 document.addEventListener('DOMContentLoaded', () => {
+    // Lazy load and format images
+    document.querySelectorAll('[data-src]').forEach(img => {
+        img.src = formatB64(img.dataset.src);
+    });
+
     // Initialize all SVGs
     document.querySelectorAll('.asset-image-node').forEach(node => {
         const idx = node.dataset.idx;
