@@ -240,8 +240,13 @@ const CLASS_OPTIONS = [
 // Helper to format B64 strings correctly and prevent double-prefixing
 function formatB64(src) {
     if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
-    if (src.startsWith('data:image')) return src;
-    return 'data:image/jpeg;base64,' + src;
+    let clean = src.toString();
+    // Aggressive strip of double prefixes if they exist
+    while (clean.includes('base64,data:image')) {
+        clean = clean.split('base64,')[1];
+    }
+    if (clean.startsWith('data:image')) return clean;
+    return 'data:image/jpeg;base64,' + clean;
 }
 
 function downloadAnnotated() {
@@ -566,25 +571,32 @@ async function saveModifications(silent = false) {
 
 // === LOAD ANNOTATION HISTORY ===
 async function loadHistory() {
-    const res = await fetch(`/api/get_asset_history/${assetId}`);
-    const logs = await res.json();
-    const box = document.getElementById('historyLog');
+    try {
+        const res = await fetch(`/api/get_asset_history/${assetId}`);
+        const data = await res.json();
+        
+        // Handle both Array response and Object wrapped response
+        const logs = Array.isArray(data) ? data : (data.logs || []);
+        
+        const box = document.getElementById('historyBox');
+        if (logs.length === 0) {
+            box.innerHTML = '<p class="text-[10px] text-gray-600 italic px-4 py-3">No activity logs found</p>';
+            return;
+        }
 
-    if (!logs || logs.length === 0) {
-        box.innerHTML = '<p class="text-[9px] text-gray-600 italic">No changes logged yet.</p>';
-        return;
-    }
-
-    box.innerHTML = logs.map(l => `
-        <div class="p-3 bg-white/3 rounded-xl border border-white/5 hover:bg-white/5 transition-all space-y-1">
-            <div class="flex justify-between items-center">
-                <span class="text-[9px] font-bold text-blue-400 uppercase">${l.user_name}</span>
-                <span class="text-[8px] text-gray-600 font-mono">${l.timestamp}</span>
+        box.innerHTML = logs.map(l => `
+            <div class="px-4 py-2 hover:bg-white/5 transition-all cursor-default">
+                <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">${l.action.replace(/_/g, ' ')}</span>
+                    <span class="text-[8px] font-mono text-gray-700">${new Date(l.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                </div>
+                <p class="text-[10px] text-gray-300 leading-tight">${l.details || 'No details provided'}</p>
+                <div class="text-[8px] text-blue-500/50 uppercase font-bold mt-0.5">${l.user_name}</div>
             </div>
-            <p class="text-[9px] text-gray-400">${l.action.replace(/_/g, ' ')}</p>
-            ${l.details ? `<p class="text-[8px] text-gray-600 italic truncate">${l.details}</p>` : ''}
-        </div>
-    `).join('');
+        `).join('<div class="h-px bg-white/5 mx-4"></div>');
+    } catch (e) {
+        console.error("Failed to load history:", e);
+    }
 }
 
 // === APPROVE & REDIRECT ===

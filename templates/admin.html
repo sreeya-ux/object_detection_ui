@@ -231,8 +231,13 @@
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
             if (!src) return 'https://via.placeholder.com/400x300?text=No+Image';
-            if (src.startsWith('data:image')) return src;
-            return 'data:image/jpeg;base64,' + src;
+            let clean = src.toString();
+            // Aggressive strip of double prefixes if they exist
+            while (clean.includes('base64,data:image')) {
+                clean = clean.split('base64,')[1];
+            }
+            if (clean.startsWith('data:image')) return clean;
+            return 'data:image/jpeg;base64,' + clean;
         }
 
         async function updateStats() {

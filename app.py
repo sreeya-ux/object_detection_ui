@@ -870,50 +870,6 @@ def delete_asset_image():
     finally:
         conn.close()
 
-@app.route('/api/get_asset_history/<asset_id>')
-@admin_required
-def get_asset_history(asset_id):
-    conn = get_db_connection()
-
-    # Get all activity logs for this asset
-    logs = conn.execute('''
-        SELECT user_name, action, details, timestamp
-        FROM activity_logs 
-        WHERE details LIKE ? 
-        ORDER BY timestamp ASC
-    ''', (f'%{asset_id}%',)).fetchall()
-
-    # Get asset meta
-    asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
-
-    # Get all images with current detections for the visual timeline
-    image_rows = conn.execute(
-        'SELECT image_b64, detections FROM asset_images WHERE asset_id = ? ORDER BY id ASC',
-        (asset_id,)
-    ).fetchall()
-
-    conn.close()
-
-    images_data = []
-    for row in image_rows:
-        try:
-            dets = json.loads(row['detections']) if row['detections'] else []
-        except:
-            dets = []
-        images_data.append({
-            'image_b64': row['image_b64'],
-            'detections': dets
-        })
-
-    return jsonify({
-        'logs': [dict(l) for l in logs],
-        'images': images_data,
-        'asset_class': asset_row['asset_class'] if asset_row else '',
-        'worker_name': asset_row['worker_name'] if asset_row else '',
-        'status': asset_row['status'] if asset_row else '',
-        'submitted_at': asset_row['timestamp'] if asset_row else ''
-    })
-
 
 # =========================
 # TRAINING PIPELINE API
