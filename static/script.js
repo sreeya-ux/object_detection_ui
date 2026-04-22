@@ -602,8 +602,9 @@ function renderResults() {
         document.getElementById("masterReason").textContent = masterResult.reason;
         
         const confEl = document.getElementById("masterConfidence");
-        if (confScore === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
-        else if (confScore === 'medium') confEl.className = "text-[8px] font-bold text-amber-400/80 uppercase tracking-widest";
+        const confVal = masterResult.confidence ? masterResult.confidence.toLowerCase() : 'low';
+        if (confVal === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
+        else if (confVal === 'medium') confEl.className = "text-[8px] font-bold text-amber-400/80 uppercase tracking-widest";
         else confEl.className = "text-[8px] font-bold text-rose-400/80 uppercase tracking-widest";
 
         // 1.1 Update Pole Stability Row
