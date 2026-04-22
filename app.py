@@ -871,6 +871,20 @@ def delete_asset_image():
         conn.close()
 
 
+
+@app.route('/api/get_asset_history/<asset_id>')
+@admin_required
+def get_asset_history(asset_id):
+    conn = get_db_connection()
+    logs = conn.execute('''
+        SELECT user_name, action, details, timestamp
+        FROM activity_logs 
+        WHERE details LIKE ? 
+        ORDER BY timestamp ASC
+    ''', (f'%{asset_id}%',)).fetchall()
+    conn.close()
+    return jsonify([dict(l) for l in logs])
+
 # =========================
 # TRAINING PIPELINE API
 # =========================
