@@ -66,14 +66,14 @@ CROSSARM_T_VERTICAL_RATIO   = 0.05
 HT_LT_HEIGHT_THRESHOLD = 0.40  # was 0.25
 
 # ── Detection thresholds ─────────────────────────────────────
-DETECTION_CONF  = 0.01  # Base sensitivity
+DETECTION_CONF  = 0.50  # High confidence strict filter
 DETECTION_IOU   = 0.45
 
 # Class-specific confidence overrides to reduce false positives
-THRESHOLD_INSULATOR = 0.07
-THRESHOLD_CROSSARM  = 0.35
-THRESHOLD_POLE      = 0.10
-THRESHOLD_CONDUCTOR = 0.01
+THRESHOLD_INSULATOR = 0.50
+THRESHOLD_CROSSARM  = 0.50
+THRESHOLD_POLE      = 0.50
+THRESHOLD_CONDUCTOR = 0.50
 
 # ── Insulator secondary processing ────────────────────────────
 # Only insulators above this confidence will be cropped and run
