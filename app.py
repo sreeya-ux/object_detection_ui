@@ -19,6 +19,9 @@ import segmentation_models_pytorch as smp
 from pipeline import InfrastructurePipeline
 from training_pipeline import export_asset_to_training, get_training_stats
 from report_generator import generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
 
 # =========================
 # GLOBAL INITIALIZATION
@@ -53,10 +56,39 @@ unet_model.to(device)
 # =========================
 # DATABASE HELPERS
 # =========================
+class DBConn:
+    """Wrapper to make PostgreSQL behave like SQLite (execute directly on conn)."""
+    def __init__(self, conn, is_pg=False):
+        self.conn = conn
+        self.is_pg = is_pg
+    def execute(self, sql, params=()):
+        if self.is_pg:
+            # PostgreSQL uses %s instead of ?
+            sql = sql.replace("?", "%s")
+            cur = self.conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            cur = self.conn.cursor()
+        cur.execute(sql, params)
+        return cur
+    def commit(self): self.conn.commit()
+    def rollback(self): self.conn.rollback()
+    def close(self): self.conn.close()
+
 def get_db_connection():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    if DB_TYPE == "postgres":
+        try:
+            conn = psycopg2.connect(
+                host=PG_HOST, port=PG_PORT, database=PG_DB,
+                user=PG_USER, password=PG_PASS
+            )
+            return DBConn(conn, is_pg=True)
+        except Exception as e:
+            print(f"PostgreSQL Error: {e}")
+            raise e
+    else:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        return DBConn(conn, is_pg=False)
 
 def clean_b64(b64_str):
     """Robustly strips prefixes and fixes padding for b64 strings."""

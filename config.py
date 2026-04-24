@@ -245,3 +245,15 @@ OBB_CLASS_KEYWORDS = {
     "broken_wire": ["wire_broken", "broken_wire", "snapped"],
     "vegetation": ["vegetation", "tree", "plant", "bush"],
 }
+
+# ── Database Configuration ───────────────────────────────────
+# Change DB_TYPE to "postgres" to enable PostgreSQL
+DB_TYPE     = "sqlite" 
+DB_NAME     = "database.db" # used for sqlite
+
+# PostgreSQL settings
+PG_HOST     = "localhost"
+PG_PORT     = "5432"
+PG_USER     = "postgres"
+PG_PASS     = "postgres"
+PG_DB       = "infrastructure_db"
