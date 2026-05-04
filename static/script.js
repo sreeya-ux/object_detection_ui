@@ -7,13 +7,14 @@ let detections = [];
 let uploadedFile = null; // Legacy single file
 let batchImages = [];    // New Batch Array: [{file, src, detections, master, dims, processed: bool}]
 let activeBatchIndex = -1;
-let masterResult = null; 
+let masterResult = null;
+let surveyResult = {};
 let imageDimensions = { width: 0, height: 0 };
 let CLASS_OPTIONS = [
     "POLE_9M", "POLE_11M", "POLE_8.1M",
     "INS_PIN", "INS_DISC",
     "T_RISING", "TAPPING_CHANNEL", "SIDE_ARM_CHANNEL", "V_CROSS",
-    "CONDUCTOR", "STREET_LIGHT", "DTR", 
+    "CONDUCTOR", "STREET_LIGHT", "DTR",
     "WIRE_BROKEN", "VEGETATION", "OBJECT"
 ];
 
@@ -46,8 +47,8 @@ function getFakeConfidenceValue(rawConf) {
 // Drawing State
 let isDrawMode = false;
 let isDrawing = false;
-let drawStart = null; 
-let pendingBbox = null; 
+let drawStart = null;
+let pendingBbox = null;
 
 // History & Shortcuts
 let historyStack = [];
@@ -101,12 +102,12 @@ function persistDraftToStorage() {
         const payload = {
             savedAt: Date.now(),
             batchImages: batchImages.map(b => ({
-                src:        b.src,
-                name:       b.file?.name || b.name || 'image.jpg',
+                src: b.src,
+                name: b.file?.name || b.name || 'image.jpg',
                 detections: b.detections || [],
-                master:     b.master || null,
-                dims:       b.dims || {},
-                processed:  b.processed || false
+                master: b.master || null,
+                dims: b.dims || {},
+                processed: b.processed || false
             })),
             activeBatchIndex,
             detections,
@@ -114,7 +115,7 @@ function persistDraftToStorage() {
             imageDimensions
         };
         localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
-    } catch(e) {
+    } catch (e) {
         console.warn('[Draft] localStorage write failed', e);
     }
 }
@@ -142,22 +143,22 @@ function checkAndRestoreDraft() {
             `${imageCount} image${imageCount > 1 ? 's' : ''} · ${processedCount} analysed · saved ${ageMinutes < 1 ? 'just now' : ageMinutes + 'm ago'}`;
 
         banner.classList.remove('hidden');
-        banner.onclick = () => {};
+        banner.onclick = () => { };
 
         document.getElementById('btnRestoreDraft').onclick = () => {
             batchImages = draft.batchImages.map(b => ({
-                file:       { name: b.name },
-                name:       b.name,
-                src:        b.src,
+                file: { name: b.name },
+                name: b.name,
+                src: b.src,
                 detections: b.detections || [],
-                master:     b.master || null,
-                dims:       b.dims || {},
-                processed:  b.processed || false
+                master: b.master || null,
+                dims: b.dims || {},
+                processed: b.processed || false
             }));
-            activeBatchIndex     = draft.activeBatchIndex >= 0 ? draft.activeBatchIndex : 0;
-            detections           = draft.detections || [];
-            masterResult         = draft.masterResult || null;
-            imageDimensions      = draft.imageDimensions || {};
+            activeBatchIndex = draft.activeBatchIndex >= 0 ? draft.activeBatchIndex : 0;
+            detections = draft.detections || [];
+            masterResult = draft.masterResult || null;
+            imageDimensions = draft.imageDimensions || {};
 
             // Restore preview image
             if (batchImages[activeBatchIndex]?.src) {
@@ -182,7 +183,7 @@ function checkAndRestoreDraft() {
             banner.classList.add('hidden');
         };
 
-    } catch(e) {
+    } catch (e) {
         console.warn('[Draft] Restore check failed', e);
     }
 }
@@ -269,7 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function handleUpload(e) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    
+
     // Add to batch
     files.forEach(file => {
         batchImages.push({
@@ -290,7 +291,7 @@ function handleUpload(e) {
     document.getElementById('dropZone').classList.remove('p-10');
 
     renderBatchStrip();
-    
+
     // Select the first new image if none active
     if (activeBatchIndex === -1) {
         selectBatchImage(batchImages.length - files.length);
@@ -303,14 +304,14 @@ function handleUpload(e) {
 function renderBatchStrip() {
     const strip = document.getElementById('batchStrip');
     strip.innerHTML = '';
-    
+
     document.getElementById('batchCount').textContent = `${batchImages.length} Files`;
 
     batchImages.forEach((item, index) => {
         const thumb = document.createElement('div');
         thumb.className = `batch-thumb ${index === activeBatchIndex ? 'active' : ''} ${item.processed ? 'processed' : ''}`;
         thumb.onclick = () => selectBatchImage(index);
-        
+
         const img = document.createElement('img');
         img.src = item.src;
         thumb.appendChild(img);
@@ -324,7 +325,7 @@ function renderBatchStrip() {
             removeBatchImage(index);
         };
         thumb.appendChild(removeBtn);
-        
+
         strip.appendChild(thumb);
     });
 
@@ -342,9 +343,9 @@ function renderBatchStrip() {
 function removeBatchImage(index) {
     // Revoke URL to free memory
     URL.revokeObjectURL(batchImages[index].src);
-    
+
     batchImages.splice(index, 1);
-    
+
     if (batchImages.length === 0) {
         resetSession();
     } else {
@@ -362,22 +363,22 @@ function removeBatchImage(index) {
 
 function selectBatchImage(index) {
     if (index < 0 || index >= batchImages.length) return;
-    
+
     // Save current active state before switching (if needed)
     if (activeBatchIndex !== -1) {
         batchImages[activeBatchIndex].detections = [...detections];
         batchImages[activeBatchIndex].master = masterResult;
-        batchImages[activeBatchIndex].dims = {...imageDimensions};
+        batchImages[activeBatchIndex].dims = { ...imageDimensions };
     }
 
     activeBatchIndex = index;
     const item = batchImages[index];
-    
+
     // Load new image state
-    uploadedFile = item.file; 
+    uploadedFile = item.file;
     detections = [...item.detections];
     masterResult = item.master;
-    imageDimensions = {...item.dims};
+    imageDimensions = { ...item.dims };
 
     // Update UI
     document.getElementById('preview').src = item.src;
@@ -396,7 +397,7 @@ function resetSession() {
     detections = [];
     uploadedFile = null;
     masterResult = null;
-    
+
     // UI Reset
     document.getElementById('uploadPrompt').classList.remove('hidden');
     document.getElementById('batchStripWrapper').classList.add('hidden');
@@ -406,7 +407,7 @@ function resetSession() {
     document.getElementById('dropZone').classList.remove('py-4');
     document.getElementById('dropZone').classList.add('p-10');
     document.getElementById('upload').value = ''; // Clear file input
-    
+
     showToast("Session reset", "info");
 }
 
@@ -475,35 +476,37 @@ async function processImage() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-        const response = await fetch("/predict", { 
+        const response = await fetch("/predict", {
             method: "POST",
             headers: { "ngrok-skip-browser-warning": "69420" },
             body: formData,
             signal: controller.signal
         }).finally(() => clearTimeout(timeoutId));
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.error || `System Error (${response.status})`);
         }
-        
+
         const data = await response.json();
-        
+
         // Use normalized labels
-        detections = data.detections.map(d => ({ 
-            ...d, 
-            label: d.label.toUpperCase(), 
-            confirmed: false 
+        detections = data.detections.map(d => ({
+            ...d,
+            label: d.label.toUpperCase(),
+            confirmed: false
         }));
-        
+
         masterResult = data.master; // Store Master Identity
+        surveyResult = data.survey_questionnaire || {}; // Store Survey Questionnaire
         imageDimensions = { width: data.width, height: data.height };
 
         // Save to Batch State
         if (activeBatchIndex !== -1) {
             batchImages[activeBatchIndex].detections = [...detections];
             batchImages[activeBatchIndex].master = masterResult;
-            batchImages[activeBatchIndex].dims = {...imageDimensions};
+            batchImages[activeBatchIndex].survey = surveyResult;
+            batchImages[activeBatchIndex].dims = { ...imageDimensions };
             batchImages[activeBatchIndex].processed = true;
             renderBatchStrip();
         }
@@ -539,7 +542,7 @@ async function processImage() {
 
 async function saveDraftToServer() {
     if (!batchImages.length) return;
-    
+
     try {
         const payload = {
             id: (batchImages[0]?.name || 'session') + '_' + (sessionStorage.getItem('username') || 'worker'),
@@ -607,7 +610,7 @@ function renderResults() {
         document.getElementById("masterClass").textContent = masterResult.final_class.replace(/_/g, ' ');
         document.getElementById("masterVoltage").textContent = masterResult.voltage;
         document.getElementById("masterReason").textContent = masterResult.reason;
-        
+
         const confEl = document.getElementById("masterConfidence");
         const confVal = masterResult.confidence ? masterResult.confidence.toLowerCase() : 'low';
         if (confVal === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
@@ -627,7 +630,7 @@ function renderResults() {
             // Categorization logic based on config thresholds
             let status = "Vertical";
             let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
-            
+
             if (masterResult.pole_type === 'strut_pole') {
                 status = "Strut Pole";
                 badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
@@ -678,6 +681,9 @@ function renderResults() {
         // Group Header
         const header = document.createElement("div");
         header.className = "flex items-center justify-between p-4 cursor-pointer hover:bg-gray-800/50 transition-colors group";
+        
+        const allInGroupConfirmed = groupItems.every(item => item.confirmed);
+
         header.innerHTML = `
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: ${baseColor}15; border: 1px solid ${baseColor}30;">
@@ -688,17 +694,28 @@ function renderResults() {
                     <p class="text-[9px] text-gray-500 font-medium uppercase tracking-tighter">${groupCount} identified</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <span class="px-2 py-0.5 text-[10px] font-mono rounded-lg" style="background: ${baseColor}15; color: ${baseColor}; border: 1px solid ${baseColor}30;">${groupCount}</span>
+            <div class="flex items-center gap-2">
+                <button onclick="event.stopPropagation(); bulkConfirm('${label}', ${!allInGroupConfirmed})" 
+                        class="px-2 py-1 rounded-lg text-[8px] font-bold uppercase tracking-widest transition-all flex items-center gap-1.5 ${allInGroupConfirmed ? 'bg-green-600/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-gray-500 border border-white/10 hover:bg-white/10 hover:text-white'}"
+                        title="${allInGroupConfirmed ? 'Unconfirm All' : 'Bulk Confirm All'}">
+                    <i class="fa-solid ${allInGroupConfirmed ? 'fa-check-double' : 'fa-check'}"></i>
+                    ${allInGroupConfirmed ? 'ALL CHECKED' : 'BULK CHECK'}
+                </button>
+                <button onclick="event.stopPropagation(); removeGroup('${label}')" 
+                        class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/20 transition-all flex items-center justify-center"
+                        title="Remove All">
+                    <i class="fa-solid fa-trash-can text-[10px]"></i>
+                </button>
+                <div class="w-px h-4 bg-white/5 mx-1"></div>
                 <i class="fa-solid ${expandedGroups.has(label) ? 'fa-chevron-up' : 'fa-chevron-down'} text-[10px] text-gray-600" id="icon-${label}"></i>
             </div>
         `;
-        
+
         const itemsContainer = document.createElement("div");
         const isOpen = expandedGroups.has(label);
         itemsContainer.className = `${isOpen ? '' : 'hidden'} p-2 space-y-2 bg-black/40 border-t border-gray-800/50`;
         itemsContainer.id = `container-${label}`;
-        
+
         header.onclick = () => {
             const isHidden = itemsContainer.classList.contains('hidden');
             const icon = document.getElementById(`icon-${label}`);
@@ -795,7 +812,7 @@ function renderResults() {
         groupDiv.appendChild(itemsContainer);
         container.appendChild(groupDiv);
     }
-    
+
     // Update final submit button state
     const allConfirmed = detections.every(d => d.confirmed);
     const submitBtn = document.getElementById('finalSubmitBtn');
@@ -831,6 +848,20 @@ function toggleConfirm(index) {
     renderBoxes();
 }
 
+function bulkConfirm(label, state = true) {
+    saveToHistory();
+    let count = 0;
+    detections.forEach(d => {
+        if (d.label === label) {
+            d.confirmed = state;
+            count++;
+        }
+    });
+    renderResults();
+    renderBoxes();
+    showToast(`${state ? 'Confirmed' : 'Unconfirmed'} all ${label}s (${count} items)`, "success");
+}
+
 function removeDetection(index) {
     saveToHistory();
     detections.splice(index, 1);
@@ -853,7 +884,7 @@ function renderBoxes() {
     if (!overlay || !img || detections.length === 0) return;
 
     overlay.innerHTML = "";
-    
+
     // 0. Add SVG Filters for Glow Effect
     const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
     defs.innerHTML = `
@@ -879,7 +910,7 @@ function renderBoxes() {
         labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
         const currentCount = labelCounts[baseLabel];
         const confText = getFakeConfidenceValue(obj.confidence);
-        
+
         // Add lean angle to label text if it's a pole
         let labelText = `${baseLabel} ${confText}`;
         if (baseLabel.includes('POLE') && obj.details && obj.details.lean !== undefined) {
@@ -893,8 +924,8 @@ function renderBoxes() {
         const y = y1 * scaleY;
 
         const baseColor = CLASS_COLORS[baseLabel] || "#a8a29e";
-        const color = obj.manual ? "#f43f5e" : baseColor; 
-        
+        const color = obj.manual ? "#f43f5e" : baseColor;
+
         // --- 1. Draw Shape (Polygon or Rect) ---
         let shape;
         if (obj.polygon && obj.polygon.length > 2) {
@@ -911,7 +942,7 @@ function renderBoxes() {
 
         shape.setAttribute("stroke", color);
         shape.setAttribute("stroke-width", obj.manual ? "2.5" : "1.5");
-        
+
         // DIAGNOSTIC HUD: Solid-feeling translucent fill for structural objects
         if (baseLabel !== "CONDUCTOR") {
             shape.setAttribute("fill", color);
@@ -920,7 +951,7 @@ function renderBoxes() {
             shape.setAttribute("fill", "transparent");
             shape.setAttribute("class", "conductor-trace");
         }
-        
+
         shape.setAttribute("id", `box-${i}`);
         shape.classList.add("detection-box");
         shape.style.pointerEvents = "auto";
@@ -944,7 +975,7 @@ function renderBoxes() {
         const labelGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
         labelGroup.setAttribute("class", "label-pill opacity-0 transition-opacity duration-200 pointer-events-none");
         labelGroup.setAttribute("id", `label-${i}`);
-        
+
         const labelTextEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
         labelTextEl.textContent = labelText;
         labelTextEl.setAttribute("font-size", "11px");
@@ -953,7 +984,7 @@ function renderBoxes() {
         labelTextEl.setAttribute("fill", "#ffffff");
         labelTextEl.setAttribute("text-anchor", "middle");
         labelTextEl.setAttribute("dominant-baseline", "middle");
-        
+
         // Hide temporarily to measure
         labelTextEl.style.visibility = "hidden";
         overlay.appendChild(labelTextEl);
@@ -965,7 +996,7 @@ function renderBoxes() {
         const paddingV = 4;
         const rectW = bbox.width + paddingH * 2;
         const rectH = bbox.height + paddingV * 2;
-        
+
         const labelRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         labelRect.setAttribute("x", labelX - rectW / 2);
         labelRect.setAttribute("y", (labelY - rectH - 5 < 0) ? labelY + 5 : labelY - rectH - 5);
@@ -974,10 +1005,10 @@ function renderBoxes() {
         labelRect.setAttribute("rx", "6");
         labelRect.setAttribute("fill", color);
         labelRect.setAttribute("class", "label-bg");
-        
+
         labelTextEl.setAttribute("x", labelX);
         labelTextEl.setAttribute("y", (labelY - rectH - 5 < 0) ? labelY + 5 + rectH / 2 : labelY - rectH - 5 + rectH / 2);
-        
+
         labelGroup.appendChild(labelRect);
         labelGroup.appendChild(labelTextEl);
         overlay.appendChild(labelGroup);
@@ -1018,7 +1049,7 @@ async function compressImage(src, maxWidth = 1200, quality = 0.75) {
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
-            
+
             // Convert to JPEG with specified quality
             const b64 = canvas.toDataURL('image/jpeg', quality);
             resolve(b64.split(',')[1]); // Return raw b64 data
@@ -1038,6 +1069,7 @@ async function submitAsset() {
     try {
         const payload = {
             master: masterResult, // Overall asset classification
+            survey_data: surveyResult, // Survey Questionnaire
             images: []
         };
 
@@ -1073,7 +1105,7 @@ async function submitAsset() {
             body: JSON.stringify(payload)
         });
         const result = await res.json();
-        
+
         if (result.status === 'success') {
             showToast("Success! Asset Uploaded to Admin", "success");
             setTimeout(() => {
@@ -1158,14 +1190,14 @@ function manageClasses() {
 
     let listStr = CLASS_OPTIONS.map((c, i) => `${i + 1}. ${c}`).join('\n');
     let selection = prompt(`Select class number to manage:\n\n${listStr}\n\n(Enter number)`);
-    
+
     if (!selection) return;
     let idx = parseInt(selection) - 1;
 
     if (idx >= 0 && idx < CLASS_OPTIONS.length) {
         let oldName = CLASS_OPTIONS[idx];
         let action = prompt(`Managing "${oldName}"\nType 'R' to Rename or 'D' to Delete:`).toUpperCase();
-        
+
         if (action === 'R') {
             let newName = prompt(`Enter new name for ${oldName}:`);
             if (newName && newName.trim()) {
@@ -1213,7 +1245,7 @@ function deleteClass(name) {
 function getPointerPos(e) {
     const overlay = document.getElementById('detectionOverlay');
     const rect = overlay.getBoundingClientRect();
-    
+
     // Support both mouse and touch events
     let clientX, clientY;
     if (e.touches && e.touches.length > 0) {
@@ -1234,10 +1266,10 @@ function getPointerPos(e) {
 
 function handleDragStart(e) {
     if (!isDrawMode || !uploadedFile) return;
-    
+
     // Prevent accidental triggers and scrolling while drawing
     e.stopPropagation();
-    if (e.type === 'touchstart') e.preventDefault(); 
+    if (e.type === 'touchstart') e.preventDefault();
     if (e.type === 'mousedown' && e.button !== 0) return; // Only left click
 
     const pos = getPointerPos(e);
@@ -1270,7 +1302,7 @@ function handleDragMove(e) {
 
     const pos = getPointerPos(e);
     const overlay = document.getElementById('detectionOverlay');
-    
+
     let ghost = document.getElementById('ghostBox');
     if (!ghost) {
         ghost = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1292,7 +1324,7 @@ function handleDragMove(e) {
 
 function handleDragEnd(e) {
     if (!isDrawing) return;
-    
+
     // Remove global listeners
     window.removeEventListener('mousemove', handleDragMove);
     window.removeEventListener('touchmove', handleDragMove);
@@ -1311,7 +1343,7 @@ function handleDragEnd(e) {
     // Minimum size threshold to prevent accidental clicks
     const width = Math.abs(x2 - x1);
     const height = Math.abs(y2 - y1);
-    
+
     if (width < 15 || height < 15) {
         cancelManualDraw();
         return;
@@ -1319,7 +1351,7 @@ function handleDragEnd(e) {
 
     isDrawing = false;
     pendingBbox = [x1, y1, x2, y2];
-    
+
     // Add visual "selection" appearance
     const ghost = document.getElementById('ghostBox');
     if (ghost) ghost.classList.add('final-preview');
@@ -1347,7 +1379,7 @@ function showLabelPicker(clientX, clientY) {
 
     backdrop.classList.remove('hidden');
     modal.classList.remove('hidden');
-    
+
     // RESPONSIVE POSITIONING
     if (window.innerWidth < 640) {
         // Mobile: Center on screen
@@ -1365,7 +1397,7 @@ function showLabelPicker(clientX, clientY) {
         // Viewport clamping
         if (left + modalWidth > window.innerWidth) left = window.innerWidth - modalWidth - 20;
         if (left < 20) left = 20;
-        
+
         if (top + modalHeight > window.innerHeight) top = window.innerHeight - modalHeight - 20;
         if (top < 20) top = 20;
 
@@ -1378,7 +1410,7 @@ function showLabelPicker(clientX, clientY) {
 function saveManualDraw(labelOverride = null) {
     // Prevent event from bubbling to dropZone if this was called from a button click
     if (window.event) window.event.stopPropagation();
-    
+
     const customInput = document.getElementById('customLabelInput');
     const custom = customInput.value.trim().toUpperCase();
     const label = labelOverride || custom || "OBJECT";
@@ -1407,7 +1439,7 @@ function saveManualDraw(labelOverride = null) {
 
     detections.push(newDet);
     saveToHistory();
-    
+
     // Add to CLASS_OPTIONS if new
     if (custom && !CLASS_OPTIONS.includes(custom)) {
         CLASS_OPTIONS.push(custom);
@@ -1421,14 +1453,14 @@ function saveManualDraw(labelOverride = null) {
 
 function cancelManualDraw(e) {
     if (e && e.stopPropagation) e.stopPropagation();
-    
+
     drawStart = null;
     isDrawing = false;
     pendingBbox = null;
-    
+
     const ghost = document.getElementById('ghostBox');
     if (ghost) ghost.remove();
-    
+
     const marker = document.getElementById('startMarker');
     if (marker) marker.remove();
 
@@ -1436,10 +1468,10 @@ function cancelManualDraw(e) {
     const backdrop = document.getElementById('labelPickerBackdrop');
     if (modal) modal.classList.add('hidden');
     if (backdrop) backdrop.classList.add('hidden');
-    
+
     const customInput = document.getElementById('customLabelInput');
     if (customInput) customInput.value = '';
-    
+
     updateDrawStatus("STEP 1: CLICK TO START");
 }
 
@@ -1451,19 +1483,19 @@ function showToast(msg, type = "primary") {
         warning: "bg-amber-600",
         primary: "bg-blue-600"
     };
-    
+
     toast.className = `fixed bottom-8 left-1/2 -translate-x-1/2 ${colors[type]} text-white px-6 py-3 rounded-xl shadow-2xl z-[100] animate-fade-in font-bold flex items-center gap-3`;
-    
+
     const icons = {
         success: "fa-circle-check",
         danger: "fa-circle-xmark",
         warning: "fa-triangle-exclamation",
         primary: "fa-info-circle"
     };
-    
+
     toast.innerHTML = `<i class="fa-solid ${icons[type]}"></i> ${msg}`;
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transform = 'translate(-50%, 20px)';
@@ -1490,18 +1522,18 @@ async function startAR() {
     const arVideo = document.getElementById('arVideo');
     const arContainer = document.getElementById('arContainer');
     const arCanvas = document.getElementById('arCanvas');
-    
+
     try {
         arStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         if (arVideo) {
             arVideo.srcObject = arStream;
             arContainer.classList.remove('hidden');
-            
+
             // Hide normal upload UI
             document.getElementById('dropZone').classList.add('hidden');
             document.getElementById('imageContainer').classList.add('hidden');
             document.getElementById('submitSection').classList.add('hidden');
-            
+
             arVideo.onloadedmetadata = () => {
                 arCanvas.width = arVideo.videoWidth;
                 arCanvas.height = arVideo.videoHeight;
@@ -1525,7 +1557,7 @@ function stopAR() {
     }
     if (arInterval) clearInterval(arInterval);
     arInterval = null;
-    
+
     if (arContainer && document.getElementById('dropZone')) {
         arContainer.classList.add('hidden');
         document.getElementById('dropZone').classList.remove('hidden');
@@ -1540,17 +1572,17 @@ function stopAR() {
 async function processARFrame() {
     const arVideo = document.getElementById('arVideo');
     const arCanvas = document.getElementById('arCanvas');
-    
+
     if (!arVideo || !arCanvas || !arStream) return;
-    
+
     const ctx = arCanvas.getContext('2d');
-    
+
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = arVideo.videoWidth;
     tempCanvas.height = arVideo.videoHeight;
     tempCanvas.getContext('2d').drawImage(arVideo, 0, 0);
     const frameBase64 = tempCanvas.toDataURL('image/jpeg', 0.6);
-    
+
     document.getElementById('arOverlayLoading').classList.remove('hidden');
 
     try {
@@ -1559,11 +1591,11 @@ async function processARFrame() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image: frameBase64 })
         });
-        
+
         if (response.ok) {
             const data = await response.json();
             drawARBoxes(ctx, data.detections, data.width, data.height);
-            
+
             // Sync side-panel
             detections = data.detections.map(d => ({ ...d, label: d.label.toUpperCase(), confirmed: false }));
             masterResult = data.master;
@@ -1580,16 +1612,16 @@ function drawARBoxes(ctx, detectionsData, origW, origH) {
     if (!ctx) return;
     const arCanvas = document.getElementById('arCanvas');
     ctx.clearRect(0, 0, arCanvas.width, arCanvas.height);
-    
+
     const scaleX = arCanvas.width / origW;
     const scaleY = arCanvas.height / origH;
-    
+
     detectionsData.forEach(d => {
         const color = CLASS_COLORS[d.label.toUpperCase()] || "#00ff00";
         if (d.polygon && d.polygon.length > 0) {
             ctx.beginPath();
             ctx.moveTo(d.polygon[0][0] * scaleX, d.polygon[0][1] * scaleY);
-            for(let i=1; i<d.polygon.length; i++) {
+            for (let i = 1; i < d.polygon.length; i++) {
                 ctx.lineTo(d.polygon[i][0] * scaleX, d.polygon[i][1] * scaleY);
             }
             ctx.closePath();
@@ -1602,13 +1634,13 @@ function drawARBoxes(ctx, detectionsData, origW, origH) {
             const [x1, y1, x2, y2] = d.bbox;
             ctx.lineWidth = 3;
             ctx.strokeStyle = color;
-            ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2-x1) * scaleX, (y2-y1) * scaleY);
+            ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
         }
-        
+
         // draw label
         const cx = (d.bbox && !!d.bbox.length ? d.bbox[0] * scaleX : d.polygon[0][0] * scaleX);
         const cy = (d.bbox && !!d.bbox.length ? d.bbox[1] * scaleY : d.polygon[0][1] * scaleY);
-        
+
         ctx.fillStyle = color;
         ctx.fillRect(cx, cy - 20, ctx.measureText(d.label).width + 10, 20);
         ctx.fillStyle = "#000000";
@@ -1644,7 +1676,8 @@ async function submitAsset() {
 
         const payload = {
             images: imagesToSubmit,
-            master: masterResult || (batchImages[0] ? batchImages[0].master : {})
+            master: masterResult || (batchImages[0] ? batchImages[0].master : {}),
+            survey_data: surveyResult || (batchImages[0] ? batchImages[0].survey : {})
         };
 
         const response = await fetch('/api/save_asset', {
@@ -1680,7 +1713,7 @@ async function downloadCurrentResult() {
 
     try {
         showToast("Preparing Admin Studio...", "primary");
-        
+
         const activeImg = activeBatchIndex !== -1 ? batchImages[activeBatchIndex] : null;
 
         const assetData = {
@@ -1705,8 +1738,8 @@ async function downloadCurrentResult() {
         });
 
         if (response.ok) {
-             showToast("Opening Admin Studio", "success");
-             window.location.href = `/admin/asset/${assetData.id}`;
+            showToast("Opening Admin Studio", "success");
+            window.location.href = `/admin/asset/${assetData.id}`;
         }
     } catch (err) {
         console.error("Export Error:", err);

@@ -157,6 +157,10 @@ def export_asset_to_training(asset_id: str, approved_by: str) -> dict:
             class_counts = {}
 
             for det in detections:
+                # Only export detections that have been confirmed by a human (worker or admin)
+                if not det.get("confirmed", True):
+                    continue
+
                 label = det.get("label", "OBJECT").upper().replace(" ", "_")
                 bbox  = det.get("bbox")
 

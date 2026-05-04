@@ -207,18 +207,13 @@
                         <!-- Labels -->
                     </div>
 
-                    <div class="mt-4 pt-4 border-t border-gray-800 space-y-2">
-                        <p class="text-[9px] text-gray-600 font-bold uppercase tracking-widest">Download Results</p>
-                        <div class="grid grid-cols-2 gap-2">
-                            <a id="modalDlAnnotated" href="#" class="px-2 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] font-bold uppercase rounded-lg border border-white/5 flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-image"></i> JPG
-                            </a>
-                            <a id="modalDlPdf" href="#" class="px-2 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] font-bold uppercase rounded-lg border border-white/5 flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-file-pdf"></i> PDF
+                        <div class="mt-4 pt-4 border-t border-gray-800 space-y-2">
+                            <p class="text-[9px] text-gray-600 font-bold uppercase tracking-widest">Database Pathway</p>
+                            <a id="modalPathwayLink" href="#" target="_blank" class="w-full px-2 py-2 bg-blue-900/20 hover:bg-blue-900/40 text-blue-400 text-[9px] font-bold uppercase rounded-lg border border-blue-500/20 flex items-center justify-center gap-2 transition-all">
+                                <i class="fa-solid fa-database"></i> Open Decoupled Results
                             </a>
                         </div>
                     </div>
-                </div>
 
                 <div class="space-y-3 pt-6 border-t border-gray-800">
                     <button id="btnApprove" class="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-bold shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2">
@@ -237,6 +232,8 @@
         let currentFilter = 'pending';
         let adminHistoryStack = [];
         let adminRedoStack = [];
+        let allTasksCached = [];
+        let expandedAdminGroups = new Set();
         // Helper to format B64 strings correctly and prevent double-prefixing
         function formatB64(src) {
             if (!src || src === 'None' || src === 'null' || src.length < 5) {
@@ -335,6 +332,9 @@
                             <i class="fa-solid fa-clock-rotate-left"></i> Logs
                         </button>
                     </div>
+                    <a href="/view_pathway/${task.image_db_id}" target="_blank" class="block w-full mt-2 py-2 bg-emerald-900/10 hover:bg-emerald-900/20 border border-emerald-500/10 text-emerald-500 text-center rounded-xl text-[8px] font-bold uppercase tracking-widest transition-all">
+                        <i class="fa-solid fa-link mr-1"></i> Result Pathway
+                    </a>
                 </div>
             `).join('');
         }
@@ -356,37 +356,12 @@
             // Set Download Links
             document.getElementById('modalDlAnnotated').href = `/api/download_annotated/${taskId}`;
             document.getElementById('modalDlPdf').href = `/admin/asset/pdf/${taskId}`;
+            document.getElementById('modalPathwayLink').href = `/view_pathway/${task.image_db_id}`;
             
             // Draw Overlay
-            const svg = document.getElementById('modalOverlay');
-            svg.innerHTML = '';
-            
-            img.onload = () => {
-                svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
-                const dets = task.detections || [];
-                const colors = { INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4', CROSSARM: '#10b981' };
-                
-                svg.innerHTML = dets.map(d => {
-                    const [x1, y1, x2, y2] = d.bbox || [0,0,0,0];
-                    const col = colors[d.label?.toUpperCase()] || '#3b82f6';
-                    const lbl = (d.label || 'OBJ').toUpperCase();
-                    return `<rect x="${x1}" y="${y1}" width="${x2-x1}" height="${y2-y1}" stroke="${col}" stroke-width="4" fill="${col}22" rx="4"/>
-                            <rect x="${x1}" y="${y1-30}" width="${lbl.length*14+14}" height="28" fill="${col}" rx="4"/>
-                            <text x="${x1+6}" y="${y1-9}" font-size="18" font-family="Inter" font-weight="700" fill="white">${lbl}</text>`;
-                }).join('');
-            };
-            if(img.complete) img.onload();
+            renderAdminOverlay(task);
 
-            const detBox = document.getElementById('modalDetections');
-            detBox.innerHTML = (task.detections || []).map(d => {
-                const confPercent = Math.round((d.confidence || 1.0) * 100);
-                return `
-                <div class="flex justify-between items-center text-[10px] p-2 bg-gray-800/50 rounded-lg border border-gray-700/50">
-                    <span class="font-bold text-gray-300 uppercase">${d.label.replace('_', ' ')}</span>
-                    <span class="font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">${confPercent}%</span>
-                </div>
-                `;
-            }).join('') || '<p class="text-[10px] text-gray-600 italic">No automated detections found.</p>';
+            renderAdminDetections(task);
 
             const modal = document.getElementById('modal');
             modal.classList.remove('hidden');
@@ -404,15 +379,168 @@
             }
         }
 
+        function renderAdminOverlay(task) {
+            const img = document.getElementById('modalImg');
+            const svg = document.getElementById('modalOverlay');
+            svg.innerHTML = '';
+            
+            const draw = () => {
+                svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+                const dets = task.detections || [];
+                const colors = { INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4', CROSSARM: '#10b981' };
+                
+                svg.innerHTML = dets.map((d, i) => {
+                    const [x1, y1, x2, y2] = d.bbox || [0,0,0,0];
+                    const col = colors[d.label?.toUpperCase()] || '#3b82f6';
+                    const lbl = (d.label || 'OBJ').toUpperCase();
+                    const isConfirmed = d.confirmed !== false;
+                    return `
+                        <rect id="admin-box-${i}" x="${x1}" y="${y1}" width="${x2-x1}" height="${y2-y1}" 
+                              stroke="${col}" stroke-width="4" fill="${col}${isConfirmed ? '22' : '05'}" rx="4"
+                              style="${isConfirmed ? '' : 'stroke-dasharray: 8 4; opacity: 0.5;'}"/>
+                        <rect x="${x1}" y="${y1-30}" width="${lbl.length*14+14}" height="28" fill="${col}" rx="4" style="${isConfirmed ? '' : 'opacity: 0.5;'}"/>
+                        <text x="${x1+6}" y="${y1-9}" font-size="18" font-family="Inter" font-weight="700" fill="white" style="${isConfirmed ? '' : 'opacity: 0.7;'}">${lbl}</text>
+                    `;
+                }).join('');
+            };
+
+            if (img.complete) draw();
+            else img.onload = draw;
+        }
+
+        function renderAdminDetections(task) {
+            const detBox = document.getElementById('modalDetections');
+            detBox.innerHTML = '';
+            
+            const dets = task.detections || [];
+            if (dets.length === 0) {
+                detBox.innerHTML = '<p class="text-[10px] text-gray-600 italic">No automated detections found.</p>';
+                return;
+            }
+
+            // Grouping
+            const groups = {};
+            dets.forEach((d, i) => {
+                const lbl = (d.label || 'OBJECT').toUpperCase();
+                if (!groups[lbl]) groups[lbl] = [];
+                groups[lbl].push({ ...d, originalIndex: i });
+            });
+
+            const colors = { INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4', CROSSARM: '#10b981' };
+
+            for (const label in groups) {
+                const items = groups[label];
+                const col = colors[label] || '#3b82f6';
+                const allConfirmed = items.every(it => it.confirmed !== false);
+                const isExpanded = expandedAdminGroups.has(label);
+
+                const groupEl = document.createElement('div');
+                groupEl.className = "mb-2 border border-gray-800 rounded-lg overflow-hidden bg-gray-900/50";
+                
+                groupEl.innerHTML = `
+                    <div class="flex items-center justify-between p-2 cursor-pointer hover:bg-gray-800 transition-colors" onclick="toggleAdminGroup('${label}')">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[8px] text-gray-600"></i>
+                            <span class="text-[10px] font-bold" style="color: ${col}">${label}S</span>
+                            <span class="text-[8px] bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded-full font-mono">${items.length}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="event.stopPropagation(); bulkAdminConfirm('${label}', ${!allConfirmed})" 
+                                    class="px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider transition-all border ${allConfirmed ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-white/5 text-gray-500 border-white/10 hover:text-white'}">
+                                <i class="fa-solid ${allConfirmed ? 'fa-check-double' : 'fa-check'}"></i> ${allConfirmed ? 'ALL OK' : 'CHECK ALL'}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="admin-group-${label}" class="${isExpanded ? '' : 'hidden'} p-1 space-y-1 bg-black/20 border-t border-gray-800/50">
+                        ${items.map(it => {
+                            const i = it.originalIndex;
+                            const isConfirmed = it.confirmed !== false;
+                            return `
+                                <div class="flex justify-between items-center text-[9px] p-2 ${isConfirmed ? 'bg-gray-800/50' : 'bg-rose-500/5 opacity-60'} rounded border ${isConfirmed ? 'border-gray-700/50' : 'border-rose-500/20'}">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-1 h-1 rounded-full" style="background: ${col}"></div>
+                                        <span class="font-bold text-gray-400 uppercase">${label} #${i+1}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button onclick="toggleAdminConfirm(${i})" class="w-6 h-6 flex items-center justify-center rounded ${isConfirmed ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-500 border border-white/5'}">
+                                            <i class="fa-solid ${isConfirmed ? 'fa-check' : 'fa-xmark'}"></i>
+                                        </button>
+                                        <button onclick="removeAdminDetection(${i})" class="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-rose-500">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                detBox.appendChild(groupEl);
+            }
+        }
+
+        function toggleAdminGroup(label) {
+            if (expandedAdminGroups.has(label)) expandedAdminGroups.delete(label);
+            else expandedAdminGroups.add(label);
+            const task = allTasksCached.find(t => t.id === currentTaskId);
+            renderAdminDetections(task);
+        }
+
+        function toggleAdminConfirm(detIdx) {
+            const task = allTasksCached.find(t => t.id === currentTaskId);
+            if (!task) return;
+            task.detections[detIdx].confirmed = !(task.detections[detIdx].confirmed !== false);
+            renderAdminDetections(task);
+            renderAdminOverlay(task);
+        }
+
+        function bulkAdminConfirm(label, state) {
+            const task = allTasksCached.find(t => t.id === currentTaskId);
+            if (!task) return;
+            task.detections.forEach(d => {
+                if ((d.label || '').toUpperCase() === label) {
+                    d.confirmed = state;
+                }
+            });
+            renderAdminDetections(task);
+            renderAdminOverlay(task);
+        }
+
+        function removeAdminDetection(detIdx) {
+            const task = allTasksCached.find(t => t.id === currentTaskId);
+            if (!task) return;
+            if (confirm('Remove this detection?')) {
+                task.detections.splice(detIdx, 1);
+                renderAdminDetections(task);
+                renderAdminOverlay(task);
+            }
+        }
+
         async function updateStatus(status, isUndoRedo = false) {
             if (!currentTaskId) return;
 
+            const task = allTasksCached.find(t => t.id === currentTaskId);
+
             if (!isUndoRedo) {
-                const task = allTasksCached.find(t => t.id === currentTaskId);
                 if (task) {
                     adminHistoryStack.push({ taskId: currentTaskId, status: task.status });
                     adminRedoStack = []; // Clear redo on new action
                     updateUndoRedoButtons();
+                }
+            }
+
+            // If approving, first save any detection changes (checks/removals)
+            if (status === 'approved' && task) {
+                try {
+                    await fetch('/api/update_asset_detections', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            asset_id: currentTaskId, 
+                            updates: [{ index: 0, detections: task.detections }] // Assuming first image for now
+                        })
+                    });
+                } catch(e) {
+                    console.warn("Failed to save detection updates", e);
                 }
             }
 
