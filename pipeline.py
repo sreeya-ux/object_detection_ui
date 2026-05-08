@@ -277,7 +277,7 @@ class InfrastructurePipeline:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
-                    elif conf_val >= 0.05: # Default for other flags like DTR/AB Cable
+                    elif conf_val >= 0.80: # Ensure high confidence for any unknown structural flags
                          is_strut = ("strut" in cls_name.lower())
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
 
@@ -306,7 +306,7 @@ class InfrastructurePipeline:
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
                          is_strut = ("strut" in cls_name.lower())
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
-                    elif conf_val >= 0.05:
+                    elif conf_val >= 0.80: # Final catch-all for structural components
                          is_strut = ("strut" in cls_name.lower())
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
         
