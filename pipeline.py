@@ -598,10 +598,10 @@ class InfrastructurePipeline:
         if _match_keyword(cls_name, "insulator"):
             insulator_boxes.append(det)
         elif _match_keyword(cls_name, "pole"):
-            # GEOMETRY SHIELD: Real poles are tall and thin.
-            # If the detection is too 'fat' (e.g., a wall), reject it.
+            # GEOMETRY SHIELD: Real main poles are tall and thin.
+            # (Strut poles are exempt because their lean makes their AABB wide)
             w, h = box[2] - box[0], box[3] - box[1]
-            if h < (w * 2.5):
+            if not is_strut and h < (w * 2.5):
                 # Reject wide structures like walls/buildings
                 print(f"🚫 [Geometry Shield] Rejected wide detection: {cls_name} (Aspect Ratio: {h/w:.1f})")
                 return
