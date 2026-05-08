@@ -236,7 +236,8 @@ class InfrastructurePipeline:
                         # Skip low-confidence poles (below 80%)
                         continue
                     else:
-                        self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                        is_strut = ("strut" in cls_name.lower())
+                        self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
 
             # ── Handle OBB (Old Model Support) ──
             if obb is not None and len(obb) > 0:
@@ -272,11 +273,13 @@ class InfrastructurePipeline:
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                         is_strut = ("strut" in cls_name.lower())
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif conf_val >= 0.05: # Default for other flags like DTR/AB Cable
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                         is_strut = ("strut" in cls_name.lower())
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
 
             if boxes is not None and len(boxes) > 0:
                 for box_obj in boxes:
@@ -298,11 +301,14 @@ class InfrastructurePipeline:
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                         is_strut = ("strut" in cls_name.lower())
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                         is_strut = ("strut" in cls_name.lower())
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
                     elif conf_val >= 0.05:
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                         is_strut = ("strut" in cls_name.lower())
+                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
         
         # Process specialized insulator detector output (Final Insulator Detections)
         for result in raw_insulator:
@@ -391,8 +397,8 @@ class InfrastructurePipeline:
             # Sort by ACTUAL AREA (x2-x1) * (y2-y1) to find the primary pole
             pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
             
-            for i, (p_box, p_conf, p_angle, p_poly) in enumerate(pole_boxes_raw):
-                pr = classify_pole_orientation(p_box, p_angle, tilt_compensation=global_tilt)
+            for i, (p_box, p_conf, p_angle, p_poly, p_is_strut) in enumerate(pole_boxes_raw):
+                pr = classify_pole_orientation(p_box, p_angle, is_strut=p_is_strut, tilt_compensation=global_tilt)
                 pr.detection_conf = p_conf
                 pr.obb_polygon = p_poly
                 all_poles.append(pr)
@@ -576,10 +582,10 @@ class InfrastructurePipeline:
         insulator_boxes, pole_boxes_raw,
         crossarm_boxes, conductor_boxes,
         street_light_boxes, other_boxes, flags,
-        polygon=None
+        polygon=None, is_strut=False
     ):
         """Routes a detection into the right typed list, including polygon data."""
-        det = (box, conf_val, angle_deg, polygon)
+        det = (box, conf_val, angle_deg, polygon, is_strut)
         if _match_keyword(cls_name, "insulator"):
             insulator_boxes.append(det)
         elif _match_keyword(cls_name, "pole"):

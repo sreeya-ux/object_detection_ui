@@ -163,8 +163,8 @@ def classify_pole_orientation(
         if is_strut:
             pole_type  = "strut_pole"
             confidence = "high"
-            lean       = 0.0 # Ignore lean for strut poles
-            note       = f"Explicitly detected as strut pole"
+            # Keep the actual lean measurement but label as strut
+            note       = f"Explicitly detected as strut pole (lean={lean:.1f}°)"
         elif lean >= POLE_STRUT_THRESHOLD_DEG:
             pole_type  = "strut_pole"
             confidence = "high"
