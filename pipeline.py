@@ -303,8 +303,13 @@ class InfrastructurePipeline:
                     elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
                          # 1. Trust model's explicit class first
                          is_strut = ("strut" in cls_name.lower())
+                         if is_strut:
+                             # If model says it's a strut, BYPASS all other filters
+                             self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=True)
+                             continue
+
                          # 2. Geometric backup if model just says 'pole'
-                         if not is_strut and angle_deg is not None:
+                         if angle_deg is not None:
                              lean = abs(angle_deg - 90)
                              if lean > 15.0: is_strut = True
                          
@@ -720,7 +725,9 @@ class InfrastructurePipeline:
                     continue
 
                 overlap = self._calculate_max_overlap(best[0], item[0])
-                if overlap < iou_threshold:
+                # Relaxed threshold for struts (allow them to be close together)
+                current_threshold = 0.85 if best[4] else iou_threshold
+                if overlap < current_threshold:
                     remaining.append(item)
             sorted_items = remaining
             
