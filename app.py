@@ -40,7 +40,7 @@ def serve_upload(filename):
 # Master Rule-Engine Pipeline
 # Centralizes component detection, classification, and rule-based logic.
 pipeline_engine = InfrastructurePipeline(
-    component_model_path="dry_backup/best_whole.pt",
+    component_model_path="best (2)/best (2).pt",
     insulator_model_path="dry_backup/best_insulator.pt",
     shed_model_path="dry_backup/best_disc.pt"
 )

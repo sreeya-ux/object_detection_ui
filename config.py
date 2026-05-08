@@ -233,3 +233,13 @@ OBB_CLASS_KEYWORDS = {
     "broken_wire": ["wire_broken", "broken_wire", "snapped"],
     "vegetation": ["vegetation", "tree", "plant", "bush"],
 }
+
+# ── Database ──────────────────────────────────────────────────
+DB_TYPE = "sqlite"
+DB_NAME = "database.db"
+# (Placeholders for future PG migration)
+PG_HOST = "localhost"
+PG_PORT = 5432
+PG_USER = "postgres"
+PG_PASS = "postgres"
+PG_DB   = "object_detection"
