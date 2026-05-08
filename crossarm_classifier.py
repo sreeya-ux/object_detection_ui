@@ -133,6 +133,7 @@ def classify_pole_orientation(
     obb_angle_deg: Optional[float] = None,
     img: Optional[np.ndarray] = None,
     is_strut: bool = False,
+    tilt_compensation: float = 0.0,
 ) -> PoleOrientationResult:
     """
     Classifies pole as vertical or strut, and checks for lean/bending fault.
