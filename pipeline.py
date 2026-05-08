@@ -697,6 +697,11 @@ class InfrastructurePipeline:
             # Filter remaining items
             remaining = []
             for item in sorted_items:
+                # Class-aware suppression: Main poles shouldn't delete Strut poles
+                if best[4] != item[4]: # Different is_strut flag
+                    remaining.append(item)
+                    continue
+
                 overlap = self._calculate_max_overlap(best[0], item[0])
                 if overlap < iou_threshold:
                     remaining.append(item)

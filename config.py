@@ -73,7 +73,7 @@ DETECTION_IOU   = 0.45
 # Class-specific confidence overrides to reduce false positives
 THRESHOLD_INSULATOR = 0.05
 THRESHOLD_CROSSARM  = 0.10
-THRESHOLD_POLE      = 0.10
+THRESHOLD_POLE      = 0.80
 THRESHOLD_CONDUCTOR = 0.01
 
 # Global tilt compensation limit
