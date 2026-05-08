@@ -14,6 +14,8 @@ All checks are geometry-only (OBB angle + aspect ratio).
 """
 
 import math
+import cv2
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional
 from collections import Counter
@@ -29,6 +31,7 @@ from config import (
     POLE_TOLERANCE_DEG,
     POLE_FAULT_DEG,
     POLE_STRUT_THRESHOLD_DEG,
+    POLE_LEANING_THRESHOLD_DEG,
 )
 
 
@@ -128,34 +131,57 @@ def check_pole_fault(
 def classify_pole_orientation(
     box: tuple,
     obb_angle_deg: Optional[float] = None,
+    img: Optional[np.ndarray] = None,
+    is_strut: bool = False,
 ) -> PoleOrientationResult:
     """
-    Classifies pole as vertical or strut, and checks for lean fault.
+    Classifies pole as vertical or strut, and checks for lean/bending fault.
 
     Args:
         box           : (x1, y1, x2, y2)
         obb_angle_deg : from OBB detection (0–90°). None = use AR fallback.
+        img           : Optional original image for advanced bend detection
+        is_strut      : If True, this is explicitly a strut pole (skip lean math)
     """
     x1, y1, x2, y2 = box
     bw = x2 - x1
     bh = y2 - y1
     ar = bh / bw if bw > 0 else 0
 
-    # ── Determine pole type + lean ────────────────────────────
+    # ── Advanced pole analysis ────────────────────────────────
+    bend_angle = 0.0
+    
     if obb_angle_deg is not None:
         lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(obb_angle_deg)), 1)
 
-        if lean >= POLE_STRUT_THRESHOLD_DEG:
+        # Detect pole bending using image analysis if available
+        if img is not None and img.size > 0:
+            bend_angle = _detect_pole_bend(img, box)
+
+        # Classification based on lean angle and bend
+        if is_strut:
+            pole_type  = "strut_pole"
+            confidence = "high"
+            lean       = 0.0 # Ignore lean for strut poles
+            note       = f"Explicitly detected as strut pole"
+        elif lean >= POLE_STRUT_THRESHOLD_DEG:
             pole_type  = "strut_pole"
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → intentional strut"
-        elif obb_angle_deg >= 75:
+        elif obb_angle_deg >= 80:
             pole_type  = "vertical_pole"
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → vertical"
-        elif obb_angle_deg >= 50:
-            pole_type  = "strut_pole"
+        elif obb_angle_deg >= 70:
+            pole_type  = "vertical_pole"
             confidence = "medium"
+            if bend_angle > 5.0:
+                note = f"OBB angle={obb_angle_deg:.1f}° → slightly leaning ({lean:.1f}°), bend detected ({bend_angle:.1f}°)"
+            else:
+                note       = f"OBB angle={obb_angle_deg:.1f}° → slightly leaning ({lean:.1f}°)"
+        elif obb_angle_deg >= POLE_LEANING_THRESHOLD_DEG:
+            pole_type  = "leaning_pole"
+            confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → leaning {lean}°"
         else:
             pole_type  = "strut_pole"
@@ -181,11 +207,17 @@ def classify_pole_orientation(
 
     # ── Adjustment fault check ────────────────────────────────
     fault, severity, fault_note = check_pole_fault(lean, pole_type)
+    
+    # Add bend information to fault if significant
+    if bend_angle > 8.0 and not fault:
+        fault = True
+        severity = "warning" if bend_angle < 15.0 else "fault"
+        fault_note = f"Pole shows {bend_angle:.1f}° bend from vertical axis"
 
     return PoleOrientationResult(
         box              = box,
         pole_type        = pole_type,
-        lean_angle_deg   = lean,
+        lean_angle_deg   = lean + bend_angle,
         confidence       = confidence,
         adjustment_fault = fault,
         fault_severity   = severity,

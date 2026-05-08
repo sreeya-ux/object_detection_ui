@@ -77,6 +77,7 @@ class PipelineResult:
     crossarm_shape:   str   = "none"
     crossarm_count:   int   = 0
     conductor_count:  int   = 0
+    pole_id:          str   = "Not Found"
     flags:            dict  = field(default_factory=dict)
 
     # Adjustment fault summary
@@ -188,8 +189,33 @@ class InfrastructurePipeline:
         total_structural = 0
         for result in list(raw640) + list(raw1280) + list(raw1600):
             obb   = result.obb   if hasattr(result, "obb")   and result.obb else None
+            masks = result.masks if hasattr(result, "masks") and result.masks else None
             boxes = result.boxes if hasattr(result, "boxes") and result.boxes else None
+            
+            print(f"DEBUG: Found {len(masks) if masks else 0} masks, {len(obb) if obb else 0} obb, {len(boxes) if boxes else 0} boxes.")
 
+            # ── Handle Segmentation Masks (New Model Support) ──
+            if masks is not None and len(masks) > 0:
+                for i in range(len(masks)):
+                    cls_name = self.component_model.names[int(masks.cls[i])]
+                    conf_val = float(masks.conf[i])
+                    print(f"DEBUG: Mask - Class: {cls_name}, Conf: {conf_val:.2f}")
+                    total_structural += 1
+                    
+                    # Extract bbox from mask
+                    b = masks.xyxy[i].cpu().numpy()
+                    box = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                    angle_deg = None # Use aspect-ratio fallback for segmentation
+                    
+                    # Polygon for visualization
+                    poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
+                    
+                    if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
+                        conductor_boxes.append((box, conf_val, poly))
+                    else:
+                        self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+
+            # ── Handle OBB (Old Model Support) ──
             if obb is not None and len(obb) > 0:
                 for i in range(len(obb)):
                     cls_name  = self.component_model.names[int(obb.cls[i])]
@@ -752,7 +778,7 @@ class InfrastructurePipeline:
                     f"voltage={result.voltage} | "
                     f"crossarm={result.crossarm_shape} | "
                     f"wires={result.conductor_count} | "
-                    f"thickness={result.flags.get('avg_thickness_px', 0)}px",
+                    f"POLE_ID: {result.pole_id}",
                     (10, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (120, 120, 120), 1)
 
         return np.vstack([banner, vis])

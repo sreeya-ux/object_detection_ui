@@ -40,10 +40,12 @@ CROSSARM_FAULT_DEG          = 15.0   # beyond ±15° → adjustment fault
 # Pole lean
 # Vertical pole has OBB angle ≈ 90°
 POLE_IDEAL_ANGLE_DEG        = 90.0
-POLE_TOLERANCE_DEG          = 5.0    # ±5° → ok
-POLE_FAULT_DEG              = 10.0   # beyond ±10° → adjustment fault
+POLE_TOLERANCE_DEG          = 8.0    # ±8° → ok (relaxed for field conditions)
+POLE_FAULT_DEG              = 15.0   # beyond ±15° → adjustment fault
 # Note: strut poles lean intentionally — skip fault check if pole_type=strut
-POLE_STRUT_THRESHOLD_DEG    = 30.0   # lean > 30° → definitely strut, not fault
+POLE_STRUT_THRESHOLD_DEG    = 35.0   # lean > 35° → definitely strut, not fault
+# Leaning pole threshold for classification
+POLE_LEANING_THRESHOLD_DEG  = 50.0   # OBB angle < 50° → classify as "leaning_pole"
 
 # ── Shed count → voltage (Indian standard) ───────────────────
 SHED_VOLTAGE_MAP = {
@@ -95,23 +97,10 @@ OBB_CLASS_KEYWORDS = {
 }
 
 # ── Component classes (YOLO Model) ───────────────────────────
-# Expanded classes for granular infrastructure detection
+# Simplified for the new 'best (2)' model
 COMPONENT_CLASSES = [
-    "POLE_9M",           # 0
-    "POLE_11M",          # 1
-    "POLE_8.1M",         # 2
-    "INS_PIN",           # 3
-    "INS_DISC",          # 4
-    "T_RISING",          # 5
-    "TAPPING_CHANNEL",   # 6
-    "SIDE_ARM_CHANNEL",  # 7
-    "V_CROSS",           # 8
-    "CONDUCTOR",         # 9
-    "STREET_LIGHT",      # 10
-    "DTR",               # 11
-    "WIRE_BROKEN",       # 12
-    "VEGETATION",        # 13
-    "OBJECT",            # 14
+    "main_pole",         # 0
+    "strut_pole",        # 1
 ]
 
 

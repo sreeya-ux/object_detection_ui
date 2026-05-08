@@ -73,6 +73,7 @@ class PipelineResult:
     crossarm_shape:   str   = "none"
     crossarm_count:   int   = 0
     conductor_count:  int   = 0
+    pole_id:          str   = "Not Found"
     flags:            dict  = field(default_factory=dict)
 
     # Adjustment fault summary
@@ -130,8 +131,16 @@ class InfrastructurePipeline:
             crop_classifier_path = crop_classifier_path,
         )
 
-        self.conf = conf
         self.iou  = iou
+        
+        print("🔡 Loading Pole OCR Engine...")
+        try:
+            from ocr_utils import PoleOCR
+            self.ocr_engine = PoleOCR()
+        except Exception as e:
+            print(f"⚠️ OCR Initialization failed: {e}")
+            self.ocr_engine = None
+            
         print("Pipeline ready.\n")
 
     def predict(
@@ -183,8 +192,30 @@ class InfrastructurePipeline:
         total_structural = 0
         for result in list(raw640) + list(raw1280) + list(raw1600):
             obb   = result.obb   if hasattr(result, "obb")   and result.obb else None
+            masks = result.masks if hasattr(result, "masks") and result.masks else None
             boxes = result.boxes if hasattr(result, "boxes") and result.boxes else None
 
+            # ── Handle Segmentation Masks (New Model Support) ──
+            if masks is not None and len(masks) > 0:
+                for i in range(len(masks)):
+                    cls_name = self.component_model.names[int(masks.cls[i])]
+                    conf_val = float(masks.conf[i])
+                    total_structural += 1
+                    
+                    # Extract bbox from mask
+                    b = masks.xyxy[i].cpu().numpy()
+                    box = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                    angle_deg = None # Use aspect-ratio fallback
+                    
+                    # Polygon for visualization
+                    poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
+                    
+                    if _match_keyword(cls_name, "conductor"):
+                        conductor_boxes.append((box, conf_val))
+                    else:
+                        self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, flags)
+
+            # ── Handle OBB (Old Model Support) ──
             if obb is not None and len(obb) > 0:
                 for i in range(len(obb)):
                     cls_name  = self.component_model.names[int(obb.cls[i])]
@@ -432,6 +463,17 @@ class InfrastructurePipeline:
             flags            = dict(flags),
             adjustment_faults= adjustment_faults,
         )
+
+        # ── Step 11: Deep Scan Pole for OCR Identification ──
+        if self.ocr_engine and pole_boxes_raw:
+            # Pick the largest pole box
+            pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
+            best_pole_box = pole_boxes_raw[0][0]
+            
+            print(f"🕵️ Deep Scanning Pole Surface (Expanded Zone)...")
+            pole_id = self.ocr_engine.process_pole_tag(img_original, best_pole_box)
+            pipeline_result.pole_id = pole_id
+            print(f"📝 OCR Result: {pole_id}")
 
         # ── Visualize ─────────────────────────────────────────
         if visualize:
@@ -708,8 +750,7 @@ class InfrastructurePipeline:
         cv2.putText(banner,
                     f"voltage={result.voltage} | "
                     f"crossarm={result.crossarm_shape}({result.crossarm_count}) | "
-                    f"wires={result.conductor_count} | "
-                    f"conf={result.confidence}",
+                    f"wires={result.conductor_count} | POLE_ID: {result.pole_id}",
                     (10, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (120, 120, 120), 1)
 
         return np.vstack([banner, vis])

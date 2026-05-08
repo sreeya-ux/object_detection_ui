@@ -28,7 +28,7 @@ from pathlib import Path
 # =============================================================================
 
 # Path to your existing model (the one to fine-tune from)
-BASE_MODEL = "models/main_best.pt"
+BASE_MODEL = "dry_backup/best_whole.pt"
 
 # Where your flat 10K images + labels currently live (before splitting)
 RAW_IMAGES_DIR = "raw_dataset/images"   # <-- put your 10K images here
@@ -47,25 +47,12 @@ BATCH_SIZE   = 16       # Reduce to 8 if you get out-of-memory errors
 VAL_SPLIT    = 0.2      # 20% of images used for validation
 PATIENCE     = 15       # Early stopping patience (stops if no improvement)
 LR0          = 0.001    # Initial learning rate (lower = more careful fine-tuning)
-WORKERS      = 4        # Parallel data loader workers (set to 0 on Windows if errors)
+WORKERS      = 0        # Parallel data loader workers (set to 0 on Windows if errors)
 
 # Class names — must match your training labels order
 CLASS_NAMES = [
-    "POLE_9M",
-    "POLE_11M",
-    "POLE_8.1M",
-    "INS_PIN",
-    "INS_DISC",
-    "T_RISING",
-    "TAPPING_CHANNEL",
-    "SIDE_ARM_CHANNEL",
-    "V_CROSS",
-    "CONDUCTOR",
-    "STREET_LIGHT",
-    "DTR",
-    "WIRE_BROKEN",
-    "VEGETATION",
-    "OBJECT",
+    "pole",        # 0
+    "strut_pole",  # 1
 ]
 
 # =============================================================================
