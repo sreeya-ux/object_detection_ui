@@ -300,14 +300,14 @@ class InfrastructurePipeline:
                         conductor_boxes.append((box, conf_val, poly))
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
-                    elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
+                    elif conf_val >= 0.80:
+                         # GEOMETRIC STRUT DETECTION: If it's leaning heavily, it's a strut candidate
                          is_strut = ("strut" in cls_name.lower())
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
-                    elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
-                         is_strut = ("strut" in cls_name.lower())
-                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
-                    elif conf_val >= 0.80: # Final catch-all for structural components
-                         is_strut = ("strut" in cls_name.lower())
+                         if not is_strut and angle_deg is not None:
+                             # If lean is > 15 degrees, it's likely a strut supporting a main pole
+                             lean = abs(angle_deg - 90)
+                             if lean > 15.0: is_strut = True
+                         
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
         
         # Process specialized insulator detector output (Final Insulator Detections)
