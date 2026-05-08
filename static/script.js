@@ -11,7 +11,7 @@ let masterResult = null;
 let surveyResult = {};
 let imageDimensions = { width: 0, height: 0 };
 let CLASS_OPTIONS = [
-    "POLE_9M", "POLE_11M", "POLE_8.1M",
+    "POLE_9M", "POLE_11M", "POLE_8.1M", "STRUT_POLE",
     "INS_PIN", "INS_DISC",
     "T_RISING", "TAPPING_CHANNEL", "SIDE_ARM_CHANNEL", "V_CROSS",
     "CONDUCTOR", "STREET_LIGHT", "DTR",
@@ -21,6 +21,7 @@ let CLASS_OPTIONS = [
 // Distinct Premium Color Palette
 const CLASS_COLORS = {
     "POLE_9M": "#0ea5e9",        // Cyan-Blue
+    "STRUT_POLE": "#f97316",     // Orange (Distinct for Strut)
     "POLE_11M": "#38bdf8",       // Lighter Cyan
     "POLE_8.1M": "#0284c7",      // Darker Cyan
     "INS_PIN": "#00ff00",        // Bright Green

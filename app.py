@@ -399,7 +399,7 @@ def process_image_file(file_stream):
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
             final_detections.append({
-                "label": "pole",
+                "label": "strut_pole" if po.pole_type == "strut_pole" else "pole",
                 "confidence": float(po.detection_conf),
                 "bbox": [int(x) for x in po.box],
                 "polygon": po.obb_polygon if hasattr(po, 'obb_polygon') else None,
