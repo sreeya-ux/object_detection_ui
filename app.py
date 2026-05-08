@@ -494,6 +494,16 @@ def process_image_file(file_stream):
             "pole_status": pipe_res.pole_orientation.fault_severity if pipe_res.pole_orientation else "none"
         }
 
+        # D. Map to Survey Questionnaire (for external integration)
+        has_strut = any(po.pole_type == "strut_pole" for po in pipe_res.all_poles)
+        survey_q = {
+            "strut_pole": "Yes" if has_strut else "No",
+            "strut_pole_count": sum(1 for po in pipe_res.all_poles if po.pole_type == "strut_pole"),
+            "tilt_angle": f"{pipe_res.pole_orientation.lean_angle_deg:.1f}" if pipe_res.pole_orientation else "0.0",
+            "is_leaning": "Yes" if (pipe_res.pole_orientation and pipe_res.pole_orientation.lean_angle_deg > 5.0) else "No",
+            "vegetation": "Yes" if pipe_res.flags.get("has_vegetation") else "No"
+        }
+
         # Encode for response
         _, buffer = cv2.imencode('.jpg', img)
         img_b64 = base64.b64encode(buffer).decode('utf-8')
@@ -501,6 +511,7 @@ def process_image_file(file_stream):
         return {
             "detections": final_detections,
             "master": master_data,
+            "survey_questionnaire": survey_q,
             "annotated_image": img_b64,
             "width": w,
             "height": h
