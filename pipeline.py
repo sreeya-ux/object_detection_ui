@@ -812,20 +812,28 @@ class InfrastructurePipeline:
             cv2.putText(vis, f"wire:{conf:.2f}", (x1, max(15, y1 - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
 
-        # Draw banner
-        if result.pole_orientation:
-            po = result.pole_orientation
+        # Highlight ALL detected poles with orientation labels
+        for po in result.all_poles:
             x1, y1, x2, y2 = po.box
             is_inferred = result.flags.get("inferred_pole", False)
-            color = (255, 128, 0) if is_inferred else (220, 180, 50)
             
-            if is_inferred:
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
-                label = f"[INFERRED] {po.pole_type}"
-            else:
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-                label = f"{po.pole_type} ({po.detection_conf:.2f})"
-                
+            # Label based on type
+            p_type = "Pole"
+            if po.pole_type == "strut_pole":
+                p_type = "STRUT"
+            elif po.pole_type == "vertical_pole":
+                p_type = "Vertical"
+            elif po.pole_type == "leaning_pole":
+                p_type = "Leaning"
+
+            color = (255, 128, 0) if is_inferred else (220, 180, 50)
+            if po.pole_type == "strut_pole":
+                color = (0, 165, 255) # Orange-ish for struts
+            
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+            label = f"{p_type} ({po.detection_conf:.2f})"
+            if is_inferred: label = f"[INFERRED] {label}"
+            
             cv2.putText(vis, label,
                         (x1, min(img_h - 6, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
