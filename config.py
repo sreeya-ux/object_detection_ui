@@ -241,5 +241,5 @@ DB_NAME = "object_detection"
 PG_HOST = "localhost"
 PG_PORT = 5432
 PG_USER = "postgres"
-PG_PASS = "postgres"  # <-- Change this to your real password!
+PG_PASS = "asakta"
 PG_DB   = "object_detection"
