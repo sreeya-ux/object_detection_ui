@@ -301,11 +301,13 @@ class InfrastructurePipeline:
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
                     elif conf_val >= 0.80:
-                         # GEOMETRIC STRUT DETECTION: If it's leaning heavily, it's a strut candidate
+                         # SMART STRUT DETECTION: 
+                         # A strut is leaning (>15°) AND has NO attached hardware.
                          is_strut = ("strut" in cls_name.lower())
                          if not is_strut and angle_deg is not None:
-                             # If lean is > 15 degrees, it's likely a strut supporting a main pole
                              lean = abs(angle_deg - 90)
+                             # Only guess strut if it's leaning AND we haven't found insulators on it yet
+                             # (We'll refine this in the final categorisation)
                              if lean > 15.0: is_strut = True
                          
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
@@ -398,6 +400,18 @@ class InfrastructurePipeline:
                 pr = classify_pole_orientation(p_box, p_angle, is_strut=p_is_strut, tilt_compensation=global_tilt)
                 pr.detection_conf = p_conf
                 pr.obb_polygon = p_poly
+                
+                # Final Overrule: If it has hardware, it CANNOT be a strut pole
+                if pr.pole_type == "strut_pole":
+                    has_hardware = False
+                    for ins in insulator_results:
+                        ib = ins.box
+                        if (ib[0] < p_box[2] and ib[2] > p_box[0] and ib[1] < p_box[3] and ib[3] > p_box[1]):
+                            has_hardware = True
+                            break
+                    if has_hardware:
+                        pr.pole_type = "leaning_pole"
+                
                 all_poles.append(pr)
                 
                 # The first (largest) pole is the primary one for rule engine classification
