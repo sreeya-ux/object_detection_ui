@@ -413,7 +413,7 @@ class InfrastructurePipeline:
             print(f"🔍 Scanning {len(pole_boxes_raw)} poles for ID markings...")
             
             all_ids = []
-            for (p_box, _, _, _) in pole_boxes_raw:
+            for (p_box, _, _, _, _) in pole_boxes_raw:
                 p_id = self.ocr_engine.process_pole_tag(img_original, p_box)
                 if p_id and p_id != "Not Found":
                     all_ids.append(p_id)
