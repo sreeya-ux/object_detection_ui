@@ -632,15 +632,19 @@ function renderResults() {
             let status = "Vertical";
             let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
 
-            if (masterResult.pole_type === 'strut_pole') {
+            if (masterResult.pole_type === 'strut_pole' || masterResult.pole_status === 'strut_pole') {
                 status = "Strut Pole";
                 badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
-            } else if (masterResult.pole_status === 'fault') {
-                status = "Critical lean";
-                badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
-            } else if (masterResult.pole_status === 'warning') {
-                status = "Leaning";
-                badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+            } else {
+                status = "Main Pole";
+                badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                if (masterResult.pole_status === 'fault') {
+                    badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+                    status = "Main Pole (Critical)";
+                } else if (masterResult.pole_status === 'warning') {
+                    badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                    status = "Main Pole (Leaning)";
+                }
             }
 
             statusBadge.textContent = status;

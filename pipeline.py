@@ -885,13 +885,9 @@ class InfrastructurePipeline:
             is_inferred = result.flags.get("inferred_pole", False)
             
             # Label based on exact class types
-            p_type = "POLE"
+            p_type = "MAIN POLE"
             if po.pole_type == "strut_pole":
                 p_type = "STRUT POLE"
-            elif po.pole_type == "vertical_pole":
-                p_type = "MAIN POLE"
-            elif po.pole_type == "leaning_pole":
-                p_type = "MAIN POLE (LEANING)"
 
             color = (255, 128, 0) if is_inferred else (220, 180, 50)
             if po.pole_type == "strut_pole":
