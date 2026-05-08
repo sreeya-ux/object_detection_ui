@@ -608,15 +608,16 @@ class InfrastructurePipeline:
             pole_boxes_raw.append(det)
         elif _match_keyword(cls_name, "crossarm"):
             native = cls_name.lower()
-            # Structural Guard: Crossarms MUST be horizontal. 
-            # We allow a small tolerance (1.2x) for significantly tilted arms.
+            # Structural Guard: Only use geometric check if the model didn't 
+            # already tell us it's a pole.
             w, h = box[2] - box[0], box[3] - box[1]
             if (w * 1.2) > h or "t_rising" in native or "side_arm" in native:
                 crossarm_boxes.append((box, conf_val, angle_deg, polygon, native))
             else:
-                # We used to guess if it's a pole here, but now we only trust
-                # things explicitly labeled as 'pole' by the AI model.
-                pass
+                # If it's too tall for a crossarm, it's likely a pole fragment
+                # that the model mislabeled as a crossarm.
+                is_strut = ("strut" in native)
+                pole_boxes_raw.append((box, conf_val, angle_deg, polygon, is_strut))
         elif _match_keyword(cls_name, "conductor"):
             conductor_boxes.append((box, conf_val, polygon))
         elif _match_keyword(cls_name, "lamp_head"):
