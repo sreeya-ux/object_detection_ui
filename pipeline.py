@@ -356,7 +356,7 @@ class InfrastructurePipeline:
         # ── Calculate Global Tilt Compensation ────────────────
         # If camera is tilted, all straight components will share the same offset.
         tilt_samples = []
-        for _, _, p_angle, _ in pole_boxes_raw:
+        for _, _, p_angle, _, _ in pole_boxes_raw:
             if p_angle is not None:
                 # Pole ideal is 90
                 offset = p_angle - 90
@@ -384,7 +384,7 @@ class InfrastructurePipeline:
 
         # ── Classify each insulator ───────────────────────────
         insulator_results = []
-        for box, conf_val, angle_deg, polygon in insulator_boxes:
+        for box, conf_val, angle_deg, polygon, _ in insulator_boxes:
             ins_result = self.insulator_clf.classify(
                 img_original, box, conf_val, obb_angle_deg=angle_deg
             )
