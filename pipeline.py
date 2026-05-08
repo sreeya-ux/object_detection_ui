@@ -345,13 +345,10 @@ class InfrastructurePipeline:
         other_boxes        = self._nms(other_boxes,        iou_threshold=0.45)
 
         # ── Infer missing pole logic ──────────────
-        if not pole_boxes_raw:
-            inferred = self._infer_pole_if_missing(insulator_boxes, crossarm_boxes, img_h, img_w)
-            if inferred:
-                b = inferred[0]
-                poly = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]
-                pole_boxes_raw.append((inferred[0], inferred[1], inferred[2], poly))
-                flags["inferred_pole"] = True
+        # DISABLED for strict 80% confidence requirement
+        # if not pole_boxes_raw:
+        #     inferred = self._infer_pole_if_missing(insulator_boxes, crossarm_boxes, img_h, img_w)
+        #     ...
 
         # ── Calculate Global Tilt Compensation ────────────────
         # If camera is tilted, all straight components will share the same offset.
