@@ -690,15 +690,15 @@ class InfrastructurePipeline:
         sorted_items = sorted(items, key=lambda x: x[1], reverse=True)
         keep = []
         
+        # 1. Standard NMS (De-duplication)
         while sorted_items:
             best = sorted_items.pop(0)
             keep.append(best)
             
-            # Filter remaining items
             remaining = []
             for item in sorted_items:
-                # Class-aware suppression: Main poles shouldn't delete Strut poles
-                if best[4] != item[4]: # Different is_strut flag
+                # Class-aware: Don't suppress struts with main poles
+                if best[4] != item[4]:
                     remaining.append(item)
                     continue
 
@@ -707,7 +707,52 @@ class InfrastructurePipeline:
                     remaining.append(item)
             sorted_items = remaining
             
-        return keep
+        # 2. Vertical Merge (Fixes fragmented poles)
+        # If two poles are vertically aligned and close, merge them
+        if not keep: return []
+        
+        merged = []
+        keep = sorted(keep, key=lambda x: x[0][1]) # Sort by Y1 (top to bottom)
+        
+        while keep:
+            curr = keep.pop(0)
+            c_box, c_conf, c_angle, c_poly, c_is_strut = curr
+            
+            # Look for a fragment directly below this one
+            found_fragment = False
+            for i, next_item in enumerate(keep):
+                n_box, n_conf, n_angle, n_poly, n_is_strut = next_item
+                
+                # Check if they are the same type and vertically close
+                if c_is_strut == n_is_strut:
+                    # Check X-overlap (Vertical Alignment)
+                    x_overlap = min(c_box[2], n_box[2]) - max(c_box[0], n_box[0])
+                    x_union   = max(c_box[2], n_box[2]) - min(c_box[0], n_box[0])
+                    
+                    # If they share > 50% width and the gap is small
+                    gap = n_box[1] - c_box[3]
+                    if x_overlap / max(1, (c_box[2]-c_box[0])) > 0.5 and gap < 100:
+                        # MERGE!
+                        new_box = (
+                            min(c_box[0], n_box[0]), 
+                            min(c_box[1], n_box[1]),
+                            max(c_box[2], n_box[2]),
+                            max(c_box[3], n_box[3])
+                        )
+                        # New polygon is union (simplified)
+                        new_poly = c_poly + n_poly 
+                        # Keep higher confidence
+                        new_conf = max(c_conf, n_conf)
+                        
+                        # Replace current with merged and continue
+                        keep[i] = (new_box, new_conf, c_angle, new_poly, c_is_strut)
+                        found_fragment = True
+                        break
+            
+            if not found_fragment:
+                merged.append(curr)
+                
+        return merged
 
     def _enhance_image(self, img: np.ndarray) -> np.ndarray:
         """
