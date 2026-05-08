@@ -300,14 +300,12 @@ class InfrastructurePipeline:
                         conductor_boxes.append((box, conf_val, poly))
                     elif _match_keyword(cls_name, "insulator") and conf_val >= THRESHOLD_INSULATOR:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
-                    elif conf_val >= 0.80:
-                         # SMART STRUT DETECTION: 
-                         # A strut is leaning (>15°) AND has NO attached hardware.
+                    elif _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
+                         # 1. Trust model's explicit class first
                          is_strut = ("strut" in cls_name.lower())
+                         # 2. Geometric backup if model just says 'pole'
                          if not is_strut and angle_deg is not None:
                              lean = abs(angle_deg - 90)
-                             # Only guess strut if it's leaning AND we haven't found insulators on it yet
-                             # (We'll refine this in the final categorisation)
                              if lean > 15.0: is_strut = True
                          
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
