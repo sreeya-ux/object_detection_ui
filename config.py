@@ -73,8 +73,11 @@ DETECTION_IOU   = 0.45
 # Class-specific confidence overrides to reduce false positives
 THRESHOLD_INSULATOR = 0.07
 THRESHOLD_CROSSARM  = 0.35
-THRESHOLD_POLE      = 0.10
+THRESHOLD_POLE      = 0.80
 THRESHOLD_CONDUCTOR = 0.01
+
+# Global tilt compensation limit
+GLOBAL_TILT_MAX_DEG = 20.0
 
 # ── Insulator secondary processing ────────────────────────────
 # Only insulators above this confidence will be cropped and run

@@ -45,7 +45,8 @@ from ultralytics import YOLO
 from config import (
     DETECTION_CONF, DETECTION_IOU, HT_LT_HEIGHT_THRESHOLD,
     OBB_CLASS_KEYWORDS, POLE_CLASSES,
-    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR
+    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR,
+    GLOBAL_TILT_MAX_DEG
 )
 from insulator_classifier import InsulatorClassifier, InsulatorResult
 from crossarm_classifier  import (
@@ -53,6 +54,7 @@ from crossarm_classifier  import (
     aggregate_crossarm_results, PoleOrientationResult, CrossarmResult
 )
 from rule_engine import classify_pole, ComponentSignals, ClassificationResult
+from ocr_utils import PoleOCR
 
 
 # ── Pipeline output ───────────────────────────────────────────
@@ -138,6 +140,15 @@ class InfrastructurePipeline:
 
         self.conf = conf
         self.iou  = iou
+        
+        # Initialize OCR engine
+        print("Initializing Pole ID OCR engine...")
+        try:
+            self.ocr_engine = PoleOCR()
+        except Exception as e:
+            print(f"OCR Warning: Could not init OCR: {e}")
+            self.ocr_engine = None
+
         print("Pipeline ready.\n")
 
     def predict(
@@ -387,7 +398,15 @@ class InfrastructurePipeline:
                 if i == 0:
                     pole_result = pr
 
-        # ── Classify crossarm shapes ──────────────────────────
+        # ── Run OCR on all detected poles ─────────────────────
+        pole_id = "Not Found"
+        if pole_boxes_raw and self.ocr_engine:
+            print(f"🔍 Scanning {len(pole_boxes_raw)} poles for ID markings...")
+            ocr_results = self.ocr_engine.scan_image(img_original, [p[0] for p in pole_boxes_raw])
+            if ocr_results:
+                # Take the best result
+                pole_id = ocr_results[0]['text']
+                print(f"✅ OCR Result: {pole_id}")
         crossarm_results = []
         for box, conf, ang, poly, native_cls in crossarm_boxes:
             cr = classify_crossarm_shape(
