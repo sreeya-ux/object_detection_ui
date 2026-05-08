@@ -45,8 +45,7 @@ from ultralytics import YOLO
 from config import (
     DETECTION_CONF, DETECTION_IOU, HT_LT_HEIGHT_THRESHOLD,
     OBB_CLASS_KEYWORDS, POLE_CLASSES,
-    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR,
-    GLOBAL_TILT_MAX_DEG
+    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR
 )
 from insulator_classifier import InsulatorClassifier, InsulatorResult
 from crossarm_classifier  import (
