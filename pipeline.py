@@ -823,23 +823,23 @@ class InfrastructurePipeline:
             x1, y1, x2, y2 = po.box
             is_inferred = result.flags.get("inferred_pole", False)
             
-            # Label based on type
-            p_type = "Pole"
+            # Label based on exact class types
+            p_type = "POLE"
             if po.pole_type == "strut_pole":
-                p_type = "STRUT"
+                p_type = "STRUT POLE"
             elif po.pole_type == "vertical_pole":
-                p_type = "Vertical"
+                p_type = "MAIN POLE"
             elif po.pole_type == "leaning_pole":
-                p_type = "Leaning"
+                p_type = "MAIN POLE (LEANING)"
 
             color = (255, 128, 0) if is_inferred else (220, 180, 50)
             if po.pole_type == "strut_pole":
-                color = (0, 165, 255) # Orange-ish for struts
+                color = (0, 165, 255) # Orange for struts
             
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-            label = f"{p_type} ({po.detection_conf:.2f})"
+            # Display Lean Angle prominently for all poles
+            label = f"{p_type} | LEAN: {po.lean_angle_deg:.1f}°"
             if is_inferred: label = f"[INFERRED] {label}"
-            
             cv2.putText(vis, label,
                         (x1, min(img_h - 6, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
