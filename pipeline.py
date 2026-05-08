@@ -205,8 +205,9 @@ class InfrastructurePipeline:
             # ── Handle Segmentation Masks (New Model Support) ──
             if masks is not None and len(masks) > 0:
                 for i in range(len(masks)):
-                    cls_name = self.component_model.names[int(masks.cls[i])]
-                    conf_val = float(masks.conf[i])
+                    # Masks object doesn't have cls/conf; they are in boxes
+                    cls_name = self.component_model.names[int(boxes.cls[i])]
+                    conf_val = float(boxes.conf[i])
                     print(f"DEBUG: Mask - Class: {cls_name}, Conf: {conf_val:.2f}")
                     total_structural += 1
                     
