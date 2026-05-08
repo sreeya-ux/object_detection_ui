@@ -238,9 +238,9 @@ OBB_CLASS_KEYWORDS = {
 }
 
 # ── Database ──────────────────────────────────────────────────
-DB_TYPE = "postgres"
-DB_NAME = "object_detection"
-# PostgreSQL Credentials (Update these for your server!)
+DB_TYPE = "sqlite"
+DB_NAME = "database.db"
+# PostgreSQL Credentials (Save for later)
 PG_HOST = "localhost"
 PG_PORT = 5432
 PG_USER = "postgres"
