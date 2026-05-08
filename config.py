@@ -235,11 +235,11 @@ OBB_CLASS_KEYWORDS = {
 }
 
 # ── Database ──────────────────────────────────────────────────
-DB_TYPE = "sqlite"
-DB_NAME = "database.db"
-# (Placeholders for future PG migration)
+DB_TYPE = "postgres"
+DB_NAME = "object_detection"
+# PostgreSQL Credentials (Update these for your server!)
 PG_HOST = "localhost"
 PG_PORT = 5432
 PG_USER = "postgres"
-PG_PASS = "postgres"
+PG_PASS = "postgres"  # <-- Change this to your real password!
 PG_DB   = "object_detection"
