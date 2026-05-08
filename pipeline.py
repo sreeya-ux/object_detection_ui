@@ -583,9 +583,9 @@ class InfrastructurePipeline:
             if (w * 1.2) > h or "t_rising" in native or "side_arm" in native:
                 crossarm_boxes.append((box, conf_val, angle_deg, polygon, native))
             else:
-                # If it's vertical but high confidence, maybe it's a pole?
-                if conf_val > 0.40:
-                    pole_boxes_raw.append(det)
+                # We used to guess if it's a pole here, but now we only trust
+                # things explicitly labeled as 'pole' by the AI model.
+                pass
         elif _match_keyword(cls_name, "conductor"):
             conductor_boxes.append((box, conf_val, polygon))
         elif _match_keyword(cls_name, "lamp_head"):
