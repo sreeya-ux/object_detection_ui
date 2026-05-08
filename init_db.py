@@ -59,8 +59,8 @@ def init_db():
 
     # Add initial users with hashed passwords
     users = [
-        ('admin', generate_password_hash('admin123'), 'admin'),
-        ('Worker-Alpha', generate_password_hash('worker'), 'user'),
+        ('admin 1', generate_password_hash('admin@asakta'), 'admin'),
+        ('user 1', generate_password_hash('1233@asakta'), 'user'),
     ]
     cursor.executemany('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', users)
 

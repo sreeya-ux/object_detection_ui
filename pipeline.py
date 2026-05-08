@@ -45,7 +45,8 @@ from ultralytics import YOLO
 from config import (
     DETECTION_CONF, DETECTION_IOU, HT_LT_HEIGHT_THRESHOLD,
     OBB_CLASS_KEYWORDS, POLE_CLASSES,
-    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR
+    THRESHOLD_INSULATOR, THRESHOLD_CROSSARM, THRESHOLD_POLE, THRESHOLD_CONDUCTOR,
+    GLOBAL_TILT_MAX_DEG
 )
 from insulator_classifier import InsulatorClassifier, InsulatorResult
 from crossarm_classifier  import (
@@ -124,7 +125,8 @@ class InfrastructurePipeline:
         """
         print("Loading component model...")
         self.component_model = YOLO(component_model_path)
-        self.is_obb = "obb" in component_model_path.lower()
+        # Check model task directly (OBB models return 'obb')
+        self.is_obb = self.component_model.task == 'obb'
 
         print("Loading dedicated insulator detector...")
         self.insulator_detector = YOLO(insulator_model_path)
@@ -165,16 +167,23 @@ class InfrastructurePipeline:
 
         img_h, img_w = img.shape[:2]
 
-        # ── Step 1: Run component detector (Multiscale for thin conductors) ────
-        # 640 & 1280 cover most structural elements.
-        # 1600 is used specifically to resolve thin wires (conductors).
-        raw640  = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=640)
-        raw1280 = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=1280)
-        raw1600 = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=1600)
+        import gc
+        import torch
+
+        # ── Step 1: Run component detector (Optimized Single Scale) ────
+        # 800px serves as a high-stability resolution for 1.7GB RAM environments.
+        # This significantly reduces memory spikes and prevents NGrok timeouts.
+        raw_combined_res = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=800)
+        raw_structural = list(raw_combined_res)
         
         # ── Step 2: Run specialized insulator detector (Hardware Detail) ──
-        # Boost sensitivity and resolution for tiny insulators.
-        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=1600, verbose=False)
+        # Matching resolution to 800px to maintain consistent feature scale.
+        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=800, verbose=False)
+
+        # Proactive memory cleanup
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # ── Step 3: Parse results into typed lists (Separate Streams) ────
         insulator_boxes  = []   # (box, conf, angle_deg)
@@ -187,7 +196,7 @@ class InfrastructurePipeline:
 
         # Process structural model output
         total_structural = 0
-        for result in list(raw640) + list(raw1280) + list(raw1600):
+        for result in raw_structural:
             obb   = result.obb   if hasattr(result, "obb")   and result.obb else None
             masks = result.masks if hasattr(result, "masks") and result.masks else None
             boxes = result.boxes if hasattr(result, "boxes") and result.boxes else None
@@ -324,6 +333,35 @@ class InfrastructurePipeline:
                 pole_boxes_raw.append((inferred[0], inferred[1], inferred[2], poly))
                 flags["inferred_pole"] = True
 
+        # ── Calculate Global Tilt Compensation ────────────────
+        # If camera is tilted, all straight components will share the same offset.
+        tilt_samples = []
+        for _, _, p_angle, _ in pole_boxes_raw:
+            if p_angle is not None:
+                # Pole ideal is 90
+                offset = p_angle - 90
+                # We normalize offset to [-45, 45]
+                if offset > 90: offset -= 180
+                if offset < -90: offset += 180
+                if abs(offset) < GLOBAL_TILT_MAX_DEG:
+                    tilt_samples.append(offset)
+        
+        for _, _, c_angle, _, _ in crossarm_boxes:
+            if c_angle is not None:
+                # Crossarm ideal is 0 (or 180)
+                offset = c_angle
+                if offset > 90: offset -= 180
+                if offset < -90: offset += 180
+                if abs(offset) < GLOBAL_TILT_MAX_DEG:
+                    tilt_samples.append(offset)
+        
+        global_tilt = 0.0
+        if tilt_samples:
+            import statistics
+            global_tilt = statistics.median(tilt_samples)
+            flags["tilt_compensated"] = True
+            flags["global_tilt_deg"] = round(global_tilt, 1)
+
         # ── Classify each insulator ───────────────────────────
         insulator_results = []
         for box, conf_val, angle_deg, polygon in insulator_boxes:
@@ -340,7 +378,7 @@ class InfrastructurePipeline:
             pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
             
             for i, (p_box, p_conf, p_angle, p_poly) in enumerate(pole_boxes_raw):
-                pr = classify_pole_orientation(p_box, p_angle)
+                pr = classify_pole_orientation(p_box, p_angle, tilt_compensation=global_tilt)
                 pr.detection_conf = p_conf
                 pr.obb_polygon = p_poly
                 all_poles.append(pr)
@@ -359,7 +397,8 @@ class InfrastructurePipeline:
                 (img_h, img_w),
                 obb_angle_deg=ang,
                 insulator_results=insulator_results,
-                native_class=native_cls
+                native_class=native_cls,
+                tilt_compensation=global_tilt
             )
             cr.detection_conf = conf
             cr.obb_polygon = poly
@@ -478,9 +517,9 @@ class InfrastructurePipeline:
 
         # ── Visualize ─────────────────────────────────────────
         if visualize:
-            # Include all scales in visualization
-            raw_combined = list(raw640) + list(raw1280) + list(raw1600) + list(raw_insulator)
-            vis = self._draw(img, pipeline_result, raw_combined)
+            # Include detections in visualization
+            raw_vis_sources = raw_structural + list(raw_insulator)
+            vis = self._draw(img, pipeline_result, raw_vis_sources)
             out = save_path or (Path(image_path).stem + "_result.jpg")
             cv2.imwrite(str(out), vis)
             print(f"Saved: {out}")

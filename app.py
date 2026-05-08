@@ -19,6 +19,9 @@ import segmentation_models_pytorch as smp
 from pipeline import InfrastructurePipeline
 from training_pipeline import export_asset_to_training, get_training_stats
 from report_generator import generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
 
 # =========================
 # GLOBAL INITIALIZATION
@@ -26,6 +29,13 @@ from report_generator import generate_asset_pdf, generate_asset_excel, generate_
 app = Flask(__name__)
 app.secret_key = "secret_key_for_session" # In production, use a strong random key
 DB_PATH = 'database.db'
+UPLOADS_FOLDER = 'uploads'
+if not os.path.exists(UPLOADS_FOLDER):
+    os.makedirs(UPLOADS_FOLDER)
+
+@app.route('/uploads/<filename>')
+def serve_upload(filename):
+    return send_from_directory(UPLOADS_FOLDER, filename)
 
 # Master Rule-Engine Pipeline
 # Centralizes component detection, classification, and rule-based logic.
@@ -46,18 +56,87 @@ unet_model.to(device)
 # =========================
 # DATABASE HELPERS
 # =========================
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+class DBConn:
+    """Wrapper to make PostgreSQL behave like SQLite (execute directly on conn)."""
+    def __init__(self, conn, is_pg=False):
+        self.conn = conn
+        self.is_pg = is_pg
+    def execute(self, sql, params=()):
+        if self.is_pg:
+            # PostgreSQL uses %s instead of ?
+            sql = sql.replace("?", "%s")
+            cur = self.conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            cur = self.conn.cursor()
+        cur.execute(sql, params)
+        return cur
+    def commit(self): self.conn.commit()
+    def rollback(self): self.conn.rollback()
+    def close(self): self.conn.close()
 
+def get_db_connection():
+    if DB_TYPE == "postgres":
+        try:
+            conn = psycopg2.connect(
+                host=PG_HOST, port=PG_PORT, database=PG_DB,
+                user=PG_USER, password=PG_PASS
+            )
+            return DBConn(conn, is_pg=True)
+        except Exception as e:
+            print(f"PostgreSQL Error: {e}")
+            raise e
+    else:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        return DBConn(conn, is_pg=False)
+
+def clean_b64(b64_str):
+    """Robustly strips prefixes and fixes padding for b64 strings."""
+    if not b64_str: return ""
+    b64_str = str(b64_str).strip()
+    
+    # Handle multiple prefixes (take the last part)
+    if 'base64,' in b64_str:
+        b64_str = b64_str.split('base64,')[-1]
+    elif ',' in b64_str:
+        b64_str = b64_str.split(',')[-1]
+        
+    # Remove any internal whitespace or problematic chars
+    b64_str = "".join(b64_str.split())
+    
+    # Standardize URL-safe base64 to standard base64
+    b64_str = b64_str.replace('-', '+').replace('_', '/')
+    
+    # Add padding if needed
+    missing_padding = len(b64_str) % 4
+    if missing_padding == 1:
+        # One extra char is invalid in B64; discarding it to prevent crash
+        b64_str = b64_str[:-1]
+    elif missing_padding > 1:
+        b64_str += '=' * (4 - missing_padding)
+        
+    return b64_str
+
+# =========================
 def log_activity(user, action, details=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # DEEP LOGGING: Identify exactly what is being sent to the DB
+    print(f"[DB_LOG] user={user} ({type(user)}), action={action} ({type(action)}), details={details} ({type(details)})")
+    
+    # Defensive casting
+    u = str(user) if user is not None else "system"
+    a = str(action) if action is not None else "unknown"
+    d = json.dumps(details) if isinstance(details, (dict, list)) else (str(details) if details is not None else "")
+
     conn = get_db_connection()
-    conn.execute('INSERT INTO activity_logs (user_name, action, details, timestamp) VALUES (?, ?, ?, ?)',
-                 (user, action, details, timestamp))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute('INSERT INTO activity_logs (user_name, action, details, timestamp) VALUES (?, ?, ?, ?)',
+                     (u, a, d, timestamp))
+        conn.commit()
+    except Exception as e:
+        print(f"[DB_ERROR] log_activity failed: {e}")
+    finally:
+        conn.close()
 
 def get_ngrok_url():
     try:
@@ -114,6 +193,34 @@ def login():
         return render_template('login.html', error="Invalid credentials", ngrok_url=get_ngrok_url())
     
     return render_template('login.html', ngrok_url=get_ngrok_url())
+
+def sanitize_database():
+    """Permanent fix: Strips all legacy prefixes from the DB so clean_b64 never fails."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute('SELECT id, image_b64 FROM asset_images').fetchall()
+        count = 0
+        for r in rows:
+            b = r['image_b64']
+            if b and (',' in b or 'base64' in b):
+                # Take only the standard b64 part
+                cleaned = b.split(',')[-1].split('base64,').pop().strip()
+                conn.execute('UPDATE asset_images SET image_b64 = ? WHERE id = ?', (cleaned, r['id']))
+                count += 1
+        conn.commit()
+        if count > 0:
+            print(f"--- [DATABASE SANITIZER] Cleaned {count} malformed image rows ---")
+    except Exception as e:
+        print(f"Sanitizer Error: {e}")
+    finally:
+        conn.close()
+
+# Run cleanup on start
+with app.app_context():
+    try:
+        sanitize_database()
+    except Exception as e:
+        print(f"Sanitizer skipped: {e}")
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
@@ -193,15 +300,25 @@ def process_image_file(file_stream):
     Combines Rule Engine (InfrastructurePipeline) with UNet Conductor Segmentation.
     """
     # Create a temporary file to run the pipeline.predict (which expects a path)
-    temp_filename = f"temp_{uuid.uuid4()}.jpg"
-    with open(temp_filename, "wb") as f:
-        f.write(file_stream.read())
+    import gc
+    import psutil
     
+    def log_mem(step):
+        m = psutil.Process().memory_info().rss / (1024 * 1024)
+        print(f"[Memory] {step}: {m:.1f} MB")
+
+    log_mem("Start Inference")
+    temp_filename = f"temp_{uuid.uuid4()}.jpg"
     try:
-        # 1. Run the Rule Engine Pipeline
-        # This identifies structural components, classifies crossarms, and runs the master logic.
-        pipe_res = pipeline_engine.predict(temp_filename, visualize=False)
+        with open(temp_filename, "wb") as f:
+            f.write(file_stream.read())
         
+        # 1. Run the Rule Engine Pipeline (Optimized to single scale in pipeline.py)
+        log_mem("Before Pipeline")
+        pipe_res = pipeline_engine.predict(temp_filename, visualize=False)
+        log_mem("After Pipeline")
+        gc.collect()
+
         # Reload image for UNet processing and base64 response
         img = cv2.imread(temp_filename)
         h, w = img.shape[:2]
@@ -213,6 +330,16 @@ def process_image_file(file_stream):
         with torch.no_grad():
             out = unet_model(tensor)
             mask = torch.sigmoid(out).squeeze().cpu().numpy()
+            log_mem("After UNet")
+            del out
+        
+        # Explicitly free memory
+        del tensor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
             
         mask_binary = (mask > 0.25).astype(np.uint8) * 255
         mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -379,9 +506,19 @@ def process_image_file(file_stream):
             "height": h
         }
     finally:
+        # Final safety cleanup for 1.7GB RAM environment
+        if 'img' in locals(): del img
+        if 'pipe_res' in locals(): del pipe_res
+        if 'mask' in locals(): del mask
+        if 'tensor' in locals(): del tensor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # Cleanup temporary image file
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
+        log_mem("Request End")
 
 # =========================
 # FLASK ROUTES
@@ -394,7 +531,7 @@ def predict_stream():
     if not data or 'image' not in data:
         return jsonify({"error": "No image payload"}), 400
     
-    img_b64 = data['image'].split(',')[1] if ',' in data['image'] else data['image']
+    img_b64 = data['image'].split(',').pop() if ',' in data['image'] else data['image']
     img_data = base64.b64decode(img_b64)
     file_stream = io.BytesIO(img_data)
     
@@ -413,7 +550,7 @@ def predict_stream():
 @login_required
 def home():
     ngrok_url = get_ngrok_url()
-    return render_template('index.html', ngrok_url=ngrok_url)
+    return render_template('index.html', ngrok_url=ngrok_url, role=session.get('role', 'user'))
 
 @app.route('/admin')
 @admin_required
@@ -524,19 +661,55 @@ def save_asset():
     
     conn = get_db_connection()
     try:
+        # DEEP LOGGING: Header
+        print(f"[DB_LOG] save_asset Header: ID={asset_id}, Worker={worker_name}, Class={master.get('final_class')}, Volt={master.get('voltage')}")
+
         # 1. Save Asset Header
+        a_class = master.get('final_class')
+        a_volt  = master.get('voltage')
+        a_reason = master.get('reason')
+        
+        if isinstance(a_class, (dict, list)): a_class = json.dumps(a_class)
+        if isinstance(a_volt, (dict, list)):  a_volt = json.dumps(a_volt)
+        if isinstance(a_reason, (dict, list)): a_reason = json.dumps(a_reason)
+
         conn.execute('''
             INSERT INTO assets (id, worker_name, status, timestamp, asset_class, voltage, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (asset_id, worker_name, 'pending', timestamp, 
-              master.get('final_class'), master.get('voltage'), master.get('reason')))
+        ''', (str(asset_id), str(worker_name), 'pending', str(timestamp), 
+              str(a_class) if a_class is not None else None,
+              str(a_volt) if a_volt is not None else None,
+              str(a_reason) if a_reason is not None else None))
         
         # 2. Save Images
-        for img_data in data['images']:
+        for idx, img_data in enumerate(data['images']):
+            # Ensure detections is properly serialized
+            dets = img_data['detections']
+            det_str = json.dumps(dets) if not isinstance(dets, str) else dets
+            
+            # DEEP LOGGING: Image
+            print(f"[DB_LOG] save_asset Image[{idx}]: b64_len={len(img_data['image_b64']) if img_data.get('image_b64') else 'NONE'}, dets_len={len(det_str)}")
+
+            # Extraction and File Save
+            raw_b64 = str(img_data.get('image_b64', ''))
+            b64_core = raw_b64.split(',').pop().strip()
+            
+            # Generate unique filename
+            img_filename = f"{uuid.uuid4()}.jpg"
+            img_path = os.path.join(UPLOADS_FOLDER, img_filename)
+            
+            # Save to disk
+            try:
+                with open(img_path, "wb") as f:
+                    f.write(base64.b64decode(b64_core))
+            except Exception as e:
+                print(f"[DISK_ERROR] Failed to save image: {e}")
+                raise e
+
             conn.execute('''
                 INSERT INTO asset_images (asset_id, image_b64, detections, pole_angle)
                 VALUES (?, ?, ?, ?)
-            ''', (asset_id, img_data['image_b64'], json.dumps(img_data['detections']), img_data.get('pole_angle', 0.0)))
+            ''', (str(asset_id), img_filename, det_str, float(img_data.get('pole_angle', 0.0))))
             
         conn.commit()
         log_activity(worker_name, "asset_submission", f"Asset: {asset_id}, Images: {len(data['images'])}")
@@ -551,10 +724,17 @@ def save_asset():
 @app.route('/api/save_draft', methods=['POST'])
 @login_required
 def save_draft():
-    data = request.json # { id, type: 'worker'|'admin', data: json_string }
+    data = request.json # { id, type: 'worker'|'admin', data: any }
     draft_id = data.get('id')
     dtype = data.get('type', 'worker')
     content = data.get('data')
+    
+    # Force content to string if it's a dict/list
+    if isinstance(content, (dict, list)):
+        content = json.dumps(content)
+    else:
+        content = str(content) if content is not None else ""
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     conn = get_db_connection()
@@ -573,9 +753,38 @@ def get_draft(draft_id):
     draft = conn.execute('SELECT * FROM drafts WHERE id = ?', (draft_id,)).fetchone()
     conn.close()
     if draft:
-        return jsonify({"status": "success", "data": json.loads(draft['data'])})
-    return jsonify({"status": "error", "message": "No draft found"}), 404
+        return jsonify({"status": "success", "data": draft['data']})
+    return jsonify({"status": "error", "message": "Draft not found"}), 404
 
+@app.route('/api/download_annotated/<asset_id>')
+@login_required
+def download_annotated(asset_id):
+    """Generates and serves the annotated image for an asset."""
+    conn = get_db_connection()
+    row = conn.execute('SELECT image_b64, detections FROM asset_images WHERE asset_id = ? LIMIT 1', (asset_id,)).fetchone()
+    conn.close()
+    
+    if not row:
+        return "Asset image not found", 404
+        
+    from report_generator import annotate_image
+    annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections'] or '[]'))
+    
+    # Ensure any prefix is stripped before final decode
+    try:
+        cleaned = clean_b64(annotated_b64)
+        img_data = base64.b64decode(cleaned)
+        buffer = io.BytesIO(img_data)
+        
+        return send_file(
+            buffer,
+            mimetype='image/jpeg',
+            as_attachment=True,
+            download_name=f"Annotated_Asset_{asset_id[:8]}.jpg"
+        )
+    except Exception as e:
+        print("Base64 decode failed:", e)
+        return jsonify({"error": "Invalid image data"}), 400
 @app.route('/api/get_assets')
 @login_required
 def get_assets():
@@ -584,7 +793,7 @@ def get_assets():
     conn = get_db_connection()
     # Get assets along with the first image as a thumbnail
     query = '''
-        SELECT a.*, i.image_b64 as thumbnail 
+        SELECT a.*, i.image_b64 as thumbnail, i.detections as detections
         FROM assets a
         LEFT JOIN asset_images i ON i.id = (
             SELECT id FROM asset_images WHERE asset_id = a.id LIMIT 1
@@ -609,6 +818,11 @@ def get_assets():
     data = []
     for r in rows:
         d = dict(r)
+        if d.get('detections'):
+            try:
+                d['detections'] = json.loads(d['detections'])
+            except:
+                d['detections'] = []
         data.append(d)
     
     return jsonify(data)
@@ -753,50 +967,20 @@ def delete_asset_image():
     finally:
         conn.close()
 
+
+
 @app.route('/api/get_asset_history/<asset_id>')
 @admin_required
 def get_asset_history(asset_id):
     conn = get_db_connection()
-
-    # Get all activity logs for this asset
     logs = conn.execute('''
         SELECT user_name, action, details, timestamp
         FROM activity_logs 
         WHERE details LIKE ? 
         ORDER BY timestamp ASC
     ''', (f'%{asset_id}%',)).fetchall()
-
-    # Get asset meta
-    asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
-
-    # Get all images with current detections for the visual timeline
-    image_rows = conn.execute(
-        'SELECT image_b64, detections FROM asset_images WHERE asset_id = ? ORDER BY id ASC',
-        (asset_id,)
-    ).fetchall()
-
     conn.close()
-
-    images_data = []
-    for row in image_rows:
-        try:
-            dets = json.loads(row['detections']) if row['detections'] else []
-        except:
-            dets = []
-        images_data.append({
-            'image_b64': row['image_b64'],
-            'detections': dets
-        })
-
-    return jsonify({
-        'logs': [dict(l) for l in logs],
-        'images': images_data,
-        'asset_class': asset_row['asset_class'] if asset_row else '',
-        'worker_name': asset_row['worker_name'] if asset_row else '',
-        'status': asset_row['status'] if asset_row else '',
-        'submitted_at': asset_row['timestamp'] if asset_row else ''
-    })
-
+    return jsonify([dict(l) for l in logs])
 
 # =========================
 # TRAINING PIPELINE API
