@@ -211,8 +211,8 @@ class InfrastructurePipeline:
                     print(f"DEBUG: Mask - Class: {cls_name}, Conf: {conf_val:.2f}")
                     total_structural += 1
                     
-                    # Extract bbox from mask
-                    b = masks.xyxy[i].cpu().numpy()
+                    # Extract bbox from boxes (Masks object doesn't have xyxy)
+                    b = boxes.xyxy[i].cpu().numpy()
                     box = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
                     angle_deg = None # Use aspect-ratio fallback for segmentation
                     
