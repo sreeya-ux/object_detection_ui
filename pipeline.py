@@ -232,6 +232,9 @@ class InfrastructurePipeline:
                     
                     if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
+                    elif _match_keyword(cls_name, "pole") and conf_val < THRESHOLD_POLE:
+                        # Skip low-confidence poles (below 80%)
+                        continue
                     else:
                         self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
 
