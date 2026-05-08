@@ -402,11 +402,17 @@ class InfrastructurePipeline:
         pole_id = "Not Found"
         if pole_boxes_raw and self.ocr_engine:
             print(f"🔍 Scanning {len(pole_boxes_raw)} poles for ID markings...")
-            ocr_results = self.ocr_engine.scan_image(img_original, [p[0] for p in pole_boxes_raw])
-            if ocr_results:
-                # Take the best result
-                pole_id = ocr_results[0]['text']
-                print(f"✅ OCR Result: {pole_id}")
+            
+            all_ids = []
+            for (p_box, _, _, _) in pole_boxes_raw:
+                p_id = self.ocr_engine.process_pole_tag(img_original, p_box)
+                if p_id and p_id != "Not Found":
+                    all_ids.append(p_id)
+                    print(f"✅ OCR Found: {p_id}")
+            
+            if all_ids:
+                # Take the most substantial looking ID
+                pole_id = max(all_ids, key=len)
         crossarm_results = []
         for box, conf, ang, poly, native_cls in crossarm_boxes:
             cr = classify_crossarm_shape(
