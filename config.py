@@ -43,7 +43,7 @@ POLE_IDEAL_ANGLE_DEG        = 90.0
 POLE_TOLERANCE_DEG          = 8.0    # ±8° → ok (relaxed for field conditions)
 POLE_FAULT_DEG              = 15.0   # beyond ±15° → adjustment fault
 # Note: strut poles lean intentionally — skip fault check if pole_type=strut
-POLE_STRUT_THRESHOLD_DEG    = 35.0   # lean > 35° → definitely strut, not fault
+POLE_STRUT_THRESHOLD_DEG    = 5.0    # lean > 5° → definitely strut, not fault
 # Leaning pole threshold for classification
 POLE_LEANING_THRESHOLD_DEG  = 50.0   # OBB angle < 50° → classify as "leaning_pole"
 
