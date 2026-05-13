@@ -12,3 +12,7 @@ temp_*.jpg
 !best (2)/best (2).pt
 
 legacy_archive/
+uploads/
+training_data/
+*.pyc
+.vscode/
