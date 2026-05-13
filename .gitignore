@@ -10,3 +10,5 @@ temp_*.jpg
 *.pth
 *.pt
 !best (2)/best (2).pt
+
+legacy_archive/

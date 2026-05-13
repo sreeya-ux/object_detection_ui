@@ -11,24 +11,51 @@ import cv2
 import numpy as np
 import json
 
+import urllib.parse
+import re
+
 def clean_b64(b64_str):
     if not b64_str: return ""
     b64_str = str(b64_str).strip()
+    
+    b64_str = urllib.parse.unquote(b64_str)
+    
     if 'base64,' in b64_str: b64_str = b64_str.split('base64,')[-1]
     elif ',' in b64_str: b64_str = b64_str.split(',')[-1]
+    
     b64_str = "".join(b64_str.split()).replace('-', '+').replace('_', '/')
+    
+    # Remove any character that is not a valid base64 character
+    b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
+    b64_str = b64_str.rstrip('=')
+    
     missing_padding = len(b64_str) % 4
-    if missing_padding == 1: b64_str = b64_str[:-1]
-    elif missing_padding > 1: b64_str += '=' * (4 - missing_padding)
+    if missing_padding:
+        b64_str += '=' * (4 - missing_padding)
     return b64_str
+
+def get_image_bytes(image_data):
+    if not image_data: return None
+    
+    if isinstance(image_data, str) and (image_data.lower().endswith('.jpg') or image_data.lower().endswith('.png') or image_data.lower().endswith('.jpeg')):
+        filepath = os.path.join('uploads', image_data)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                return f.read()
+                
+    try:
+        return base64.b64decode(clean_b64(image_data))
+    except Exception:
+        return None
 
 def annotate_image(image_b64, detections):
     """
     Renders bounding boxes and labels onto an image for reporting.
     """
     try:
-        # Decode B64 (Safety strip prefix if exists)
-        img_data = base64.b64decode(clean_b64(image_b64))
+        img_data = get_image_bytes(image_b64)
+        if not img_data: return image_b64
+        
         nparr = np.frombuffer(img_data, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: return image_b64
@@ -142,12 +169,21 @@ def generate_asset_pdf(asset_data):
         
         # Convert B64 to Temp Image (Using Annotated version)
         annotated_b64 = annotate_image(img['image_b64'], img['detections'])
-        img_data = base64.b64decode(clean_b64(annotated_b64))
-        img_buffer = BytesIO(img_data)
+        img_data = get_image_bytes(annotated_b64)
         
-        # Add Image
-        report_img = Image(img_buffer, width=450, height=300, kind='proportional')
-        story.append(report_img)
+        if img_data:
+            img_buffer = BytesIO(img_data)
+            
+            # Add Image safely
+            try:
+                report_img = Image(img_buffer, width=450, height=300, kind='proportional')
+                story.append(report_img)
+            except Exception as e:
+                print(f"Skipping corrupt image in PDF: {e}")
+                story.append(Paragraph("[ Image Unavailable / Corrupted ]", styles['Italic']))
+        else:
+            story.append(Paragraph("[ Image Data Missing ]", styles['Italic']))
+            
         story.append(Spacer(1, 15))
         
         # Detections Table

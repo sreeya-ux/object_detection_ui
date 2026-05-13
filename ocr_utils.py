@@ -58,6 +58,20 @@ class PoleOCR:
             # 1. Upscale 2x for better character detail
             tile = cv2.resize(tile, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
             
+            # --- BLACK PAINT TARGETING ---
+            # Focus ONLY on black/dark areas to ignore concrete stains/shadows
+            hsv = cv2.cvtColor(tile, cv2.COLOR_BGR2HSV)
+            lower_black = np.array([0, 0, 0])
+            upper_black = np.array([180, 255, 75]) # V < 75 captures black paint
+            mask = cv2.inRange(hsv, lower_black, upper_black)
+            
+            # Clean up mask (remove tiny specs)
+            kernel_clean = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_clean)
+            
+            # Apply mask back to tile
+            tile = cv2.bitwise_and(tile, tile, mask=mask)
+            
             # --- TRIPLE-CHECK CONSENSUS SYSTEM ---
             gray_tile = cv2.cvtColor(tile, cv2.COLOR_BGR2GRAY)
             

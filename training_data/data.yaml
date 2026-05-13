@@ -1,4 +1,4 @@
-path: C:\Users\ASK037-PC\Downloads\object_detection_ui\training_data
+path: C:\Users\asus\Desktop\test\test2\object_detection_ui\training_data
 train: images
 val: images
 nc: 15

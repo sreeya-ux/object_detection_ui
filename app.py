@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response, send_file
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response, send_file, send_from_directory
 from werkzeug.security import check_password_hash, generate_password_hash
 import requests
 import csv
@@ -40,15 +40,16 @@ def serve_upload(filename):
 # Master Rule-Engine Pipeline
 # Centralizes component detection, classification, and rule-based logic.
 pipeline_engine = InfrastructurePipeline(
-    component_model_path="best (2)/best (2).pt",
-    insulator_model_path="dry_backup/best_insulator.pt",
-    shed_model_path="dry_backup/best_disc.pt"
+    component_model_path="models/component_model.pt",
+    insulator_model_path="models/insulator_model.pt",
+    shed_model_path="models/shed_model.pt",
+    crossarm_model_path="models/best_whole.pt"
 )
 
 # Load UNet specifically for Conductor Instance Segmentation (ResNet34)
 # Configured for BGR 512x512 input as per original training requirements.
 unet_model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=3, classes=1)
-unet_model.load_state_dict(torch.load("best_cable_unet.pth", map_location="cpu"))
+unet_model.load_state_dict(torch.load("models/conductor_unet.pth", map_location="cpu"))
 unet_model.eval()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 unet_model.to(device)
@@ -139,17 +140,7 @@ def log_activity(user, action, details=None):
         conn.close()
 
 def get_ngrok_url():
-    try:
-        # Increased timeout to 2.0s to prevent false negatives under high load
-        response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=2.0)
-        if response.status_code == 200:
-            tunnels = response.json().get('tunnels', [])
-            for tunnel in tunnels:
-                if tunnel.get('proto') == 'https':
-                    return tunnel.get('public_url')
-    except Exception as e:
-        print(f"[Ngrok] Connection failed: {e}")
-        return None
+    # Ngrok polling removed per user request
     return None
 
 # =========================
@@ -371,6 +362,7 @@ def process_image_file(file_stream):
                 "confidence": float(ins.detection_conf),
                 "bbox": [int(x) for x in ins.box],
                 "polygon": ins.obb_polygon if hasattr(ins, 'obb_polygon') else None,
+                "source": "models/insulator_model.pt",
                 "details": {
                     "voltage": ins.voltage,
                     "shed_count": int(ins.shed_count),
@@ -388,6 +380,7 @@ def process_image_file(file_stream):
                 "confidence": float(ca.detection_conf),
                 "bbox": [int(x) for x in ca.box],
                 "polygon": ca.obb_polygon if hasattr(ca, 'obb_polygon') else None,
+                "source": "models/component_model.pt",
                 "details": {
                     "shape": ca.shape
                 }
@@ -403,6 +396,7 @@ def process_image_file(file_stream):
                 "confidence": float(po.detection_conf),
                 "bbox": [int(x) for x in po.box],
                 "polygon": po.obb_polygon if hasattr(po, 'obb_polygon') else None,
+                "source": "models/component_model.pt",
                 "details": {
                     "type": po.pole_type,
                     "lean": round(float(po.lean_angle_deg), 1)
@@ -419,6 +413,7 @@ def process_image_file(file_stream):
                 "confidence": float(conf),
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
+                "source": "models/component_model.pt",
                 "details": {"type": "Standard Lamp"}
             })
 
@@ -480,6 +475,7 @@ def process_image_file(file_stream):
                 "confidence": 0.90,
                 "bbox": [cx, cy, cx+cw, cy+ch],
                 "polygon": polygon, # High precision UNet polygon
+                "source": "models/conductor_unet.pth",
                 "thickness": round(avg_thick, 1)
             })
 
@@ -487,11 +483,17 @@ def process_image_file(file_stream):
         master_data = {
             "final_class": pipe_res.final_class,
             "voltage": pipe_res.voltage,
+            "pole_id": pipe_res.pole_id,
             "reason": pipe_res.reason,
             "confidence": pipe_res.confidence,
             "pole_lean_angle": pipe_res.pole_orientation.lean_angle_deg if pipe_res.pole_orientation else 0.0,
             "pole_type": pipe_res.pole_orientation.pole_type if pipe_res.pole_orientation else "none",
-            "pole_status": pipe_res.pole_orientation.fault_severity if pipe_res.pole_orientation else "none"
+            "pole_status": pipe_res.pole_orientation.fault_severity if pipe_res.pole_orientation else "none",
+            "model_summary": {
+                "structural": "models/component_model.pt",
+                "insulator": "models/insulator_model.pt",
+                "segmentation": "models/conductor_unet.pth"
+            }
         }
 
         # D. Map to Survey Questionnaire (for external integration)

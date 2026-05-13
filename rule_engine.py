@@ -98,9 +98,8 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
         if signals.has_vegetation:
             found_faults.append("VEGETATION ENCROACHMENT")
 
-        if found_faults:
-            reason = " { FAULT DETECTED } " + reason + " | " + ", ".join(found_faults)
-
+        # Anomaly detection results are stored in the faults list for backend auditing,
+        # but are no longer prepended to the user-facing reason string.
         return ClassificationResult(
             final_class   = cls_name,
             class_id      = cls_id,

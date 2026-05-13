@@ -54,7 +54,8 @@ from crossarm_classifier  import (
     aggregate_crossarm_results, PoleOrientationResult, CrossarmResult
 )
 from rule_engine import classify_pole, ComponentSignals, ClassificationResult
-from ocr_utils import PoleOCR
+# OCR removed as requested
+# from ocr_utils import PoleOCR
 
 
 # ── Pipeline output ───────────────────────────────────────────
@@ -111,6 +112,7 @@ class InfrastructurePipeline:
         component_model_path: str,
         insulator_model_path: str,
         shed_model_path: str,
+        crossarm_model_path: Optional[str] = None,
         crop_classifier_path: Optional[str] = None,
         conf: float = DETECTION_CONF,
         iou:  float = DETECTION_IOU,
@@ -120,6 +122,7 @@ class InfrastructurePipeline:
             component_model_path : path to your trained component YOLO (.pt)
             insulator_model_path : path to specialized insulator detection model (.pt)
             shed_model_path      : path to your shed-count model (.pt)
+            crossarm_model_path  : path to model for crossarms (e.g., best_whole.pt)
             crop_classifier_path : path to optional insulator crop classifier (.pt)
             conf                 : detection confidence threshold
             iou                  : NMS IoU threshold
@@ -132,6 +135,12 @@ class InfrastructurePipeline:
         print("Loading dedicated insulator detector...")
         self.insulator_detector = YOLO(insulator_model_path)
 
+        if crossarm_model_path and Path(crossarm_model_path).exists():
+            print("Loading dedicated crossarm detector...")
+            self.crossarm_detector = YOLO(crossarm_model_path)
+        else:
+            self.crossarm_detector = None
+
         print("Loading insulator classifier (shed model + crop classifier)...")
         self.insulator_clf = InsulatorClassifier(
             shed_model_path      = shed_model_path,
@@ -141,13 +150,7 @@ class InfrastructurePipeline:
         self.conf = conf
         self.iou  = iou
         
-        # Initialize OCR engine
-        print("Initializing Pole ID OCR engine...")
-        try:
-            self.ocr_engine = PoleOCR()
-        except Exception as e:
-            print(f"OCR Warning: Could not init OCR: {e}")
-            self.ocr_engine = None
+        self.ocr_engine = None
 
         print("Pipeline ready.\n")
 
@@ -187,8 +190,14 @@ class InfrastructurePipeline:
         raw_structural = list(raw_combined_res)
         
         # ── Step 2: Run specialized insulator detector (Hardware Detail) ──
-        # Matching resolution to 800px to maintain consistent feature scale.
+        print("DEBUG: Running insulator detector...")
         raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=800, verbose=False)
+
+        # ── Step 2.5: Run specialized crossarm detector (if available) ──
+        raw_crossarm = None
+        if self.crossarm_detector:
+            print("DEBUG: Running crossarm detector...")
+            raw_crossarm = self.crossarm_detector(image_path, conf=THRESHOLD_CROSSARM, imgsz=800, verbose=False)
 
         # Proactive memory cleanup
         gc.collect()
@@ -230,6 +239,35 @@ class InfrastructurePipeline:
                     # Polygon for visualization
                     poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
                     
+                    if _match_keyword(cls_name, "pole") and conf_val >= THRESHOLD_POLE:
+                        try:
+                            from skimage.morphology import skeletonize
+                            w, h = int(b[2] - b[0]), int(b[3] - b[1])
+                            if w > 0 and h > 0:
+                                pole_mask = np.zeros((h, w), dtype=np.uint8)
+                                poly_pts = masks.xy[i].astype(np.int32)
+                                if len(poly_pts) > 0:
+                                    poly_pts[:, 0] -= int(b[0])
+                                    poly_pts[:, 1] -= int(b[1])
+                                    cv2.fillPoly(pole_mask, [poly_pts], 1)
+                                    skeleton = skeletonize(pole_mask > 0)
+                                    y_skel, x_skel = np.nonzero(skeleton)
+                                    if len(x_skel) > 10:
+                                        m, c_val = np.polyfit(y_skel, x_skel, 1)
+                                        skel_angle = 90.0 - np.degrees(np.arctan(m))
+                                        skel_deviation = abs(90.0 - abs(skel_angle))
+                                        print(f"DEBUG: Skeleton lean angle calculated: {skel_angle:.2f}° (deviation: {np.degrees(np.arctan(m)):.2f}°)")
+                                        
+                                        # Sanity check: reject main_pole skeletons deviating > 35° from vertical
+                                        is_strut_cls = ("strut" in cls_name.lower())
+                                        if not is_strut_cls and skel_deviation > 35.0:
+                                            print(f"🚫 [Skeleton Filter] Rejected {cls_name} (conf={conf_val:.2f}): skeleton {skel_angle:.1f}° deviates {skel_deviation:.1f}° from vertical")
+                                            angle_deg = None  # Fall back to AR-based classification
+                                        else:
+                                            angle_deg = skel_angle
+                        except Exception as e:
+                            print(f"DEBUG: Skeletonization failed: {e}")
+
                     if _match_keyword(cls_name, "conductor") and conf_val >= THRESHOLD_CONDUCTOR:
                         conductor_boxes.append((box, conf_val, poly))
                     elif _match_keyword(cls_name, "pole") and conf_val < THRESHOLD_POLE:
@@ -281,7 +319,8 @@ class InfrastructurePipeline:
                          is_strut = ("strut" in cls_name.lower())
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
 
-            if boxes is not None and len(boxes) > 0:
+            # Only process raw boxes if NO masks were found (avoid duplicate processing)
+            if (masks is None or len(masks) == 0) and boxes is not None and len(boxes) > 0:
                 for box_obj in boxes:
                     cls_name = self.component_model.names[int(box_obj.cls)]
                     conf_val = float(box_obj.conf)
@@ -314,6 +353,30 @@ class InfrastructurePipeline:
                              if lean > 15.0: is_strut = True
                          
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
+        
+        # ── Process Crossarm Model Output ──
+        if raw_crossarm is not None:
+            raw_crossarm_list = list(raw_crossarm)
+            print(f"DEBUG: Processing {len(raw_crossarm_list)} crossarm results")
+            for result_ca in raw_crossarm_list:
+                boxes = result_ca.boxes if hasattr(result_ca, "boxes") and result_ca.boxes else None
+                print(f"DEBUG: Crossarm boxes found: {len(boxes) if boxes is not None else 0}")
+                if boxes is not None and len(boxes) > 0:
+                    for box_obj in boxes:
+                        cls_name = self.crossarm_detector.names[int(box_obj.cls)]
+                        # ONLY TAKE CROSSARM CLASS FROM THIS MODEL
+                        if not _match_keyword(cls_name, "crossarm"):
+                            continue
+                            
+                        conf_val = float(box_obj.conf)
+                        print(f"DEBUG: Crossarm model detected '{cls_name}' with conf={conf_val:.2f}")
+                        if conf_val >= THRESHOLD_CROSSARM:
+                            b   = box_obj.xyxy[0].cpu().numpy()
+                            box = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                            poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
+                            self._categorise(cls_name, box, conf_val, None, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
+                        else:
+                            print(f"DEBUG: Crossarm '{cls_name}' rejected (conf {conf_val:.2f} < {THRESHOLD_CROSSARM})")
         
         # Process specialized insulator detector output (Final Insulator Detections)
         for result in raw_insulator:
@@ -396,46 +459,28 @@ class InfrastructurePipeline:
         all_poles = []
         pole_result = None
         if pole_boxes_raw:
-            # Sort by ACTUAL AREA (x2-x1) * (y2-y1) to find the primary pole
-            pole_boxes_raw.sort(key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]), reverse=True)
+            # Sort: main_poles first (by confidence), then strut_poles
+            # This ensures the primary pole is always the most confident main_pole
+            pole_boxes_raw.sort(
+                key=lambda x: (1 if x[4] else 0, -x[1]),  # main_pole(0) before strut(1), then by -confidence
+            )
+            
+            print(f"DEBUG: Pole sort order: {[(('STRUT' if x[4] else 'MAIN'), f'conf={x[1]:.2f}', f'angle={x[2]}') for x in pole_boxes_raw]}")
             
             for i, (p_box, p_conf, p_angle, p_poly, p_is_strut) in enumerate(pole_boxes_raw):
                 pr = classify_pole_orientation(p_box, p_angle, is_strut=p_is_strut, tilt_compensation=global_tilt)
                 pr.detection_conf = p_conf
                 pr.obb_polygon = p_poly
                 
-                # Final Overrule: If it has hardware, it CANNOT be a strut pole
-                if pr.pole_type == "strut_pole":
-                    has_hardware = False
-                    for ins in insulator_results:
-                        ib = ins.box
-                        if (ib[0] < p_box[2] and ib[2] > p_box[0] and ib[1] < p_box[3] and ib[3] > p_box[1]):
-                            has_hardware = True
-                            break
-                    if has_hardware:
-                        pr.pole_type = "leaning_pole"
-                
                 all_poles.append(pr)
                 
-                # The first (largest) pole is the primary one for rule engine classification
+                # The first pole (highest priority main_pole) is the primary one
                 if i == 0:
                     pole_result = pr
+                    print(f"DEBUG: Primary pole selected: type={pr.pole_type}, lean={pr.lean_angle_deg:.1f}°, conf={p_conf:.2f}")
 
         # ── Run OCR on all detected poles ─────────────────────
         pole_id = "Not Found"
-        if pole_boxes_raw and self.ocr_engine:
-            print(f"🔍 Scanning {len(pole_boxes_raw)} poles for ID markings...")
-            
-            all_ids = []
-            for (p_box, _, _, _, _) in pole_boxes_raw:
-                p_id = self.ocr_engine.process_pole_tag(img_original, p_box)
-                if p_id and p_id != "Not Found":
-                    all_ids.append(p_id)
-                    print(f"✅ OCR Found: {p_id}")
-            
-            if all_ids:
-                # Take the most substantial looking ID
-                pole_id = max(all_ids, key=len)
         crossarm_results = []
         for box, conf, ang, poly, native_cls in crossarm_boxes:
             cr = classify_crossarm_shape(
@@ -606,8 +651,8 @@ class InfrastructurePipeline:
             # GEOMETRY SHIELD: Real main poles are tall and thin.
             # (Strut poles are exempt because their lean makes their AABB wide)
             w, h = box[2] - box[0], box[3] - box[1]
-            if not is_strut and h < (w * 2.5):
-                # Reject wide structures like walls/buildings
+            if not is_strut and h < (w * 0.5):
+                # Reject purely horizontal structures like walls/buildings
                 print(f"🚫 [Geometry Shield] Rejected wide detection: {cls_name} (Aspect Ratio: {h/w:.1f})")
                 return
             pole_boxes_raw.append(det)
@@ -902,13 +947,16 @@ class InfrastructurePipeline:
             if po.pole_type == "strut_pole":
                 p_type = "STRUT POLE"
 
-            color = (255, 128, 0) if is_inferred else (220, 180, 50)
+            color = (255, 255, 255) if not is_inferred else (200, 200, 200)  # White for main pole
             if po.pole_type == "strut_pole":
-                color = (0, 165, 255) # Orange for struts
+                color = (80, 127, 255)  # Coral/salmon for strut poles
             
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-            # Display Lean Angle prominently for all poles
-            label = f"{p_type} | LEAN: {po.lean_angle_deg:.1f}°"
+            # Display angle info: LEAN for main poles, ANGLE for strut poles
+            if po.pole_type == "strut_pole":
+                label = f"{p_type} | ANGLE: {po.lean_angle_deg:.1f}\u00b0"
+            else:
+                label = f"{p_type} | LEAN: {po.lean_angle_deg:.1f}\u00b0"
             if is_inferred: label = f"[INFERRED] {label}"
             cv2.putText(vis, label,
                         (x1, min(img_h - 6, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)

@@ -20,12 +20,16 @@ let CLASS_OPTIONS = [
 
 // Distinct Premium Color Palette
 const CLASS_COLORS = {
-    "POLE_9M": "#0ea5e9",        // Cyan-Blue
-    "STRUT_POLE": "#f97316",     // Orange (Distinct for Strut)
-    "POLE_11M": "#38bdf8",       // Lighter Cyan
-    "POLE_8.1M": "#0284c7",      // Darker Cyan
+    "POLE_9M": "#ffffff",        // White
+    "POLE": "#ffffff",           // White (Main Pole)
+    "MAIN_POLE": "#ffffff",      // White (Main Pole)
+    "STRUT_POLE": "#ff7f50",     // Coral/Salmon (Distinct for Strut)
+    "POLE_11M": "#e2e8f0",       // Off-White
+    "POLE_8.1M": "#cbd5e1",      // Slate White
     "INS_PIN": "#00ff00",        // Bright Green
     "INS_DISC": "#22c55e",       // Emerald Green
+    "INSULATOR": "#00ff00",      // Default Green
+    "CROSSARM": "#ff00ff",       // Magenta
     "T_RISING": "#ff00ff",       // Magenta
     "TAPPING_CHANNEL": "#d946ef", // Fuchsia
     "SIDE_ARM_CHANNEL": "#a855f7", // Purple
@@ -240,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dropZone) {
         dropZone.addEventListener('click', (e) => {
-            // Always allow adding more images via the dropzone click
+            if (batchImages.length > 0) return; // Disable upload click if batch is active
             uploadInput.click();
         });
         dropZone.addEventListener('dragover', (e) => {
@@ -288,8 +292,10 @@ function handleUpload(e) {
     document.getElementById('uploadPrompt').classList.add('hidden');
     document.getElementById('batchStripWrapper').classList.remove('hidden');
     document.getElementById('imageContainer').classList.remove('hidden');
-    document.getElementById('dropZone').classList.add('py-4');
-    document.getElementById('dropZone').classList.remove('p-10');
+    
+    const dz = document.getElementById('dropZone');
+    dz.classList.add('py-4', 'border-transparent');
+    dz.classList.remove('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30', 'cursor-pointer');
 
     renderBatchStrip();
 
@@ -329,16 +335,6 @@ function renderBatchStrip() {
 
         strip.appendChild(thumb);
     });
-
-    // Add "Add More" Button at the end of the strip
-    const addMore = document.createElement('div');
-    addMore.className = 'batch-thumb-add';
-    addMore.innerHTML = `
-        <i class="fa-solid fa-plus text-blue-400"></i>
-        <span class="text-[8px] font-bold text-gray-400 mt-1">ADD MORE</span>
-    `;
-    addMore.onclick = () => document.getElementById('upload').click();
-    strip.appendChild(addMore);
 }
 
 function removeBatchImage(index) {
@@ -388,8 +384,8 @@ function selectBatchImage(index) {
     renderBoxes();
 }
 
-function resetSession() {
-    if (batchImages.length > 0) {
+function resetSession(force = false) {
+    if (!force && batchImages.length > 0) {
         if (!confirm("Clear current batch and all detection results?")) return;
     }
 
@@ -405,9 +401,20 @@ function resetSession() {
     document.getElementById('imageContainer').classList.add('hidden');
     document.getElementById('resultBox').innerHTML = '';
     document.getElementById('masterIdentityCard').classList.add('hidden');
-    document.getElementById('dropZone').classList.remove('py-4');
-    document.getElementById('dropZone').classList.add('p-10');
+    const dz = document.getElementById('dropZone');
+    dz.classList.remove('py-4', 'border-transparent');
+    dz.classList.add('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30', 'cursor-pointer');
     document.getElementById('upload').value = ''; // Clear file input
+
+    // Hide and reset Submit Section
+    const submitSection = document.getElementById('submitSection');
+    if (submitSection) submitSection.classList.add('hidden');
+    
+    const finalSubmitBtn = document.getElementById('finalSubmitBtn');
+    if (finalSubmitBtn) {
+        finalSubmitBtn.disabled = true;
+        finalSubmitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> SUBMIT RESULTS';
+    }
 
     showToast("Session reset", "info");
 }
@@ -450,7 +457,7 @@ async function resizeImage(file, maxWidth, maxHeight) {
 }
 
 async function processImage() {
-    if (!uploadedFile) {
+    if (batchImages.length === 0) {
         showToast("Please upload an image first", "warning");
         return;
     }
@@ -459,81 +466,86 @@ async function processImage() {
     const btnText = btn.querySelector('.btn-text');
     const loader = btn.querySelector('.loader');
 
-    // UI state: Loading
     btn.disabled = true;
-    btnText.textContent = "Processing...";
     loader.classList.remove('hidden');
 
-    let imageToUpload = uploadedFile;
-    if (uploadedFile.size > 1024 * 1024) {
-        imageToUpload = await resizeImage(uploadedFile, 1280, 1280);
-    }
-
-    const formData = new FormData();
-    formData.append("image", imageToUpload, "image.jpg");
-
     try {
-        // Prevent indefinite hanging with a 60s timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        let processedCount = 0;
 
-        const response = await fetch("/predict", {
-            method: "POST",
-            headers: { "ngrok-skip-browser-warning": "69420" },
-            body: formData,
-            signal: controller.signal
-        }).finally(() => clearTimeout(timeoutId));
+        for (let i = 0; i < batchImages.length; i++) {
+            if (batchImages[i].processed) continue;
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `System Error (${response.status})`);
-        }
+            btnText.textContent = `Processing ${i + 1} of ${batchImages.length}...`;
+            
+            let file = batchImages[i].file;
+            let imageToUpload = file;
+            if (file.size > 1024 * 1024) {
+                imageToUpload = await resizeImage(file, 1280, 1280);
+            }
 
-        const data = await response.json();
+            const formData = new FormData();
+            formData.append("image", imageToUpload, "image.jpg");
 
-        // Use normalized labels
-        detections = data.detections.map(d => ({
-            ...d,
-            label: d.label.toUpperCase(),
-            confirmed: false
-        }));
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-        masterResult = data.master; // Store Master Identity
-        surveyResult = data.survey_questionnaire || {}; // Store Survey Questionnaire
-        imageDimensions = { width: data.width, height: data.height };
+            const response = await fetch("/predict", {
+                method: "POST",
+                headers: { "ngrok-skip-browser-warning": "69420" },
+                body: formData,
+                signal: controller.signal
+            }).finally(() => clearTimeout(timeoutId));
 
-        // Save to Batch State
-        if (activeBatchIndex !== -1) {
-            batchImages[activeBatchIndex].detections = [...detections];
-            batchImages[activeBatchIndex].master = masterResult;
-            batchImages[activeBatchIndex].survey = surveyResult;
-            batchImages[activeBatchIndex].dims = { ...imageDimensions };
-            batchImages[activeBatchIndex].processed = true;
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                showToast(`Failed on image ${i + 1}: ${errorData.error || response.status}`, "danger");
+                continue;
+            }
+
+            const data = await response.json();
+
+            batchImages[i].detections = data.detections.map(d => ({
+                ...d,
+                label: d.label.toUpperCase(),
+                confirmed: false
+            }));
+            batchImages[i].master = data.master;
+            batchImages[i].survey = data.survey_questionnaire || {};
+            batchImages[i].dims = { width: data.width, height: data.height };
+
+            if (data.annotated_image) {
+                function formatB64(src) {
+                    if (!src) return 'https://via.placeholder.com/400x300?text=No+Data';
+                    let clean = src.toString().trim();
+                    if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/static/')) return clean;
+                    const parts = clean.split('base64,');
+                    clean = parts[parts.length - 1];
+                    return 'data:image/jpeg;base64,' + clean;
+                }
+                batchImages[i].src = formatB64(data.annotated_image); // Replace original with annotated
+            }
+
+            batchImages[i].processed = true;
+            processedCount++;
             renderBatchStrip();
         }
 
-        if (data.annotated_image) {
-            function formatB64(src) {
-                if (!src) return 'https://via.placeholder.com/400x300?text=No+Data';
-                let clean = src.toString().trim();
-                if (clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('/')) return clean;
-                const parts = clean.split('base64,');
-                clean = parts[parts.length - 1];
-                if (clean.startsWith('data:image')) return clean;
-                return 'data:image/jpeg;base64,' + clean;
-            }
-            document.getElementById("preview").src = formatB64(data.annotated_image);
+        if (processedCount > 0) {
+            // After batch is done, force reload the current active image to show new data
+            const currentIdx = activeBatchIndex;
+            activeBatchIndex = -1; // Force clean select
+            selectBatchImage(currentIdx !== -1 ? currentIdx : 0);
+            
             document.getElementById("imageContainer").classList.remove("hidden");
             document.getElementById("submitSection").classList.remove("hidden");
+            
+            saveDraft();
+            showToast(`Batch Complete: ${processedCount} images analyzed`, "success");
+        } else {
+            showToast("All images are already processed", "info");
         }
-
-        renderResults();
-        renderBoxes();
-        saveToHistory(); // Initial state after prediction
-        saveDraft(); // Auto-save draft immediately after detection
-        showToast("Analysis complete", "success");
     } catch (err) {
-        showToast(err.message || "Cloud connection error", "danger");
+        showToast(err.message || "Batch processing error", "danger");
     } finally {
         btn.disabled = false;
         btnText.textContent = "Run Detection";
@@ -610,14 +622,13 @@ function renderResults() {
         masterCard.classList.remove('hidden');
         document.getElementById("masterClass").textContent = masterResult.final_class.replace(/_/g, ' ');
         document.getElementById("masterVoltage").textContent = masterResult.voltage;
-        document.getElementById("masterReason").textContent = masterResult.reason;
 
         const confEl = document.getElementById("masterConfidence");
         const confVal = masterResult.confidence ? masterResult.confidence.toLowerCase() : 'low';
         if (confVal === 'high') confEl.className = "text-[8px] font-bold text-emerald-400/80 uppercase tracking-widest";
         else if (confVal === 'medium') confEl.className = "text-[8px] font-bold text-amber-400/80 uppercase tracking-widest";
         else confEl.className = "text-[8px] font-bold text-rose-400/80 uppercase tracking-widest";
-
+        
         // 1.1 Update Pole Stability Row
         const stabilityRow = document.getElementById("poleStabilityRow");
         const angleEl = document.getElementById("poleLeanAngle");
@@ -651,6 +662,54 @@ function renderResults() {
             statusBadge.className = `px-2 py-0.5 rounded text-[8px] font-bold uppercase ${badgeClass}`;
         } else {
             stabilityRow.classList.add("hidden");
+        }
+
+        // 1.1.5 Compute Max Hardware Counts Across Batch
+        const maxCounts = {};
+        let processedImagesCount = 0;
+        batchImages.forEach(imgData => {
+            if (!imgData.processed || !imgData.detections) return;
+            processedImagesCount++;
+            const currentCounts = {};
+            imgData.detections.forEach(d => {
+                // Group by main category (e.g. PIN_INSULATOR -> INSULATOR)
+                let type = d.label;
+                if (type.includes('INSULATOR')) type = 'INSULATOR';
+                else if (type.includes('POLE')) type = 'POLE';
+                else if (type.includes('CROSSARM')) type = 'CROSSARM';
+                else if (type.includes('CONDUCTOR')) type = 'CONDUCTOR';
+                else type = type.split('_')[0];
+                
+                currentCounts[type] = (currentCounts[type] || 0) + 1;
+            });
+            for (const type in currentCounts) {
+                if (!maxCounts[type] || currentCounts[type] > maxCounts[type]) {
+                    maxCounts[type] = currentCounts[type];
+                }
+            }
+        });
+
+        const batchCountsRow = document.getElementById("batchCountsRow");
+        if (Object.keys(maxCounts).length > 0 && processedImagesCount > 1) {
+            batchCountsRow.classList.remove("hidden");
+            batchCountsRow.innerHTML = `<span class="w-full text-[8px] text-gray-500 font-bold uppercase mb-1">Max Hardware Detected Across ${processedImagesCount} Views</span>`;
+            
+            for (const type in maxCounts) {
+                let icon = 'fa-tag';
+                if (type === 'POLE') icon = 'fa-tower-broadcast';
+                else if (type === 'INSULATOR') icon = 'fa-bolt';
+                else if (type === 'CROSSARM') icon = 'fa-compass-drafting';
+                else if (type === 'CONDUCTOR') icon = 'fa-layer-group';
+                
+                batchCountsRow.innerHTML += `
+                    <div class="px-2 py-1 bg-white/5 border border-white/10 rounded flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid ${icon} text-[9px] text-blue-400"></i>
+                        <span class="text-[9px] font-bold text-white">${maxCounts[type]} <span class="text-gray-500">${type}S</span></span>
+                    </div>
+                `;
+            }
+        } else {
+            batchCountsRow.classList.add("hidden");
         }
     } else {
         masterCard.classList.add('hidden');
@@ -775,11 +834,20 @@ function renderResults() {
                 metaIcon = "fa-compass-drafting";
             } else if (obj.label.includes('POLE') && obj.details) {
                 const lean = obj.details.lean || 0;
-                const isExtreme = lean > 10;
-                const leanColor = isExtreme ? 'text-rose-400 font-black' : (lean > 5 ? 'text-amber-400' : 'text-emerald-400');
-                const abnormalityTag = isExtreme ? `<span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[7px] border border-rose-500/30 ml-2 animate-pulse">ABNORMALITY</span>` : "";
-                detailStr = `<span class="${leanColor}">LEAN: ${lean}°</span>${abnormalityTag} | ${obj.details.type} | <span class="text-white/60">Conf: ${fakeConfStr}</span>`;
-                metaIcon = "fa-triangle-exclamation";
+                const isStrut = obj.details.type === 'strut_pole';
+                const isExtreme = !isStrut && lean > 10;
+                
+                if (isStrut) {
+                    // Strut pole: just show angle, no abnormality
+                    detailStr = `<span class="text-blue-400">ANGLE: ${lean}°</span> | <span class="text-blue-300">strut pole</span> | <span class="text-white/60">Conf: ${fakeConfStr}</span>`;
+                    metaIcon = "fa-ruler-combined";
+                } else {
+                    // Main pole: show lean deviation from 90° with abnormality warning
+                    const leanColor = isExtreme ? 'text-rose-400 font-black' : (lean > 5 ? 'text-amber-400' : 'text-emerald-400');
+                    const abnormalityTag = isExtreme ? `<span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[7px] border border-rose-500/30 ml-2 animate-pulse">ABNORMALITY</span>` : "";
+                    detailStr = `<span class="${leanColor}">LEAN: ${lean}°</span>${abnormalityTag} | ${obj.details.type.replace('_', ' ')} | <span class="text-white/60">Conf: ${fakeConfStr}</span>`;
+                    metaIcon = "fa-triangle-exclamation";
+                }
             } else if (obj.label === 'WIRE_BROKEN') {
                 detailStr = `<span class="text-rose-500 font-bold underline">CRITICAL: SNAPPED CONDUCTOR</span> | Conf: ${fakeConfStr}`;
                 metaIcon = "fa-scissors";
@@ -798,7 +866,8 @@ function renderResults() {
                         <div class="flex items-center gap-1.5 mt-0.5">
                             <i class="fa-solid ${metaIcon} text-[8px] text-gray-600"></i>
                             <p class="text-[9px] text-gray-500 font-medium uppercase tracking-widest">${detailStr}</p>
-                        </div>
+                            ${obj.source ? `<span class="ml-auto text-[7px] text-gray-600/50 font-mono italic">via ${obj.source.split('/').pop()}</span>` : ''}
+
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -986,7 +1055,11 @@ function renderBoxes() {
         labelTextEl.setAttribute("font-size", "11px");
         labelTextEl.setAttribute("font-family", "Outfit, Inter, sans-serif");
         labelTextEl.setAttribute("font-weight", "700");
-        labelTextEl.setAttribute("fill", "#ffffff");
+        
+        // Smart contrast: if the background color is white or cyan/yellow, use dark text
+        const isLightBg = color === "#ffffff" || color === "#00ffff" || color === "#fbbf24";
+        labelTextEl.setAttribute("fill", isLightBg ? "#0f172a" : "#ffffff");
+        
         labelTextEl.setAttribute("text-anchor", "middle");
         labelTextEl.setAttribute("dominant-baseline", "middle");
 
@@ -1114,8 +1187,8 @@ async function submitAsset() {
         if (result.status === 'success') {
             showToast("Success! Asset Uploaded to Admin", "success");
             setTimeout(() => {
-                resetSession();
-                // Optionally redirect or clear
+                resetSession(true);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             }, 1500);
         } else {
             throw new Error(result.message);
@@ -1696,7 +1769,7 @@ async function submitAsset() {
             showToast("Success! Submitted for Review", "success");
             // Auto-reset after a delay
             setTimeout(() => {
-                resetSession();
+                resetSession(true);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }, 2000);
         } else {

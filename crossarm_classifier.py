@@ -152,7 +152,15 @@ def classify_pole_orientation(
     # ── Advanced pole analysis ────────────────────────────────
     bend_angle = 0.0
     
-    if obb_angle_deg is not None:
+    # 1. Priority: Trust the model's explicit classification (is_strut)
+    if is_strut:
+        pole_type  = "strut_pole"
+        confidence = "high"
+        lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(obb_angle_deg or 90)), 1)
+        note = "Explicitly detected as strut pole by AI model"
+        
+    # 2. Secondary: Geometric Analysis (if OBB angle exists)
+    elif obb_angle_deg is not None:
         lean = round(abs(POLE_IDEAL_ANGLE_DEG - abs(obb_angle_deg)), 1)
 
         # Detect pole bending using image analysis if available
@@ -160,16 +168,7 @@ def classify_pole_orientation(
             bend_angle = _detect_pole_bend(img, box)
 
         # Classification based on lean angle and bend
-        if is_strut:
-            pole_type  = "strut_pole"
-            confidence = "high"
-            # Keep the actual lean measurement but label as strut
-            note       = f"Explicitly detected as strut pole (lean={lean:.1f}°)"
-        elif lean >= POLE_STRUT_THRESHOLD_DEG:
-            pole_type  = "strut_pole"
-            confidence = "high"
-            note       = f"OBB angle={obb_angle_deg:.1f}° → intentional strut"
-        elif obb_angle_deg >= 80:
+        if obb_angle_deg >= 80:
             pole_type  = "vertical_pole"
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → vertical"
@@ -185,20 +184,20 @@ def classify_pole_orientation(
             confidence = "high"
             note       = f"OBB angle={obb_angle_deg:.1f}° → leaning {lean}°"
         else:
-            pole_type  = "strut_pole"
+            # Model said main_pole (is_strut=False reached here), so classify as leaning, not strut
+            pole_type  = "leaning_pole"
             confidence = "high"
-            note       = f"OBB angle={obb_angle_deg:.1f}° → steep strut"
+            note       = f"OBB angle={obb_angle_deg:.1f}° → significant lean ({lean:.1f}°)"
+            
+    # 3. Final Fallback: Aspect Ratio (if no angle or explicit label)
     else:
         # Fallback: Use Aspect Ratio (AR) to infer lean if OBB angle is missing
-        # A leaning pole has a wider bounding box -> lower AR.
-        # Vertical poles typically have AR > 5.0 (height is 5x more than width)
         if ar > 5.0:
             pole_type, confidence = "vertical_pole", "medium"
             lean = 0.0
             note = f"AR={ar:.1f} → assumed vertical"
         elif ar > 2.5:
             pole_type, confidence = "vertical_pole", "low"
-            # Infer a small lean if AR starts dropping
             lean = round(max(0, (5.0 - ar) * 4), 1) 
             note = f"AR={ar:.1f} → slight lean inferred"
         else:
