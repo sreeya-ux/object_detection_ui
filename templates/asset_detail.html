@@ -43,6 +43,28 @@
             transform: translateY(0); opacity: 1;
         }
         #autoSaveStatus { transition: all 0.3s; }
+        
+        /* Premium sidebar & details styles */
+        .det-group {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            overflow: hidden;
+            margin-bottom: 0.75rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .det-group:hover {
+            border-color: rgba(59, 130, 246, 0.2);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .det-sub-item {
+            transition: all 0.2s ease;
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+            background: rgba(0, 0, 0, 0.15);
+        }
+        .det-sub-item:hover {
+            background: rgba(59, 130, 246, 0.08);
+        }
     </style>
 </head>
 <body class="p-4 md:p-6">
@@ -103,6 +125,11 @@
                         <p class="text-xs font-bold text-white">{{ asset.asset_class or '—' }}</p>
                         <p class="text-[9px] text-blue-400 font-semibold">{{ asset.voltage or '' }}</p>
                         <p class="text-[9px] text-gray-500 italic leading-relaxed">{{ asset.reason or 'No reason provided' }}</p>
+                        <!-- Insulator breakdown breakdown summary -->
+                        <div id="insulatorBreakdownContainer" class="mt-2 pt-2 border-t border-white/5 hidden">
+                            <p class="text-[8px] text-gray-400/60 uppercase font-bold tracking-wider mb-1.5">Insulator Breakdown</p>
+                            <div id="insulatorBreakdownList" class="flex flex-wrap gap-1.5"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -233,16 +260,18 @@
 
 <script>
 const CLASS_COLORS = {
-    POLE_9M: '#0ea5e9', POLE_11M: '#38bdf8', "POLE_8.1M": '#0284c7',
-    INS_PIN: '#00ff00', INS_DISC: '#22c55e',
-    T_RISING: '#ff00ff', TAPPING_CHANNEL: '#d946ef', SIDE_ARM_CHANNEL: '#a855f7', V_CROSS: '#f43f5e',
+    POLE: '#ffffff', STRUT_POLE: '#ff7f50',
+    INSULATOR: '#00ff00',
+    HT_PIN: '#10b981', HT_DISC: '#3b82f6', LT_PIN: '#14b8a6', SHACKLE_INSULATOR: '#f59e0b',
+    T_RISING: '#ff00ff', TAPPING_CHANNEL: '#d946ef', SIDE_ARM_CHANNEL: '#a855f7', V_CROSS: '#f43f5e', TOP_CLEAT: '#84cc16',
     CONDUCTOR: '#00ffff', STREET_LIGHT: '#f59e0b', DTR: '#8b5cf6', 
     WIRE_BROKEN: '#ef4444', VEGETATION: '#fbbf24', OBJECT: '#a8a29e'
 };
 const CLASS_OPTIONS = [
-    'POLE_9M', 'POLE_11M', 'POLE_8.1M',
-    'INS_PIN', 'INS_DISC',
-    'T_RISING', 'TAPPING_CHANNEL', 'SIDE_ARM_CHANNEL', 'V_CROSS',
+    'POLE', 'STRUT_POLE',
+    'INSULATOR',
+    'HT_PIN', 'HT_DISC', 'LT_PIN', 'SHACKLE_INSULATOR',
+    'T_RISING', 'TAPPING_CHANNEL', 'SIDE_ARM_CHANNEL', 'V_CROSS', 'TOP_CLEAT',
     'CONDUCTOR', 'STREET_LIGHT', 'DTR', 'WIRE_BROKEN', 'VEGETATION', 'OBJECT'
 ];
 
@@ -380,6 +409,8 @@ function initSVG(idx) {
         const [x1, y1, x2, y2] = det.bbox;
         const color = CLASS_COLORS[det.label?.toUpperCase()] || '#a8a29e';
         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("id", `svg-g-${idx}-${dIdx}`);
+        g.setAttribute("class", "svg-detection-group");
 
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("x", x1); rect.setAttribute("y", y1);
@@ -389,22 +420,65 @@ function initSVG(idx) {
         rect.setAttribute("fill", `${det.manual ? '#f43f5e' : color}22`);
         rect.style.cursor = isDrawMode ? "crosshair" : "move";
 
-        // Label pill
+        // Label pill (dynamic, showing subclass, voltage, sheds, etc.)
+        let labelDisplay = (det.label || 'OBJECT').toUpperCase();
+        const confPct = det.confidence ? Math.round(det.confidence * 100) : null;
+        if (confPct !== null) {
+            labelDisplay += ` [${confPct}%]`;
+        }
+
+        let subLabelDisplay = '';
+        if (det.details) {
+            const lblUpper = det.label?.toUpperCase() || '';
+            if (lblUpper.includes('INSULATOR') || lblUpper.includes('PIN') || lblUpper.includes('DISC')) {
+                const volt = det.details.voltage || '';
+                const sheds = det.details.shed_count || det.details.sheds || 0;
+                if (volt && sheds) {
+                    subLabelDisplay = `${volt} · ${sheds}S`;
+                } else if (volt) {
+                    subLabelDisplay = volt;
+                } else if (sheds) {
+                    subLabelDisplay = `${sheds}S`;
+                }
+            } else if (lblUpper.includes('POLE')) {
+                const lean = det.details.lean !== undefined ? `${det.details.lean}°` : '';
+                const type = det.details.type || '';
+                if (lean && type) {
+                    subLabelDisplay = `${type} · ${lean}`;
+                } else {
+                    subLabelDisplay = type || lean;
+                }
+            } else if (lblUpper.includes('CROSS') || lblUpper.includes('ARM') || lblUpper.includes('CLEAT') || lblUpper.includes('CHANNEL')) {
+                subLabelDisplay = det.details.shape || '';
+            }
+        }
+
+        let pillText = labelDisplay;
+        if (subLabelDisplay) {
+            pillText += ` · ${subLabelDisplay}`;
+        }
+
         const labelG = document.createElementNS("http://www.w3.org/2000/svg", "g");
         const labelText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        labelText.textContent = (det.label || 'OBJECT').toUpperCase();
+        labelText.textContent = pillText;
         labelText.setAttribute("x", x1 + 6);
-        labelText.setAttribute("y", y1 - 5);
+        labelText.setAttribute("y", y1 - 6);
         labelText.setAttribute("font-size", "20");
         labelText.setAttribute("font-family", "Inter, sans-serif");
         labelText.setAttribute("font-weight", "700");
         labelText.setAttribute("fill", det.manual ? "#f43f5e" : color);
+
         const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        labelBg.setAttribute("x", x1); labelBg.setAttribute("y", y1 - 28);
-        labelBg.setAttribute("width", Math.max((det.label?.length || 6) * 13, 60));
-        labelBg.setAttribute("height", 26); labelBg.setAttribute("rx", "6");
+        labelBg.setAttribute("x", x1); 
+        labelBg.setAttribute("y", y1 - 28);
+        const textLen = pillText.length;
+        labelBg.setAttribute("width", Math.max(textLen * 11 + 12, 60));
+        labelBg.setAttribute("height", 26); 
+        labelBg.setAttribute("rx", "6");
         labelBg.setAttribute("fill", `${det.manual ? '#f43f5e' : color}33`);
-        labelG.appendChild(labelBg); labelG.appendChild(labelText);
+        
+        labelG.appendChild(labelBg); 
+        labelG.appendChild(labelText);
 
         // Drag logic
         let isDragging = false;
@@ -414,8 +488,19 @@ function initSVG(idx) {
             e.stopPropagation();
             isDragging = true;
             selectedBox = { idx, dIdx };
-            document.querySelectorAll('.box-selected').forEach(r => r.classList.remove('box-selected'));
+            
+            // Highlight SVG Box
+            document.querySelectorAll('.svg-detection-group').forEach(r => r.classList.remove('box-selected'));
             g.classList.add('box-selected');
+
+            // Two-way sync: highlight matching sidebar item
+            document.querySelectorAll('.det-sub-item').forEach(item => item.classList.remove('bg-blue-500/15', 'border-l-2', 'border-l-blue-500'));
+            const sideItem = document.getElementById(`det-item-${idx}-${dIdx}`);
+            if (sideItem) {
+                sideItem.classList.add('bg-blue-500/15', 'border-l-2', 'border-l-blue-500');
+                sideItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
             const pt = getSVGPoint(svg, e.clientX, e.clientY);
             dragOff = { x: pt.x - parseFloat(rect.getAttribute('x')), y: pt.y - parseFloat(rect.getAttribute('y')) };
         };
@@ -450,25 +535,131 @@ function initSVG(idx) {
     if (parseInt(idx) === activeImageIdx) renderDetList(idx, dets);
 }
 
+function highlightBox(idx, dIdx, scroll = true) {
+    selectedBox = { idx, dIdx };
+
+    // Highlight SVG Box
+    document.querySelectorAll('.svg-detection-group').forEach(g => {
+        g.classList.remove('box-selected');
+    });
+    const targetG = document.getElementById(`svg-g-${idx}-${dIdx}`);
+    if (targetG) {
+        targetG.classList.add('box-selected');
+        if (scroll) {
+            targetG.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+    }
+
+    // Highlight sidebar item
+    document.querySelectorAll('.det-sub-item').forEach(item => item.classList.remove('bg-blue-500/15', 'border-l-2', 'border-l-blue-500'));
+    const sideItem = document.getElementById(`det-item-${idx}-${dIdx}`);
+    if (sideItem) {
+        sideItem.classList.add('bg-blue-500/15', 'border-l-2', 'border-l-blue-500');
+    }
+}
+
 function renderDetList(idx, dets) {
     const panel = document.getElementById('detListPanel');
     const count = document.getElementById('detCount');
     count.textContent = `(${dets.length})`;
-    if (dets.length === 0) { panel.innerHTML = '<p class="text-[9px] text-gray-600 italic">No detections</p>'; return; }
+    if (dets.length === 0) { 
+        panel.innerHTML = '<p class="text-[9px] text-gray-600 italic">No detections</p>'; 
+        const breakdownContainer = document.getElementById('insulatorBreakdownContainer');
+        if (breakdownContainer) breakdownContainer.classList.add('hidden');
+        return; 
+    }
 
-    const groups = {};
-    dets.forEach(d => { const l = d.label?.toUpperCase() || 'OBJECT'; groups[l] = (groups[l]||0)+1; });
+    // Group detections by label
+    const grouped = {};
+    dets.forEach((d, dIdx) => { 
+        const l = d.label?.toUpperCase() || 'OBJECT'; 
+        if (!grouped[l]) grouped[l] = [];
+        grouped[l].push({ det: d, dIdx: dIdx });
+    });
 
-    panel.innerHTML = Object.entries(groups).map(([label, count]) => {
+    panel.innerHTML = Object.entries(grouped).map(([label, items]) => {
         const color = CLASS_COLORS[label] || '#a8a29e';
-        return `<div class="det-item flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full" style="background:${color}"></div>
-                <span class="text-[9px] font-bold text-gray-300 uppercase tracking-wider">${label}</span>
+        
+        const itemsHtml = items.map(({ det, dIdx }) => {
+            let detailsStr = '';
+            if (det.details) {
+                if (label.includes('INSULATOR') || label.includes('PIN') || label.includes('DISC') || label === 'INSULATOR') {
+                    const volt = det.details.voltage ? `${det.details.voltage}` : '';
+                    const sheds = det.details.shed_count || det.details.sheds || 0;
+                    const type = det.details.type ? `${det.details.type}` : '';
+                    
+                    let badges = [];
+                    if (volt) badges.push(`<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${volt}</span>`);
+                    if (sheds) badges.push(`<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${sheds} sheds</span>`);
+                    if (type) badges.push(`<span class="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${type}</span>`);
+                    detailsStr = badges.join(' ');
+                } else if (label.includes('POLE')) {
+                    const lean = det.details.lean !== undefined ? `${det.details.lean}° lean` : '';
+                    const type = det.details.type ? `${det.details.type}` : '';
+                    let badges = [];
+                    if (lean) badges.push(`<span class="bg-purple-500/10 text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${lean}</span>`);
+                    if (type) badges.push(`<span class="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${type}</span>`);
+                    detailsStr = badges.join(' ');
+                } else if (label.includes('CROSS') || label.includes('ARM') || label.includes('CLEAT') || label.includes('CHANNEL')) {
+                    const shape = det.details.shape ? `${det.details.shape}` : '';
+                    if (shape) {
+                        detailsStr = `<span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 px-1 py-0.5 rounded text-[8px] font-bold">${shape}</span>`;
+                    }
+                }
+            }
+            
+            const confPct = det.confidence ? Math.round(det.confidence * 100) : 100;
+            
+            return `<div id="det-item-${idx}-${dIdx}" class="det-sub-item flex flex-col gap-1 pl-3 pr-2 py-1.5 cursor-pointer transition-all" onclick="highlightBox(${idx}, ${dIdx})">
+                <div class="flex items-center justify-between">
+                    <span class="text-[9px] font-bold text-gray-400">Det #${dIdx + 1}</span>
+                    <span class="text-[8px] font-mono text-gray-500 bg-white/5 px-1 py-0.25 rounded">${confPct}% conf</span>
+                </div>
+                ${detailsStr ? `<div class="flex flex-wrap gap-1 items-center mt-0.5">${detailsStr}</div>` : ''}
+            </div>`;
+        }).join('');
+
+        return `<div class="det-group border border-white/5 rounded-xl bg-gray-950/20 overflow-hidden mb-2">
+            <div class="flex items-center justify-between p-2.5 bg-white/5">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full shadow-lg animate-pulse" style="background:${color}; box-shadow: 0 0 6px ${color}80;"></div>
+                    <span class="text-[9px] font-bold text-gray-200 uppercase tracking-wider">${label}</span>
+                </div>
+                <span class="text-[8px] font-mono text-gray-500 bg-white/5 px-1.5 py-0.5 rounded-md font-bold">${items.length}</span>
             </div>
-            <span class="text-[9px] font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded">${count}x</span>
+            <div class="group-content scroll-hide max-h-48 overflow-y-auto">
+                ${itemsHtml}
+            </div>
         </div>`;
     }).join('');
+
+    // Update Insulator Breakdown inside the AI Diagnostic block
+    const insulatorCounts = {};
+    let hasInsulators = false;
+    dets.forEach(d => {
+        const label = d.label?.toUpperCase() || 'OBJECT';
+        if (label === 'HT_PIN' || label === 'HT_DISC' || label === 'LT_PIN' || label === 'SHACKLE_INSULATOR' || label === 'INSULATOR') {
+            insulatorCounts[label] = (insulatorCounts[label] || 0) + 1;
+            hasInsulators = true;
+        }
+    });
+
+    const breakdownContainer = document.getElementById('insulatorBreakdownContainer');
+    const breakdownList = document.getElementById('insulatorBreakdownList');
+    if (breakdownContainer && breakdownList) {
+        if (hasInsulators) {
+            breakdownContainer.classList.remove('hidden');
+            breakdownList.innerHTML = Object.entries(insulatorCounts).map(([label, count]) => {
+                const color = CLASS_COLORS[label] || '#a8a29e';
+                return `<span class="inline-flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-2 py-0.5 text-[8px] font-bold text-gray-300">
+                    <span class="w-1.5 h-1.5 rounded-full" style="background:${color}"></span>
+                    ${count}× ${label}
+                </span>`;
+            }).join('');
+        } else {
+            breakdownContainer.classList.add('hidden');
+        }
+    }
 }
 
 // === CATEGORY PICKER MODAL ===

@@ -33,6 +33,7 @@ from config import (
     PIN_INSULATOR_TOLERANCE_DEG,
     PIN_INSULATOR_FAULT_DEG,
     PIN_TILT_AR_THRESHOLD,
+    INSULATOR_MIN_CONF,
 )
 
 
@@ -328,6 +329,7 @@ class InsulatorClassifier:
         box: tuple,
         detection_conf: float = 0.0,
         obb_angle_deg: Optional[float] = None,
+        detected_class: Optional[str] = None,
     ) -> InsulatorResult:
         """
         Classifies one insulator detection.
@@ -337,52 +339,89 @@ class InsulatorClassifier:
             box           : (x1, y1, x2, y2)
             detection_conf: confidence from component YOLO
             obb_angle_deg : angle from OBB model (None if standard detection)
+            detected_class: class name from 4-class segmentation model (HT_pin, HT_disc, etc.)
         """
         x1, y1, x2, y2 = box
         bw = x2 - x1
         bh = y2 - y1
         ar = round(bh / bw if bw > 0 else 0, 2)
 
-        # ── Step 1: Aspect ratio heuristic ───────────────────
-        type_heuristic, confidence = classify_by_aspect_ratio(bw, bh)
-
-        # ── Step 2: Crop classifier if uncertain ─────────────
-        if type_heuristic == "uncertain":
-            type_final, confidence = self.crop_classifier.classify(img, box)
-            if type_final == "uncertain":
-                # Default to pin — more common in Indian LT/HT distribution
-                type_final = "pin"
-                confidence = "low"
-        else:
-            type_final = type_heuristic
-
-        # ── Step 3: Shed count (Crop and run second model) ─────
-        # Only run if detection confidence is high enough to warrant processing
-        from config import INSULATOR_MIN_CONF
+        type_heuristic = "uncertain"
+        confidence = "medium"
+        type_final = "pin"
         shed_count = 0
-        voltage    = "unknown"
+        voltage = "unknown"
 
-        if detection_conf >= INSULATOR_MIN_CONF:
-            # Crop and count for all types (Pin and Disc) using best_disc.pt
-            shed_count = self.shed_counter.count(img, box)
+        # ── Step 1: Trust 4-class classifier if available ──────
+        if detected_class is not None:
+            type_heuristic = detected_class
+            confidence = "high" if detection_conf > 0.5 else "medium"
             
-            # USER REQUESTED OVERRIDE: 
-            # > 3 sheds = Disc Insulator
-            # <= 3 sheds = Pin Insulator (as long as it counted at least 1)
-            if shed_count > 3:
+            # Map detected class to standard UI type_final
+            if detected_class == "HT_disc":
                 type_final = "disc"
-                confidence = "high"
-            elif shed_count > 0 and shed_count <= 3:
+            elif detected_class == "HT_pin":
                 type_final = "pin"
-                confidence = "high"
+            elif detected_class == "LT_pin":
+                type_final = "pin"
+            elif detected_class == "shackle_insulator":
+                type_final = "shackle"
+            else:
+                type_final = "pin"  # fallback
             
-            voltage = ShedCounter.to_voltage(shed_count, type_final)
+            # ── Step 2: Set voltage and shed count ──
+            if detected_class in ("LT_pin", "shackle_insulator"):
+                shed_count = 1
+                voltage = "LT"
+            else:
+                # HT_pin or HT_disc: run the disc/shed counter model to resolve voltage
+                if detection_conf >= INSULATOR_MIN_CONF:
+                    shed_count = self.shed_counter.count(img, box)
+                    voltage = ShedCounter.to_voltage(shed_count, type_final)
+                
+                # If shed counter fails to resolve voltage (count = 0), use default fallback for HT subclass
+                if voltage == "unknown":
+                    if type_final == "disc":
+                        voltage = "33kV"
+                    elif type_final == "pin":
+                        voltage = "11kV"
         else:
-            # Fallback for low confidence (heuristic only)
-            if type_final == "disc":
-                voltage = "33kV"
-            elif type_final == "pin":
-                voltage = "11kV"
+            # ── Fallback Heuristic Path (Legacy Flow) ───────────────────
+            # ── Step 1: Aspect ratio heuristic ───────────────────
+            type_heuristic, confidence = classify_by_aspect_ratio(bw, bh)
+
+            # ── Step 2: Crop classifier if uncertain ─────────────
+            if type_heuristic == "uncertain":
+                type_final, confidence = self.crop_classifier.classify(img, box)
+                if type_final == "uncertain":
+                    # Default to pin — more common in Indian LT/HT distribution
+                    type_final = "pin"
+                    confidence = "low"
+            else:
+                type_final = type_heuristic
+
+            # ── Step 3: Shed count (Crop and run second model) ─────
+            if detection_conf >= INSULATOR_MIN_CONF:
+                # Crop and count for all types (Pin and Disc) using best_disc.pt
+                shed_count = self.shed_counter.count(img, box)
+                
+                # USER REQUESTED OVERRIDE: 
+                # > 3 sheds = Disc Insulator
+                # <= 3 sheds = Pin Insulator (as long as it counted at least 1)
+                if shed_count > 3:
+                    type_final = "disc"
+                    confidence = "high"
+                elif shed_count > 0 and shed_count <= 3:
+                    type_final = "pin"
+                    confidence = "high"
+                
+                voltage = ShedCounter.to_voltage(shed_count, type_final)
+            else:
+                # Fallback for low confidence (heuristic only)
+                if type_final == "disc":
+                    voltage = "33kV"
+                elif type_final == "pin":
+                    voltage = "11kV"
 
         # ── Step 4: Adjustment fault check ───────────────────
         adj_fault, severity, tilt, fault_note = check_adjustment_fault(

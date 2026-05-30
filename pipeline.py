@@ -96,6 +96,11 @@ def _match_keyword(cls_name: str, category: str) -> bool:
     Uses OBB_CLASS_KEYWORDS from config.
     """
     name_lower = cls_name.lower()
+    
+    # Safety guard: 'clamp' contains the substring 'lamp', but a clamp is never a lamp/street light
+    if category == "lamp_head" and "clamp" in name_lower:
+        return False
+        
     return any(kw.lower() in name_lower for kw in OBB_CLASS_KEYWORDS.get(category, []))
 
 
@@ -189,9 +194,8 @@ class InfrastructurePipeline:
         raw_combined_res = self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=800)
         raw_structural = list(raw_combined_res)
         
-        # ── Step 2: Run specialized insulator detector (Hardware Detail) ──
-        print("DEBUG: Running insulator detector...")
-        raw_insulator = self.insulator_detector(image_path, conf=THRESHOLD_INSULATOR, imgsz=800, verbose=False)
+        # ── Step 2: Placeholder for specialized insulator detector (Run on pole-top crop later) ──
+        raw_insulator = None
 
         # ── Step 2.5: Run specialized crossarm detector (if available) ──
         raw_crossarm = None
@@ -315,7 +319,7 @@ class InfrastructurePipeline:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
                     elif _match_keyword(cls_name, "crossarm") and conf_val >= THRESHOLD_CROSSARM:
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly)
-                    elif conf_val >= 0.80: # Ensure high confidence for any unknown structural flags
+                    elif conf_val >= 0.40: # Lowered threshold to catch more "other" objects (DTR, lattice, vegetation, etc.)
                          is_strut = ("strut" in cls_name.lower())
                          self._categorise(cls_name, box, conf_val, angle_deg, insulator_boxes, pole_boxes_raw, crossarm_boxes, conductor_boxes, street_light_boxes, other_boxes, flags, polygon=poly, is_strut=is_strut)
 
@@ -364,8 +368,28 @@ class InfrastructurePipeline:
                 if boxes is not None and len(boxes) > 0:
                     for box_obj in boxes:
                         cls_name = self.crossarm_detector.names[int(box_obj.cls)]
-                        # ONLY TAKE CROSSARM CLASS FROM THIS MODEL
-                        if not _match_keyword(cls_name, "crossarm"):
+                        
+                        # Support mapping for best.pt which outputs generic 'class_0' ... 'class_11'
+                        best_map = {
+                            "class_0": "Insulators",
+                            "class_1": "V Cross Arm",
+                            "class_2": "Tapping Arm",
+                            "class_3": "Top Cleat",
+                            "class_4": "Side Arm",
+                            "class_5": "T-rising",
+                            "class_6": "Special Clamp",
+                            "class_7": "Street Light",
+                            "class_8": "Stay Set",
+                            "class_9": "Box Arm",
+                            "class_10": "AB Switch",
+                            "class_11": "DTR",
+                        }
+                        if cls_name in best_map:
+                            cls_name = best_map[cls_name]
+
+                        # Skip insulators and poles from this model as requested:
+                        # "better for all detections except insulators and poles"
+                        if _match_keyword(cls_name, "insulator") or _match_keyword(cls_name, "pole"):
                             continue
                             
                         conf_val = float(box_obj.conf)
@@ -378,20 +402,45 @@ class InfrastructurePipeline:
                         else:
                             print(f"DEBUG: Crossarm '{cls_name}' rejected (conf {conf_val:.2f} < {THRESHOLD_CROSSARM})")
         
+        # ── Step 2.7: Generate Pole-Top Crop ──
+        crop_x1, crop_y1, crop_x2, crop_y2 = self._generate_pole_top_crop(img_original, crossarm_boxes, pole_boxes_raw)
+        crop_img = img_original[crop_y1:crop_y2, crop_x1:crop_x2]
+        
+        # ── Step 2.8: Run 4-class insulator detector on Crop ──
+        print("DEBUG: Running 4-class insulator detector on pole-top crop...")
+        if crop_img.size > 0:
+            raw_insulator = self.insulator_detector(crop_img, conf=THRESHOLD_INSULATOR, imgsz=800, verbose=False)
+        else:
+            raw_insulator = []
+
         # Process specialized insulator detector output (Final Insulator Detections)
         for result in raw_insulator:
             boxes = result.boxes if hasattr(result, "boxes") and result.boxes else None
+            masks = result.masks if hasattr(result, "masks") and result.masks else None
             if boxes is not None and len(boxes) > 0:
-                for box_obj in boxes:
+                for i in range(len(boxes)):
+                    box_obj = boxes[i]
                     cls_name = self.insulator_detector.names[int(box_obj.cls)]
                     conf_val = float(box_obj.conf)
                     b        = box_obj.xyxy[0].cpu().numpy()
-                    box      = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
-                    bw, bh   = b[2] - b[0], b[3] - b[1]
+                    
+                    # Map coordinates back to the original image space
+                    x1 = int(b[0]) + crop_x1
+                    y1 = int(b[1]) + crop_y1
+                    x2 = int(b[2]) + crop_x1
+                    y2 = int(b[3]) + crop_y1
+                    box = (x1, y1, x2, y2)
                     angle_deg = None
 
-                    # Route to correct stream
-                    poly = [[int(b[0]), int(b[1])], [int(b[2]), int(b[1])], [int(b[2]), int(b[3])], [int(b[0]), int(b[3])]]
+                    # Extract polygon points from mask if available
+                    poly = None
+                    if masks is not None and masks.xy is not None and i < len(masks.xy):
+                        poly_pts = masks.xy[i]
+                        if len(poly_pts) > 0:
+                            poly = [[int(pt[0] + crop_x1), int(pt[1] + crop_y1)] for pt in poly_pts]
+                            
+                    if poly is None:
+                        poly = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
                     
                     if _match_keyword(cls_name, "conductor") and conf_val >= 0.05:
                         conductor_boxes.append((box, conf_val, poly))
@@ -449,9 +498,9 @@ class InfrastructurePipeline:
 
         # ── Classify each insulator ───────────────────────────
         insulator_results = []
-        for box, conf_val, angle_deg, polygon, _ in insulator_boxes:
+        for box, conf_val, angle_deg, polygon, detected_cls in insulator_boxes:
             ins_result = self.insulator_clf.classify(
-                img_original, box, conf_val, obb_angle_deg=angle_deg
+                img_original, box, conf_val, obb_angle_deg=angle_deg, detected_class=detected_cls
             )
             ins_result.obb_polygon = polygon
             insulator_results.append(ins_result)
@@ -538,31 +587,28 @@ class InfrastructurePipeline:
                 flags["has_ht_and_lt"] = False
 
         # ── Populate signals for Rule Engine ──────────────────
-        pin_insulators = [i for i in insulator_results if i.type_final == "pin"]
-        disc_insulators = [i for i in insulator_results if i.type_final == "disc"]
-        
         max_v = "unknown"
         max_s = 0
         max_c = "low"
         
-        if pin_insulators:
-            shed_counts = [i.shed_count for i in pin_insulators]
-            majority_s  = Counter(shed_counts).most_common(1)[0][0]
-            from insulator_classifier import ShedCounter
-            max_v = ShedCounter.to_voltage(majority_s, "pin")
-            max_s = majority_s
-            max_c = "high" if any(i.type_confidence == "high" for i in pin_insulators) else "medium"
+        all_voltages = [i.voltage for i in insulator_results if i.voltage != "unknown"]
+        v_priority = {"33kV": 4, "11kV": 3, "6.3kV": 2, "LT": 1}
+        if all_voltages:
+            max_v = max(all_voltages, key=lambda v: v_priority.get(v, 0))
+            max_c = "high" if any(i.type_confidence == "high" for i in insulator_results) else "medium"
+            max_s = max([i.shed_count for i in insulator_results], default=0)
             
-        elif disc_insulators:
-            shed_counts = [i.shed_count for i in disc_insulators]
-            majority_s  = max(shed_counts) if shed_counts else 0 
-            from insulator_classifier import ShedCounter
-            max_v = ShedCounter.to_voltage(majority_s, "disc")
-            max_s = majority_s
-            max_c = "high" if any(i.type_confidence == "high" for i in disc_insulators) else "medium"
+        if any(i.type_final == "pin" for i in insulator_results):
+            ins_type_signal = "pin"
+        elif any(i.type_final == "disc" for i in insulator_results):
+            ins_type_signal = "disc"
+        elif any(i.type_final == "shackle" for i in insulator_results):
+            ins_type_signal = "shackle"
+        else:
+            ins_type_signal = "unknown"
 
         signals = ComponentSignals(
-            insulator_type    = "pin" if any(i.type_final == "pin" for i in insulator_results) else "unknown",
+            insulator_type    = ins_type_signal,
             insulator_voltage = max_v,
             shed_count        = max_s,
             insulator_conf    = max_c,
@@ -619,6 +665,67 @@ class InfrastructurePipeline:
 
         return pipeline_result
 
+    def _generate_pole_top_crop(
+        self,
+        img: np.ndarray,
+        crossarm_boxes: list,
+        pole_boxes: list,
+    ) -> Tuple[int, int, int, int]:
+        """
+        Generates a crop box (x1, y1, x2, y2) around the pole-top structure.
+        """
+        img_h, img_w = img.shape[:2]
+        
+        # 1. Primary: Use detected crossarm structures
+        if crossarm_boxes:
+            # Each entry in crossarm_boxes is: (box, conf, angle, polygon, native)
+            x1_min = min(c[0][0] for c in crossarm_boxes)
+            y1_min = min(c[0][1] for c in crossarm_boxes)
+            x2_max = max(c[0][2] for c in crossarm_boxes)
+            y2_max = max(c[0][3] for c in crossarm_boxes)
+            
+            cw = x2_max - x1_min
+            ch = y2_max - y1_min
+            
+            # Apply padding around crossarm structure
+            pad_x = max(60, int(cw * 0.15))
+            pad_y_top = max(150, int(cw * 0.25))     # more vertical padding on top for pins
+            pad_y_bottom = max(150, int(cw * 0.20))  # vertical padding below for discs/shackles
+            
+            crop_x1 = max(0, x1_min - pad_x)
+            crop_y1 = max(0, y1_min - pad_y_top)
+            crop_x2 = min(img_w, x2_max + pad_x)
+            crop_y2 = min(img_h, y2_max + pad_y_bottom)
+            
+            if (crop_x2 - crop_x1) > 20 and (crop_y2 - crop_y1) > 20:
+                print(f"DEBUG: Pole-top crop generated from crossarms: x1={crop_x1}, y1={crop_y1}, x2={crop_x2}, y2={crop_y2}")
+                return crop_x1, crop_y1, crop_x2, crop_y2
+
+        # 2. Fallback: If no crossarms, crop the top 45% of the primary pole
+        if pole_boxes:
+            # Each entry in pole_boxes is: (box, conf, angle, polygon, is_strut)
+            sorted_poles = sorted(pole_boxes, key=lambda x: x[1], reverse=True)
+            p_box = sorted_poles[0][0]
+            px1, py1, px2, py2 = p_box
+            ph = py2 - py1
+            pw = px2 - px1
+            
+            top_y2 = py1 + int(ph * 0.45)
+            pad_x = max(200, int(pw * 3.0))
+            
+            crop_x1 = max(0, px1 - pad_x)
+            crop_y1 = max(0, py1 - 50)
+            crop_x2 = min(img_w, px2 + pad_x)
+            crop_y2 = min(img_h, top_y2 + 100)
+            
+            if (crop_x2 - crop_x1) > 20 and (crop_y2 - crop_y1) > 20:
+                print(f"DEBUG: Pole-top crop generated from pole fallback: x1={crop_x1}, y1={crop_y1}, x2={crop_x2}, y2={crop_y2}")
+                return crop_x1, crop_y1, crop_x2, crop_y2
+                
+        # 3. Final Fallback: Entire image
+        print("DEBUG: No crossarms or poles detected. Falling back to full image crop.")
+        return 0, 0, img_w, img_h
+
     # ── Internal helpers ──────────────────────────────────────
 
     def _dominant_insulator(self, results: List[InsulatorResult]) -> Optional[InsulatorResult]:
@@ -646,6 +753,7 @@ class InfrastructurePipeline:
         """Routes a detection into the right typed list, including polygon data."""
         det = (box, conf_val, angle_deg, polygon, is_strut)
         if _match_keyword(cls_name, "insulator"):
+            det = (box, conf_val, angle_deg, polygon, cls_name)
             insulator_boxes.append(det)
         elif _match_keyword(cls_name, "pole"):
             # GEOMETRY SHIELD: Real main poles are tall and thin.
@@ -661,7 +769,7 @@ class InfrastructurePipeline:
             # Structural Guard: Only use geometric check if the model didn't 
             # already tell us it's a pole.
             w, h = box[2] - box[0], box[3] - box[1]
-            if (w * 1.2) > h or "t_rising" in native or "side_arm" in native:
+            if (w * 1.2) > h or "t_rising" in native or "t-rising" in native or "side_arm" in native or "arm" in native:
                 crossarm_boxes.append((box, conf_val, angle_deg, polygon, native))
             else:
                 # If it's too tall for a crossarm, it's likely a pole fragment
@@ -678,7 +786,7 @@ class InfrastructurePipeline:
         elif _match_keyword(cls_name, "ab_cable"):
             flags["has_ab_cable"] = True
             other_boxes.append(("AB Cable", box, conf_val, polygon))
-        elif _match_keyword(cls_name, "lattice_frame"):
+        elif _match_keyword(cls_name, "lattice"):
             flags["has_lattice"] = True
             other_boxes.append(("Lattice Frame", box, conf_val, polygon))
         elif _match_keyword(cls_name, "jumper"):
@@ -753,33 +861,51 @@ class InfrastructurePipeline:
         if not items:
             return []
             
-        # Sort by confidence descending
-        sorted_items = sorted(items, key=lambda x: x[1], reverse=True)
-        keep = []
+        # Helper to extract (box, score, class, original_item)
+        def parse_item(item):
+            if isinstance(item[0], str):  # e.g., other_boxes: (label, box, conf, poly)
+                return item[1], item[2], item[0], item
+            else:  # e.g., (box, conf, ...)
+                box = item[0]
+                score = item[1]
+                cls = item[4] if len(item) >= 5 else None
+                return box, score, cls, item
+
+        parsed = [parse_item(item) for item in items]
         
-        # 1. Standard NMS (De-duplication)
-        while sorted_items:
-            best = sorted_items.pop(0)
-            keep.append(best)
+        # Sort parsed items by score descending
+        parsed_sorted = sorted(parsed, key=lambda x: x[1], reverse=True)
+        keep_parsed = []
+        
+        while parsed_sorted:
+            best = parsed_sorted.pop(0)
+            keep_parsed.append(best)
             
             remaining = []
-            for item in sorted_items:
-                # Class-aware: Don't suppress struts with main poles
-                if best[4] != item[4]:
+            for item in parsed_sorted:
+                # Class-aware suppression (if classes are specified and different)
+                if best[2] is not None and item[2] is not None and best[2] != item[2]:
                     remaining.append(item)
                     continue
 
                 overlap = self._calculate_max_overlap(best[0], item[0])
                 # Relaxed threshold for struts (allow them to be close together)
-                current_threshold = 0.85 if best[4] else iou_threshold
+                # best[2] is is_strut for pole boxes
+                is_strut = best[2] if isinstance(best[2], bool) else False
+                current_threshold = 0.85 if is_strut else iou_threshold
                 if overlap < current_threshold:
                     remaining.append(item)
-            sorted_items = remaining
+            parsed_sorted = remaining
             
-        # 2. Vertical Merge (Fixes fragmented poles)
-        # If two poles are vertically aligned and close, merge them
-        if not keep: return []
+        # Reconstruct the filtered list in their original formats
+        keep = [p[3] for p in keep_parsed]
         
+        # 2. Vertical Merge (Fixes fragmented poles)
+        # Only apply to pole_boxes_raw (which are 5-tuples and have is_strut flag at index 4)
+        is_pole_list = len(keep) > 0 and len(keep[0]) == 5 and isinstance(keep[0][4], bool)
+        if not is_pole_list:
+            return keep
+            
         merged = []
         keep = sorted(keep, key=lambda x: x[0][1]) # Sort by Y1 (top to bottom)
         
@@ -796,7 +922,6 @@ class InfrastructurePipeline:
                 if c_is_strut == n_is_strut:
                     # Check X-overlap (Vertical Alignment)
                     x_overlap = min(c_box[2], n_box[2]) - max(c_box[0], n_box[0])
-                    x_union   = max(c_box[2], n_box[2]) - min(c_box[0], n_box[0])
                     
                     # If they share > 50% width and the gap is small
                     gap = n_box[1] - c_box[3]
@@ -808,18 +933,28 @@ class InfrastructurePipeline:
                             max(c_box[2], n_box[2]),
                             max(c_box[3], n_box[3])
                         )
-                        # New polygon is union (simplified)
-                        new_poly = c_poly + n_poly 
-                        # Keep higher confidence
-                        new_conf = max(c_conf, n_conf)
+                        # Average angle/confidence
+                        avg_conf = (c_conf + n_conf) / 2
+                        avg_angle = None
+                        if c_angle is not None and n_angle is not None:
+                            avg_angle = (c_angle + n_angle) / 2
+                        elif c_angle is not None:
+                            avg_angle = c_angle
+                        else:
+                            avg_angle = n_angle
+                            
+                        new_poly = c_poly + n_poly
                         
-                        # Replace current with merged and continue
-                        keep[i] = (new_box, new_conf, c_angle, new_poly, c_is_strut)
+                        # Update current and remove next_item from keep
+                        curr = (new_box, avg_conf, avg_angle, new_poly, c_is_strut)
+                        keep.pop(i)
                         found_fragment = True
                         break
             
-            if not found_fragment:
-                merged.append(curr)
+            merged.append(curr)
+            if found_fragment:
+                # Sort again to preserve top-to-bottom order for subsequent merges
+                keep = sorted(keep, key=lambda x: x[0][1])
                 
         return merged
 
@@ -992,9 +1127,9 @@ if __name__ == "__main__":
     # These will be used if no command line arguments are provided.
     # Paths are relative to the project root (D:\NEW_ASAKTA\dry).
     ROOT = Path(__file__).parent.parent.absolute()
-    DEFAULT_COMP_MODEL = str(ROOT / "best_whole.pt")
-    DEFAULT_INS_MODEL  = str(ROOT / "best_insulator.pt")
-    DEFAULT_SHED_MODEL = str(ROOT / "best_disc.pt")
+    DEFAULT_COMP_MODEL = str(ROOT / "models" / "best.pt")
+    DEFAULT_INS_MODEL  = str(ROOT / "models" / "insulator_new.pt")
+    DEFAULT_SHED_MODEL = str(ROOT / "models" / "shed_model.pt")
 
     if len(sys.argv) < 2:
         print("\nUsage: python files/pipeline.py [IMAGE_PATH] [OPTIONAL: COMP_MODEL] [OPTIONAL: INS_MODEL]")

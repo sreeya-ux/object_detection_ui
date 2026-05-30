@@ -133,12 +133,21 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
 
 
 
-    if signals.has_jumper:
+    if signals.has_jumper or signals.crossarm_shape in ("tapping arm", "tapping_channel"):
+        reasons = []
+        sigs = []
+        if signals.has_jumper:
+            reasons.append("Jumper wire loop detected")
+            sigs.append("has_jumper")
+        if signals.crossarm_shape in ("tapping arm", "tapping_channel"):
+            reasons.append(f"Tapping channel/arm geometry detected ({signals.crossarm_shape})")
+            sigs.append(f"crossarm_shape={signals.crossarm_shape}")
+            
         return make(
             "HT_tapping_point",
-            "Jumper wire loop detected → HT tapping point",
+            " + ".join(reasons) + " → HT tapping point",
             conf="high",
-            signals_used=["has_jumper"]
+            signals_used=sigs
         )
 
     if signals.has_ab_cable:

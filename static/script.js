@@ -11,29 +11,30 @@ let masterResult = null;
 let surveyResult = {};
 let imageDimensions = { width: 0, height: 0 };
 let CLASS_OPTIONS = [
-    "POLE_9M", "POLE_11M", "POLE_8.1M", "STRUT_POLE",
-    "INS_PIN", "INS_DISC",
-    "T_RISING", "TAPPING_CHANNEL", "SIDE_ARM_CHANNEL", "V_CROSS",
+    "POLE", "STRUT_POLE",
+    "INSULATOR",
+    "HT_PIN", "HT_DISC", "LT_PIN", "SHACKLE_INSULATOR",
+    "T_RISING", "TAPPING_CHANNEL", "SIDE_ARM_CHANNEL", "V_CROSS", "TOP_CLEAT",
     "CONDUCTOR", "STREET_LIGHT", "DTR",
     "WIRE_BROKEN", "VEGETATION", "OBJECT"
 ];
 
 // Distinct Premium Color Palette
 const CLASS_COLORS = {
-    "POLE_9M": "#ffffff",        // White
     "POLE": "#ffffff",           // White (Main Pole)
     "MAIN_POLE": "#ffffff",      // White (Main Pole)
     "STRUT_POLE": "#ff7f50",     // Coral/Salmon (Distinct for Strut)
-    "POLE_11M": "#e2e8f0",       // Off-White
-    "POLE_8.1M": "#cbd5e1",      // Slate White
-    "INS_PIN": "#00ff00",        // Bright Green
-    "INS_DISC": "#22c55e",       // Emerald Green
     "INSULATOR": "#00ff00",      // Default Green
+    "HT_PIN": "#10b981",         // Emerald/Green
+    "HT_DISC": "#3b82f6",        // Blue
+    "LT_PIN": "#14b8a6",         // Teal
+    "SHACKLE_INSULATOR": "#f59e0b", // Amber/Orange
     "CROSSARM": "#ff00ff",       // Magenta
     "T_RISING": "#ff00ff",       // Magenta
     "TAPPING_CHANNEL": "#d946ef", // Fuchsia
     "SIDE_ARM_CHANNEL": "#a855f7", // Purple
     "V_CROSS": "#f43f5e",        // Rose
+    "TOP_CLEAT": "#84cc16",      // Lime Green
     "CONDUCTOR": "#00ffff",      // Cyan
     "STREET_LIGHT": "#f59e0b",   // Amber
     "DTR": "#8b5cf6",            // Violet
@@ -674,9 +675,9 @@ function renderResults() {
             imgData.detections.forEach(d => {
                 // Group by main category (e.g. PIN_INSULATOR -> INSULATOR)
                 let type = d.label;
-                if (type.includes('INSULATOR')) type = 'INSULATOR';
+                if (type.includes('INSULATOR') || type.includes('PIN') || type.includes('DISC') || type.includes('SHACKLE')) type = 'INSULATOR';
                 else if (type.includes('POLE')) type = 'POLE';
-                else if (type.includes('CROSSARM')) type = 'CROSSARM';
+                else if (type.includes('CROSSARM') || type === 'V_CROSS' || type === 'TAPPING_CHANNEL' || type === 'SIDE_ARM_CHANNEL' || type === 'T_RISING' || type === 'TOP_CLEAT') type = 'CROSSARM';
                 else if (type.includes('CONDUCTOR')) type = 'CONDUCTOR';
                 else type = type.split('_')[0];
                 
@@ -751,7 +752,7 @@ function renderResults() {
         header.innerHTML = `
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: ${baseColor}15; border: 1px solid ${baseColor}30;">
-                    <i class="fa-solid ${label === 'POLE' ? 'fa-tower-broadcast' : (label === 'INSULATOR' ? 'fa-bolt' : 'fa-layer-group')}" style="color: ${baseColor};"></i>
+                    <i class="fa-solid ${label.includes('POLE') ? 'fa-tower-broadcast' : (label.includes('INSULATOR') || label.includes('PIN') || label.includes('DISC') || label.includes('SHACKLE') ? 'fa-bolt' : (label.includes('CROSS') || label.includes('ARM') || label === 'T_RISING' || label === 'TAPPING_CHANNEL' || label === 'SIDE_ARM_CHANNEL' || label === 'TOP_CLEAT' ? 'fa-compass-drafting' : 'fa-layer-group'))}" style="color: ${baseColor};"></i>
                 </div>
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-wider" style="color: ${baseColor};">${label}S</h3>
@@ -826,10 +827,11 @@ function renderResults() {
             let metaIcon = "fa-tag";
             const fakeConfStr = getFakeConfidenceValue(obj.confidence);
 
-            if (obj.label.includes('INS') && obj.details) {
-                detailStr = `${obj.details.type} (${obj.details.voltage}) | Sheds: ${obj.details.sheds} | Conf: ${fakeConfStr}`;
+            if ((obj.label.includes('INS') || obj.label.includes('PIN') || obj.label.includes('DISC') || obj.label.includes('SHACKLE')) && obj.details) {
+                const sheds_val = obj.details.sheds !== undefined ? obj.details.sheds : (obj.details.shed_count !== undefined ? obj.details.shed_count : 0);
+                detailStr = `${obj.details.type} (${obj.details.voltage}) | Sheds: ${sheds_val} | Conf: ${fakeConfStr}`;
                 metaIcon = "fa-bolt";
-            } else if (obj.label.includes('CROSSARM') && obj.details) {
+            } else if ((obj.label.includes('CROSSARM') || obj.label === 'V_CROSS' || obj.label === 'TAPPING_CHANNEL' || obj.label === 'SIDE_ARM_CHANNEL' || obj.label === 'T_RISING' || obj.label === 'TOP_CLEAT') && obj.details) {
                 detailStr = `Geometry: ${obj.details.shape} | Conf: ${fakeConfStr}`;
                 metaIcon = "fa-compass-drafting";
             } else if (obj.label.includes('POLE') && obj.details) {
@@ -1018,12 +1020,13 @@ function renderBoxes() {
         shape.setAttribute("stroke-width", obj.manual ? "2.5" : "1.5");
 
         // DIAGNOSTIC HUD: Solid-feeling translucent fill for structural objects
-        if (baseLabel !== "CONDUCTOR") {
+        if (baseLabel === "CONDUCTOR") {
+            // Show a high-quality semi-transparent solid fill (segmentation mask overlay) for cables
+            shape.setAttribute("fill", color);
+            shape.setAttribute("fill-opacity", "0.45");
+        } else {
             shape.setAttribute("fill", color);
             shape.setAttribute("fill-opacity", "0.15");
-        } else {
-            shape.setAttribute("fill", "transparent");
-            shape.setAttribute("class", "conductor-trace");
         }
 
         shape.setAttribute("id", `box-${i}`);

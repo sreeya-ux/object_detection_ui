@@ -224,7 +224,7 @@ DS_CLASS_MAPS = {
 # ── Component class keyword mapping ──────────────────────────
 # Used to route model class names to correct pipeline streams.
 OBB_CLASS_KEYWORDS = {
-    "insulator": ["insulator", "hardware", "ins_pin", "ins_disc"],
+    "insulator": ["insulator", "hardware", "ins_pin", "ins_disc", "ht_pin", "ht_disc", "lt_pin", "shackle"],
     "pole":      ["pole", "support", "backbone", "pole_9m", "pole_11m", "pole_8.1m"],
     "crossarm":  ["crossarm", "arm", "bracket", "t_rising", "v_cross", "channel"],
     "conductor": ["conductor", "wire", "line", "cable"],
@@ -246,3 +246,7 @@ PG_PORT = 5432
 PG_USER = "postgres"
 PG_PASS = "asakta"
 PG_DB   = "object_detection"
+
+# ── Custom Domain Configuration ───────────────────────────────
+CUSTOM_DOMAIN = "surveyai.live"
+

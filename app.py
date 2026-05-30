@@ -40,19 +40,15 @@ def serve_upload(filename):
 # Master Rule-Engine Pipeline
 # Centralizes component detection, classification, and rule-based logic.
 pipeline_engine = InfrastructurePipeline(
-    component_model_path="models/component_model.pt",
-    insulator_model_path="models/insulator_model.pt",
+    component_model_path="models/pole_model.pt",
+    insulator_model_path="models/insulator_new.pt",
     shed_model_path="models/shed_model.pt",
-    crossarm_model_path="models/best_whole.pt"
+    crossarm_model_path="models/best.pt"
 )
 
-# Load UNet specifically for Conductor Instance Segmentation (ResNet34)
-# Configured for BGR 512x512 input as per original training requirements.
-unet_model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=3, classes=1)
-unet_model.load_state_dict(torch.load("models/conductor_unet.pth", map_location="cpu"))
-unet_model.eval()
-device = "cuda" if torch.cuda.is_available() else "cpu"
-unet_model.to(device)
+# Load YOLOv8-seg model specifically for Conductor (Cable) Instance Segmentation
+cable_model = YOLO("models/cable_best.pt")
+
 
 # =========================
 # DATABASE HELPERS
@@ -140,8 +136,15 @@ def log_activity(user, action, details=None):
         conn.close()
 
 def get_ngrok_url():
-    # Ngrok polling removed per user request
+    # Dynamic check for CUSTOM_DOMAIN to display on the enterprise login screen
+    try:
+        from config import CUSTOM_DOMAIN
+        if CUSTOM_DOMAIN:
+            return f"https://{CUSTOM_DOMAIN}"
+    except ImportError:
+        pass
     return None
+
 
 # =========================
 # AUTHENTICATION
@@ -285,6 +288,142 @@ def delete_user(username):
 # =========================
 # IMAGE PROCESSING
 # =========================
+def merge_collinear_conductors(conductors, img_w, img_h):
+    """
+    Groups and merges collinear conductor segments.
+    Each conductor is represented by a dict containing at least 'bbox' and 'polygon'.
+    """
+    if not conductors:
+        return []
+    
+    import math
+    
+    def get_endpoints(poly):
+        if not poly or len(poly) < 2:
+            return None, None
+        max_dist = -1
+        p1, p2 = None, None
+        pts = np.array(poly)
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                d = np.sum((pts[i] - pts[j])**2)
+                if d > max_dist:
+                    max_dist = d
+                    p1, p2 = pts[i], pts[j]
+        if p1 is not None:
+            return tuple(p1), tuple(p2)
+        return tuple(poly[0]), tuple(poly[-1])
+        
+    def point_to_line_dist(pt, lp1, lp2):
+        x0, y0 = pt
+        x1, y1 = lp1
+        x2, y2 = lp2
+        dx = x2 - x1
+        dy = y2 - y1
+        denom = math.sqrt(dx*dx + dy*dy)
+        if denom == 0:
+            return math.sqrt((x0-x1)**2 + (y0-y1)**2)
+        return abs(dy*x0 - dx*y0 + x2*y1 - y2*x1) / denom
+
+    def should_merge(d1, d2):
+        poly1 = d1.get("polygon")
+        poly2 = d2.get("polygon")
+        if not poly1 or not poly2:
+            return False
+            
+        e11, e12 = get_endpoints(poly1)
+        e21, e22 = get_endpoints(poly2)
+        if not e11 or not e21:
+            return False
+            
+        v1 = np.array(e12) - np.array(e11)
+        v2 = np.array(e22) - np.array(e21)
+        
+        len1 = np.linalg.norm(v1)
+        len2 = np.linalg.norm(v2)
+        if len1 == 0 or len2 == 0:
+            return False
+            
+        u1 = v1 / len1
+        u2 = v2 / len2
+        
+        # 1. Nearly parallel check: cosine of angle difference
+        cos_theta = abs(np.dot(u1, u2))
+        if cos_theta < 0.95:  # ~18 degrees
+            return False
+            
+        # 2. Collinearity check: distance of segment endpoints to each other's lines
+        d_c = point_to_line_dist(e21, e11, e12)
+        d_d = point_to_line_dist(e22, e11, e12)
+        d_a = point_to_line_dist(e11, e21, e22)
+        d_b = point_to_line_dist(e12, e21, e22)
+        
+        if max(d_c, d_d, d_a, d_b) > 30.0:  # 30 pixels threshold
+            return False
+            
+        # 3. Gap check
+        gap = min(
+            np.linalg.norm(np.array(e11) - np.array(e21)),
+            np.linalg.norm(np.array(e11) - np.array(e22)),
+            np.linalg.norm(np.array(e12) - np.array(e21)),
+            np.linalg.norm(np.array(e12) - np.array(e22))
+        )
+        max_gap = max(400.0, img_w * 0.35)
+        if gap > max_gap:
+            return False
+            
+        return True
+
+    def merge_two(d1, d2):
+        poly1 = d1.get("polygon", [])
+        poly2 = d2.get("polygon", [])
+        combined_pts = np.array(poly1 + poly2, dtype=np.int32)
+        hull = cv2.convexHull(combined_pts)
+        merged_poly = [[int(pt[0][0]), int(pt[0][1])] for pt in hull]
+        
+        b1 = d1.get("bbox", [0,0,0,0])
+        b2 = d2.get("bbox", [0,0,0,0])
+        merged_bbox = [
+            min(b1[0], b2[0]),
+            min(b1[1], b2[1]),
+            max(b1[2], b2[2]),
+            max(b1[3], b2[3])
+        ]
+        
+        avg_thick = (d1.get("thickness", 0.0) + d2.get("thickness", 0.0)) / 2.0
+        max_conf = max(d1.get("confidence", 0.90), d2.get("confidence", 0.90))
+        
+        return {
+            "label": "conductor",
+            "confidence": max_conf,
+            "bbox": merged_bbox,
+            "polygon": merged_poly,
+            "source": "models/cable_best.pt",
+            "thickness": round(avg_thick, 1)
+        }
+
+    current = list(conductors)
+    merged_any = True
+    while merged_any:
+        merged_any = False
+        i = 0
+        while i < len(current):
+            j = i + 1
+            while j < len(current):
+                if should_merge(current[i], current[j]):
+                    new_det = merge_two(current[i], current[j])
+                    current[i] = new_det
+                    current.pop(j)
+                    merged_any = True
+                    break
+                else:
+                    j += 1
+            if merged_any:
+                break
+            i += 1
+            
+    return current
+
 def process_image_file(file_stream):
     """
     Main diagnostic entry point.
@@ -314,35 +453,42 @@ def process_image_file(file_stream):
         img = cv2.imread(temp_filename)
         h, w = img.shape[:2]
         
-        # 2. Process Conductors with UNet Segmentation Model (ResNet34)
-        input_img = cv2.resize(img, (512, 512)).transpose(2, 0, 1) / 255.0
-        tensor = torch.tensor(input_img[None, ...], dtype=torch.float32).to(device)
-        
-        with torch.no_grad():
-            out = unet_model(tensor)
-            mask = torch.sigmoid(out).squeeze().cpu().numpy()
-            log_mem("After UNet")
-            del out
-        
+        # 2. Process Conductors with YOLO Segmentation Model (cable_best.pt)
+        # imgsz=800: stable memory footprint; conf=0.10 catches low-confidence wires
+        mask_resized = np.zeros((h, w), dtype=np.uint8)
+        try:
+            cable_results = cable_model(temp_filename, imgsz=800, conf=0.10, verbose=False)
+            if cable_results and len(cable_results) > 0:
+                masks_obj = cable_results[0].masks
+                if masks_obj is not None and masks_obj.xy is not None:
+                    for poly_pts in masks_obj.xy:
+                        if len(poly_pts) > 0:
+                            cv2.fillPoly(mask_resized, [poly_pts.astype(np.int32)], 255)
+            log_mem("After Cable YOLO")
+        except Exception as e:
+            print(f"[Cable Inference Error] {e}")
+
         # Explicitly free memory
-        del tensor
+        if 'cable_results' in locals():
+            del cable_results
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-        mask_binary = (mask > 0.25).astype(np.uint8) * 255
-        mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
 
         # Thickness Measurement via Distance Transform & Skeletonize
         dist = cv2.distanceTransform(mask_resized, cv2.DIST_L2, 5)
         from skimage.morphology import skeletonize
         skel = (skeletonize(mask_resized / 255.0) > 0).astype(np.uint8)
 
-        # Bridge gaps for continuous polygons (Wider kernel to fix wire count)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
-        mask_closed = cv2.morphologyEx(mask_resized, cv2.MORPH_CLOSE, kernel)
+        # Bridge gaps for continuous polygons
+        # Step 1: Dilate slightly to amplify hairline / faint mask pixels
+        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask_dilated = cv2.dilate(mask_resized, dilate_kernel, iterations=1)
+        # Step 2: Close with a larger kernel to bridge micro-gaps in thin wires
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask_closed = cv2.morphologyEx(mask_dilated, cv2.MORPH_CLOSE, close_kernel)
         
         # 3. Create Hardware Blackout Mask (Wire Detection Last)
         # Prevents wires from "hallucinating" over insulators/poles
@@ -357,15 +503,29 @@ def process_image_file(file_stream):
             x1, y1, x2, y2 = [int(v) for v in ins.box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
+            # Map to specific insulator subclass label
+            ins_label = "INSULATOR"
+            if ins.type_heuristic == "HT_disc" or ins.type_final == "disc":
+                ins_label = "HT_DISC"
+            elif ins.type_heuristic == "HT_pin":
+                ins_label = "HT_PIN"
+            elif ins.type_heuristic == "LT_pin":
+                ins_label = "LT_PIN"
+            elif ins.type_heuristic == "shackle_insulator" or ins.type_final == "shackle":
+                ins_label = "SHACKLE_INSULATOR"
+            elif ins.type_final == "pin":
+                ins_label = "HT_PIN"
+                
             final_detections.append({
-                "label": "insulator",
+                "label": ins_label,
                 "confidence": float(ins.detection_conf),
                 "bbox": [int(x) for x in ins.box],
                 "polygon": ins.obb_polygon if hasattr(ins, 'obb_polygon') else None,
-                "source": "models/insulator_model.pt",
+                "source": "models/insulator_new.pt",
                 "details": {
                     "voltage": ins.voltage,
                     "shed_count": int(ins.shed_count),
+                    "sheds": int(ins.shed_count),
                     "type": ins.type_final
                 }
             })
@@ -375,12 +535,25 @@ def process_image_file(file_stream):
             x1, y1, x2, y2 = [int(v) for v in ca.box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
+            # Map crossarm shape to standard UI category
+            shape_lower = ca.shape.lower()
+            if "v_arm" in shape_lower or "v_cross" in shape_lower or "v cross" in shape_lower:
+                ui_label = "v_cross"
+            elif "t_raising" in shape_lower or "t_rising" in shape_lower or "t-rising" in shape_lower or "t_arm" in shape_lower:
+                ui_label = "t_rising"
+            elif "tapping arm" in shape_lower or "tapping_channel" in shape_lower or "tapping channel" in shape_lower:
+                ui_label = "tapping_channel"
+            elif "side arm" in shape_lower or "side_arm_channel" in shape_lower or "side arm channel" in shape_lower:
+                ui_label = "side_arm_channel"
+            else:
+                ui_label = "crossarm"
+
             final_detections.append({
-                "label": "crossarm",
-                "confidence": float(ca.detection_conf),
+                "label": ui_label,
+                "confidence": float(ca.detection_conf) * 0.75,
                 "bbox": [int(x) for x in ca.box],
                 "polygon": ca.obb_polygon if hasattr(ca, 'obb_polygon') else None,
-                "source": "models/component_model.pt",
+                "source": "models/best.pt",
                 "details": {
                     "shape": ca.shape
                 }
@@ -389,14 +562,15 @@ def process_image_file(file_stream):
         for po in pipe_res.all_poles:
             # Map to Hardware Mask with 5px buffer
             x1, y1, x2, y2 = [int(v) for v in po.box]
-            cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
+            # Avoid cutting continuous horizontal cables in half by not blacking out poles
+            # cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
             final_detections.append({
                 "label": "strut_pole" if po.pole_type == "strut_pole" else "pole",
                 "confidence": float(po.detection_conf),
                 "bbox": [int(x) for x in po.box],
                 "polygon": po.obb_polygon if hasattr(po, 'obb_polygon') else None,
-                "source": "models/component_model.pt",
+                "source": "models/pole_model.pt",
                 "details": {
                     "type": po.pole_type,
                     "lean": round(float(po.lean_angle_deg), 1)
@@ -410,10 +584,10 @@ def process_image_file(file_stream):
             
             final_detections.append({
                 "label": "street_light",
-                "confidence": float(conf),
+                "confidence": float(conf) * 0.75,
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
-                "source": "models/component_model.pt",
+                "source": "models/best.pt",
                 "details": {"type": "Standard Lamp"}
             })
 
@@ -431,18 +605,26 @@ def process_image_file(file_stream):
                 "details": {"source": "AI Inference"}
             })
 
+        # Collect main pole boxes (non-strut poles)
+        main_pole_boxes = []
+        for po in pipe_res.all_poles:
+            if po.pole_type != "strut_pole":
+                main_pole_boxes.append([int(v) for v in po.box])
+
         # --- Wire Discovery Phase 2: Exclude static hardware ---
         # Any wire detected INSIDE a hardware box is disqualified to reduce noise
         mask_final = cv2.bitwise_and(mask_closed, cv2.bitwise_not(hardware_mask))
         
         # B. Generate Conductor Polygons from clean mask
         contours, _ = cv2.findContours(mask_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        raw_conductors = []
         for c in contours:
             cx, cy, cw, ch = cv2.boundingRect(c)
             area = cv2.contourArea(c)
             
             # --- 1. Basic Size Filter ---
-            if cw + ch < 80 or area < 100: 
+            # Lowered to 60/60 to catch faint low-confidence wire fragments
+            if cw + ch < 60 or area < 60: 
                 continue
             
             # --- 2. Geometric "Clump" Filter ---
@@ -453,9 +635,28 @@ def process_image_file(file_stream):
             # If it's a large clumpy rectangle (high solidity, low elongation), it's likely noise
             if cw > 150 and ch > 150 and solidity > 0.5 and aspect_ratio < 1.8:
                 continue
+
+            # --- 2.5 Main Pole Association Filter (Top of Pole only) ---
+            # Conductor must horizontally overlap with at least one detected main pole,
+            # and it must be located near the top of that pole (excluding the lower body)
+            overlaps_main_pole = False
+            for p_box in main_pole_boxes:
+                px1, py1, px2, py2 = p_box
+                ph = py2 - py1
+                # Relaxed to 0.45 to catch wires attached slightly lower on the pole
+                threshold_y = py1 + max(150, int(ph * 0.45))
+                
+                # Check horizontal overlap AND vertical top-of-pole constraint
+                if cx <= px2 and (cx + cw) >= px1 and cy <= threshold_y:
+                    overlaps_main_pole = True
+                    break
+            if not overlaps_main_pole:
+                continue
             
             # --- 3. Process Valid Wire ---
-            epsilon = 0.01 * cv2.arcLength(c, True)
+            # Use small epsilon (1.0 pixel) to preserve high-precision segment polygon shape
+            # and prevent it from being simplified to a 2-point straight line
+            epsilon = 1.0
             approx = cv2.approxPolyDP(c, epsilon, True)
             polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
             
@@ -467,17 +668,31 @@ def process_image_file(file_stream):
             avg_thick = float(np.mean(local_thickness)) if len(local_thickness) > 0 else 0.0
             
             # Reject if the detected "wire" is physically impossible (too thick)
-            if avg_thick > 80:
+            # Raised to 100 so borderline thin segments aren't discarded
+            if avg_thick > 100:
                 continue
             
-            final_detections.append({
+            raw_conductors.append({
                 "label": "conductor",
-                "confidence": 0.90,
+                "confidence": 0.70,
                 "bbox": [cx, cy, cx+cw, cy+ch],
-                "polygon": polygon, # High precision UNet polygon
-                "source": "models/conductor_unet.pth",
+                "polygon": polygon, # High precision YOLO segment polygon
+                "source": "models/cable_best.pt",
                 "thickness": round(avg_thick, 1)
             })
+
+        # Merge collinear segments
+        merged_conductors = merge_collinear_conductors(raw_conductors, w, h)
+        
+        # Calculate primary pole horizontal center
+        p_cx = w // 2
+        if main_pole_boxes:
+            px1, py1, px2, py2 = main_pole_boxes[0]
+            p_cx = (px1 + px2) // 2
+
+        # Add all merged conductors to final detections
+        for mc in merged_conductors:
+            final_detections.append(mc)
 
         # Prepare Master Data (Asset Identity)
         master_data = {
@@ -490,9 +705,9 @@ def process_image_file(file_stream):
             "pole_type": pipe_res.pole_orientation.pole_type if pipe_res.pole_orientation else "none",
             "pole_status": pipe_res.pole_orientation.fault_severity if pipe_res.pole_orientation else "none",
             "model_summary": {
-                "structural": "models/component_model.pt",
-                "insulator": "models/insulator_model.pt",
-                "segmentation": "models/conductor_unet.pth"
+                "structural": "models/pole_model.pt",
+                "insulator": "models/insulator_new.pt",
+                "segmentation": "models/cable_best.pt"
             }
         }
 

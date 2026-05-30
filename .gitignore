@@ -19,3 +19,5 @@ uploads/
 training_data/
 *.pyc
 .vscode/
+*.zip
+cable_segmentation-2/

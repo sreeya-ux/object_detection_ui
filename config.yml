@@ -1,0 +1,9 @@
+tunnel: 6b5f3177-4640-4ceb-8e2e-6f1e0aa87fef
+credentials-file: C:\Users\asus\.cloudflared\6b5f3177-4640-4ceb-8e2e-6f1e0aa87fef.json
+
+ingress:
+  - hostname: surveyai.live
+    service: http://localhost:5002
+  - hostname: www.surveyai.live
+    service: http://localhost:5002
+  - service: http_status:404
