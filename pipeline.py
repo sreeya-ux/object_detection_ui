@@ -101,6 +101,10 @@ def _match_keyword(cls_name: str, category: str) -> bool:
     if category == "lamp_head" and "clamp" in name_lower:
         return False
         
+    # Safety guard: 'street' contains 'tree', but a street light is never vegetation
+    if category == "vegetation" and "street" in name_lower:
+        return False
+        
     return any(kw.lower() in name_lower for kw in OBB_CLASS_KEYWORDS.get(category, []))
 
 
@@ -369,20 +373,19 @@ class InfrastructurePipeline:
                     for box_obj in boxes:
                         cls_name = self.crossarm_detector.names[int(box_obj.cls)]
                         
-                        # Support mapping for best.pt which outputs generic 'class_0' ... 'class_11'
+                        # Support mapping for best_components.pt actual output classes to pretty UI names
                         best_map = {
-                            "class_0": "Insulators",
-                            "class_1": "V Cross Arm",
-                            "class_2": "Tapping Arm",
-                            "class_3": "Top Cleat",
-                            "class_4": "Side Arm",
-                            "class_5": "T-rising",
-                            "class_6": "Special Clamp",
-                            "class_7": "Street Light",
-                            "class_8": "Stay Set",
-                            "class_9": "Box Arm",
-                            "class_10": "AB Switch",
-                            "class_11": "DTR",
+                            "V_Cross_Arm": "V Cross Arm",
+                            "Tapping_Arm": "Tapping Arm",
+                            "Side_Arm": "Side Arm",
+                            "T_rising": "T-rising",
+                            "Top_Cleat": "Top Cleat",
+                            "Special_Clamp": "Special Clamp",
+                            "Stay_Set": "Stay Set",
+                            "AB_Switch": "AB Switch",
+                            "Street_Light": "Street Light",
+                            "Box_Arm": "Box Arm",
+                            "DTR": "DTR",
                         }
                         if cls_name in best_map:
                             cls_name = best_map[cls_name]
@@ -885,6 +888,28 @@ class InfrastructurePipeline:
             for item in parsed_sorted:
                 # Class-aware suppression (if classes are specified and different)
                 if best[2] is not None and item[2] is not None and best[2] != item[2]:
+                    # Exception 1: If they are both poles (represented by is_strut flag being boolean),
+                    # and they heavily overlap (IoM >= 0.65), it's the same physical pole.
+                    # In this case, we suppress the lower-confidence duplicate regardless of class.
+                    is_best_pole = isinstance(best[2], bool)
+                    is_item_pole = isinstance(item[2], bool)
+                    if is_best_pole and is_item_pole:
+                        overlap = self._calculate_max_overlap(best[0], item[0])
+                        if overlap >= 0.65:
+                            # Suppress: Do not add to remaining
+                            continue
+                            
+                    # Exception 2: If they are both string classes (insulators, crossarms, etc.)
+                    # and they heavily overlap (IoM >= 0.50), it's the same physical component.
+                    # We suppress the lower-confidence duplicate regardless of class.
+                    is_best_str = isinstance(best[2], str)
+                    is_item_str = isinstance(item[2], str)
+                    if is_best_str and is_item_str:
+                        overlap = self._calculate_max_overlap(best[0], item[0])
+                        if overlap >= 0.50:
+                            # Suppress: Do not add to remaining
+                            continue
+                            
                     remaining.append(item)
                     continue
 
@@ -1126,8 +1151,8 @@ if __name__ == "__main__":
     # ── Configuration: Default Model Paths ────────────────────
     # These will be used if no command line arguments are provided.
     # Paths are relative to the project root (D:\NEW_ASAKTA\dry).
-    ROOT = Path(__file__).parent.parent.absolute()
-    DEFAULT_COMP_MODEL = str(ROOT / "models" / "best.pt")
+    ROOT = Path(__file__).parent.absolute()
+    DEFAULT_COMP_MODEL = str(ROOT / "models" / "best_components.pt")
     DEFAULT_INS_MODEL  = str(ROOT / "models" / "insulator_new.pt")
     DEFAULT_SHED_MODEL = str(ROOT / "models" / "shed_model.pt")
 

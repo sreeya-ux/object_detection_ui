@@ -43,7 +43,7 @@ pipeline_engine = InfrastructurePipeline(
     component_model_path="models/pole_model.pt",
     insulator_model_path="models/insulator_new.pt",
     shed_model_path="models/shed_model.pt",
-    crossarm_model_path="models/best.pt"
+    crossarm_model_path="models/best_components.pt"
 )
 
 # Load YOLOv8-seg model specifically for Conductor (Cable) Instance Segmentation
@@ -553,7 +553,7 @@ def process_image_file(file_stream):
                 "confidence": float(ca.detection_conf) * 0.75,
                 "bbox": [int(x) for x in ca.box],
                 "polygon": ca.obb_polygon if hasattr(ca, 'obb_polygon') else None,
-                "source": "models/best.pt",
+                "source": "models/best_components.pt",
                 "details": {
                     "shape": ca.shape
                 }
@@ -587,7 +587,7 @@ def process_image_file(file_stream):
                 "confidence": float(conf) * 0.75,
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
-                "source": "models/best.pt",
+                "source": "models/best_components.pt",
                 "details": {"type": "Standard Lamp"}
             })
 

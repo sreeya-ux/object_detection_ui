@@ -71,7 +71,7 @@ DETECTION_CONF  = 0.01  # Base sensitivity
 DETECTION_IOU   = 0.45
 
 # Class-specific confidence overrides to reduce false positives
-THRESHOLD_INSULATOR = 0.05
+THRESHOLD_INSULATOR = 0.10
 THRESHOLD_CROSSARM  = 0.10
 THRESHOLD_POLE      = 0.35
 THRESHOLD_CONDUCTOR = 0.01
@@ -229,7 +229,7 @@ OBB_CLASS_KEYWORDS = {
     "crossarm":  ["crossarm", "arm", "bracket", "t_rising", "v_cross", "channel"],
     "conductor": ["conductor", "wire", "line", "cable"],
     "dtr_tank":  ["transformer", "dtr", "tank"],
-    "lamp_head": ["lamp", "street_light", "st_light"],
+    "lamp_head": ["lamp", "street_light", "street light", "st_light"],
     "ab_cable":  ["ab_cable", "bundle", "hanging_cable"],
     "lattice":   ["lattice", "tower_frame"],
     "jumper":    ["jumper", "loop", "tap_wire"],
