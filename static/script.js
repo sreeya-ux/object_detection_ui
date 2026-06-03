@@ -598,12 +598,9 @@ function resetVideoLogs(status = 'Idle') {
 function setVideoProgress(percent, message = '') {
     const bar = document.getElementById('videoProgressBar');
     const pct = document.getElementById('videoProgressPercent');
-    const label = document.getElementById('videoProgressLabel');
     const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-    const safeMessage = /fallback/i.test(String(message || '')) ? 'Processing video' : message;
     if (bar) bar.style.width = `${safePercent}%`;
     if (pct) pct.textContent = `${safePercent}%`;
-    if (label && safeMessage) label.textContent = safeMessage;
 }
 
 function setVideoButtonProgressVisible(isVisible) {
