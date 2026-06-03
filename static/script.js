@@ -1289,6 +1289,7 @@ async function processVideo() {
         imageDimensions = { ...batchImages[0].dims };
 
         document.getElementById("videoContainer").classList.remove("hidden");
+        document.getElementById("videoTrimPanel")?.classList.add("hidden");
         document.getElementById("imageContainer").classList.add("hidden");
         document.getElementById("submitSection").classList.remove("hidden");
         renderResults();
