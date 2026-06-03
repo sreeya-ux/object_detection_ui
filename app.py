@@ -1478,7 +1478,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             set_video_progress(request_id, 14, "Using ByteTrack tracker")
         else:
             log_video(f"[VIDEO:{request_id}] lap package missing; using built-in IoU/proximity tracker fallback")
-            set_video_progress(request_id, 14, "Using built-in tracker fallback")
+            set_video_progress(request_id, 14, "Preparing video tracker")
 
         cap.set(cv2.CAP_PROP_POS_MSEC, trim_start * 1000.0)
 

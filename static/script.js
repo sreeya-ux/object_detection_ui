@@ -600,9 +600,10 @@ function setVideoProgress(percent, message = '') {
     const pct = document.getElementById('videoProgressPercent');
     const label = document.getElementById('videoProgressLabel');
     const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    const safeMessage = /fallback/i.test(String(message || '')) ? 'Processing video' : message;
     if (bar) bar.style.width = `${safePercent}%`;
     if (pct) pct.textContent = `${safePercent}%`;
-    if (label && message) label.textContent = message;
+    if (label && safeMessage) label.textContent = safeMessage;
 }
 
 function setVideoButtonProgressVisible(isVisible) {
