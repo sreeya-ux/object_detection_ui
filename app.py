@@ -3,30 +3,32 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import requests
 import csv
 import io
-from ultralytics import YOLO
-import cv2
-import numpy as np
 import base64
 import uuid
+import time
 from datetime import datetime
 import sqlite3
 import json
 import os
 from functools import wraps
 
-import torch
-import segmentation_models_pytorch as smp
-from pipeline import InfrastructurePipeline
-from training_pipeline import export_asset_to_training, get_training_stats
-from report_generator import generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
+
+from flask_cors import CORS
+
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except Exception as exc:
+    psycopg2 = None
+    RealDictCursor = None
+    print(f"[startup] PostgreSQL driver unavailable, SQLite fallback enabled: {exc}")
 
 # =========================
 # GLOBAL INITIALIZATION
 # =========================
 app = Flask(__name__)
+CORS(app) # Enable CORS for all routes
 app.secret_key = "secret_key_for_session" # In production, use a strong random key
 DB_PATH = 'database.db'
 UPLOADS_FOLDER = 'uploads'
@@ -37,22 +39,51 @@ if not os.path.exists(UPLOADS_FOLDER):
 def serve_upload(filename):
     return send_from_directory(UPLOADS_FOLDER, filename)
 
-# Master Rule-Engine Pipeline
-# Centralizes component detection, classification, and rule-based logic.
-pipeline_engine = InfrastructurePipeline(
-    component_model_path="models/component_model.pt",
-    insulator_model_path="models/insulator_model.pt",
-    shed_model_path="models/shed_model.pt",
-    crossarm_model_path="models/best_whole.pt"
-)
+pipeline_engine = None
+unet_model = None
+device = None
+MODEL_PATHS = {
+    "pole": "backup_models/best (2).pt",
+    "components": "backup_models/channel_12class_v2.pt",
+    "insulator": "backup_models/insulator_model.pt",
+    "shed": "models/shed_model.pt",
+    "conductor_unet": "models/conductor_unet.pth",
+}
 
-# Load UNet specifically for Conductor Instance Segmentation (ResNet34)
-# Configured for BGR 512x512 input as per original training requirements.
-unet_model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=3, classes=1)
-unet_model.load_state_dict(torch.load("models/conductor_unet.pth", map_location="cpu"))
-unet_model.eval()
-device = "cuda" if torch.cuda.is_available() else "cpu"
-unet_model.to(device)
+def load_detection_models(load_unet=False):
+    """Load heavy AI dependencies only when image prediction is requested."""
+    global pipeline_engine, unet_model, device
+    if pipeline_engine is not None and (not load_unet or unet_model is not None):
+        return
+
+    import torch
+    from pipeline import InfrastructurePipeline
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if pipeline_engine is None:
+        pipeline_engine = InfrastructurePipeline(
+            comp_model=MODEL_PATHS["pole"],
+            hardware_model=MODEL_PATHS["components"],
+            shed_model=MODEL_PATHS["shed"],
+            insulator_model=MODEL_PATHS["insulator"]
+        )
+        pipeline_engine.ocr.use_gemini = True
+
+    if load_unet and unet_model is None:
+        import segmentation_models_pytorch as smp
+        unet_model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=3, classes=1)
+        unet_model.load_state_dict(torch.load(MODEL_PATHS["conductor_unet"], map_location="cpu"))
+        unet_model.eval()
+        unet_model.to(device)
+
+def load_training_pipeline():
+    from training_pipeline import export_asset_to_training, get_training_stats
+    return export_asset_to_training, get_training_stats
+
+def load_report_generators():
+    from report_generator import generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
+    return generate_asset_pdf, generate_asset_excel, generate_global_excel, generate_global_pdf
 
 # =========================
 # DATABASE HELPERS
@@ -76,7 +107,7 @@ class DBConn:
     def close(self): self.conn.close()
 
 def get_db_connection():
-    if DB_TYPE == "postgres":
+    if DB_TYPE == "postgres" and psycopg2 is not None:
         try:
             conn = psycopg2.connect(
                 host=PG_HOST, port=PG_PORT, database=PG_DB,
@@ -84,12 +115,24 @@ def get_db_connection():
             )
             return DBConn(conn, is_pg=True)
         except Exception as e:
-            print(f"PostgreSQL Error: {e}")
-            raise e
-    else:
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
-        return DBConn(conn, is_pg=False)
+            print(f"PostgreSQL Error: {e}; falling back to local SQLite database.db")
+    elif DB_TYPE == "postgres":
+        print("PostgreSQL driver missing; falling back to local SQLite database.db")
+
+    sqlite_name = DB_NAME if DB_TYPE != "postgres" else "database.db"
+    if not sqlite_name.endswith(".db"):
+        sqlite_name = "database.db"
+    conn = sqlite3.connect(sqlite_name)
+    conn.row_factory = sqlite3.Row
+    return DBConn(conn, is_pg=False)
+
+def parse_db_json(field_data):
+    """Safely parse JSON fields that might already be lists/dicts in Postgres."""
+    if not field_data: return []
+    if isinstance(field_data, str):
+        try: return json.loads(field_data)
+        except: return []
+    return field_data
 
 def clean_b64(b64_str):
     """Robustly strips prefixes and fixes padding for b64 strings."""
@@ -165,25 +208,51 @@ def admin_required(f):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username').strip()
-        password = request.form.get('password').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
         
         conn = get_db_connection()
         user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
         conn.close()
         
-        if user:
-            if check_password_hash(user['password'], password):
-                session['user'] = user['username']
-                session['role'] = user['role']
-                log_activity(username, "login", f"Role: {user['role']}")
-                if user['role'] == 'admin':
-                    return redirect(url_for('admin_dashboard'))
-                return redirect(url_for('home'))
+        if user and check_password_hash(user['password'], password):
+            session['user'] = user['username']
+            session['role'] = user['role']
+            log_activity(username, "login", f"Role: {user['role']}")
+            if user['role'] == 'admin':
+                return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('home'))
         
         return render_template('login.html', error="Invalid credentials", ngrok_url=get_ngrok_url())
     
     return render_template('login.html', ngrok_url=get_ngrok_url())
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "No data provided"}), 400
+            
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        conn = get_db_connection()
+        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        conn.close()
+        
+        if user and check_password_hash(user['password'], password):
+            session['user'] = user['username']
+            session['role'] = user['role']
+            log_activity(username, "api_login", f"Role: {user['role']}")
+            redirect_url = url_for('admin_dashboard') if user['role'] == 'admin' else url_for('home')
+            return jsonify({"status": "success", "redirect": redirect_url})
+            
+        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
 
 def sanitize_database():
     """Permanent fix: Strips all legacy prefixes from the DB so clean_b64 never fails."""
@@ -285,20 +354,26 @@ def delete_user(username):
 # =========================
 # IMAGE PROCESSING
 # =========================
-def process_image_file(file_stream):
+def process_image_file(file_stream, fast_mode=False):
     """
     Main diagnostic entry point.
     Combines Rule Engine (InfrastructurePipeline) with UNet Conductor Segmentation.
     """
+    load_detection_models(load_unet=not fast_mode)
+
     # Create a temporary file to run the pipeline.predict (which expects a path)
     import gc
     import psutil
+    import cv2
+    import numpy as np
+    import torch
     
     def log_mem(step):
         m = psutil.Process().memory_info().rss / (1024 * 1024)
         print(f"[Memory] {step}: {m:.1f} MB")
 
     log_mem("Start Inference")
+    t0 = time.perf_counter()
     temp_filename = f"temp_{uuid.uuid4()}.jpg"
     try:
         with open(temp_filename, "wb") as f:
@@ -306,43 +381,42 @@ def process_image_file(file_stream):
         
         # 1. Run the Rule Engine Pipeline (Optimized to single scale in pipeline.py)
         log_mem("Before Pipeline")
-        pipe_res = pipeline_engine.predict(temp_filename, visualize=False)
+        pipe_res = pipeline_engine.predict(temp_filename, visualize=False, fast_mode=fast_mode)
         log_mem("After Pipeline")
+        print(f"[Timing] Pipeline: {time.perf_counter() - t0:.2f}s")
         gc.collect()
 
         # Reload image for UNet processing and base64 response
         img = cv2.imread(temp_filename)
         h, w = img.shape[:2]
         
-        # 2. Process Conductors with UNet Segmentation Model (ResNet34)
-        input_img = cv2.resize(img, (512, 512)).transpose(2, 0, 1) / 255.0
-        tensor = torch.tensor(input_img[None, ...], dtype=torch.float32).to(device)
-        
-        with torch.no_grad():
-            out = unet_model(tensor)
-            mask = torch.sigmoid(out).squeeze().cpu().numpy()
-            log_mem("After UNet")
-            del out
-        
-        # Explicitly free memory
-        del tensor
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if not fast_mode:
+            # 2. Process Conductors with UNet Segmentation Model (ResNet34)
+            input_img = cv2.resize(img, (512, 512)).transpose(2, 0, 1) / 255.0
+            tensor = torch.tensor(input_img[None, ...], dtype=torch.float32).to(device)
             
-        mask_binary = (mask > 0.25).astype(np.uint8) * 255
-        mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
+            with torch.no_grad():
+                out = unet_model(tensor)
+                mask = torch.sigmoid(out).squeeze().cpu().numpy()
+                log_mem("After UNet")
+                del out
+            
+            del tensor
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            mask_binary = (mask > 0.85).astype(np.uint8) * 255
+            mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
 
-        # Thickness Measurement via Distance Transform & Skeletonize
-        dist = cv2.distanceTransform(mask_resized, cv2.DIST_L2, 5)
-        from skimage.morphology import skeletonize
-        skel = (skeletonize(mask_resized / 255.0) > 0).astype(np.uint8)
+            # Thickness Measurement via Distance Transform & Skeletonize
+            dist = cv2.distanceTransform(mask_resized, cv2.DIST_L2, 5)
+            from skimage.morphology import skeletonize
+            skel = (skeletonize(mask_resized / 255.0) > 0).astype(np.uint8)
 
-        # Bridge gaps for continuous polygons (Wider kernel to fix wire count)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
-        mask_closed = cv2.morphologyEx(mask_resized, cv2.MORPH_CLOSE, kernel)
+            # Bridge gaps for continuous polygons (Wider kernel to fix wire count)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
+            mask_closed = cv2.morphologyEx(mask_resized, cv2.MORPH_CLOSE, kernel)
         
         # 3. Create Hardware Blackout Mask (Wire Detection Last)
         # Prevents wires from "hallucinating" over insulators/poles
@@ -353,40 +427,48 @@ def process_image_file(file_stream):
         # A. Map Rule Engine Components to UI format (with OBB Polygons)
         # Each component in pipe_res is now (box, conf, angle, polygon)
         for ins in pipe_res.insulators:
+            if float(ins.detection_conf) < 0.40:
+                continue
+            insulator_label = getattr(ins, "detector_class", None) or f"INS_{ins.type_final}".upper()
             # Map to Hardware Mask with 5px buffer
             x1, y1, x2, y2 = [int(v) for v in ins.box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
             final_detections.append({
-                "label": "insulator",
+                "label": insulator_label,
                 "confidence": float(ins.detection_conf),
                 "bbox": [int(x) for x in ins.box],
                 "polygon": ins.obb_polygon if hasattr(ins, 'obb_polygon') else None,
-                "source": "models/insulator_model.pt",
+                "source": MODEL_PATHS["insulator"],
                 "details": {
+                    "detector_class": insulator_label,
                     "voltage": ins.voltage,
                     "shed_count": int(ins.shed_count),
                     "type": ins.type_final
                 }
             })
         
-        for ca in pipe_res.crossarms:
+        for ca in pipe_res.all_arms:
+            if float(ca.detection_conf) < 0.40:
+                continue
             # Map to Hardware Mask with 5px buffer
             x1, y1, x2, y2 = [int(v) for v in ca.box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
             final_detections.append({
-                "label": "crossarm",
+                "label": ca.pole_type,
                 "confidence": float(ca.detection_conf),
                 "bbox": [int(x) for x in ca.box],
                 "polygon": ca.obb_polygon if hasattr(ca, 'obb_polygon') else None,
-                "source": "models/component_model.pt",
+                "source": MODEL_PATHS["components"],
                 "details": {
                     "shape": ca.shape
                 }
             })
         
         for po in pipe_res.all_poles:
+            if float(po.detection_conf) < 0.40:
+                continue
             # Map to Hardware Mask with 5px buffer
             x1, y1, x2, y2 = [int(v) for v in po.box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
@@ -396,7 +478,7 @@ def process_image_file(file_stream):
                 "confidence": float(po.detection_conf),
                 "bbox": [int(x) for x in po.box],
                 "polygon": po.obb_polygon if hasattr(po, 'obb_polygon') else None,
-                "source": "models/component_model.pt",
+                "source": MODEL_PATHS["pole"],
                 "details": {
                     "type": po.pole_type,
                     "lean": round(float(po.lean_angle_deg), 1)
@@ -404,6 +486,8 @@ def process_image_file(file_stream):
             })
 
         for box, conf, poly in pipe_res.street_lights:
+            if float(conf) < 0.40:
+                continue
             # Map to Hardware Mask (Street lights are hardware too, wires shouldn't pass THROUGH them)
             x1, y1, x2, y2 = [int(v) for v in box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
@@ -413,71 +497,67 @@ def process_image_file(file_stream):
                 "confidence": float(conf),
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
-                "source": "models/component_model.pt",
+                "source": MODEL_PATHS["components"],
                 "details": {"type": "Standard Lamp"}
             })
 
         for label, box, conf, poly in pipe_res.others:
-            # We add large 'other' items to the exclusion mask to prevent wire ghosts
+            if float(conf) < 0.40:
+                continue
+            # Add to hardware exclusion mask
             bw, bh = box[2]-box[0], box[3]-box[1]
             if bw > 100 or bh > 100:
-                 cv2.rectangle(hardware_mask, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), 255, -1)
-
+                cv2.rectangle(hardware_mask, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), 255, -1)
+            
+            # Add back to UI detections
             final_detections.append({
-                "label": label.lower().replace(" ", "_"),
+                "label": label.upper(),
                 "confidence": float(conf),
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
-                "details": {"source": "AI Inference"}
+                "source": MODEL_PATHS["components"],
+                "details": {"type": "Hardware"}
             })
 
-        # --- Wire Discovery Phase 2: Exclude static hardware ---
-        # Any wire detected INSIDE a hardware box is disqualified to reduce noise
-        mask_final = cv2.bitwise_and(mask_closed, cv2.bitwise_not(hardware_mask))
-        
-        # B. Generate Conductor Polygons from clean mask
-        contours, _ = cv2.findContours(mask_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for c in contours:
-            cx, cy, cw, ch = cv2.boundingRect(c)
-            area = cv2.contourArea(c)
+        if not fast_mode:
+            # --- Wire Discovery Phase 2: Exclude static hardware ---
+            mask_final = cv2.bitwise_and(mask_closed, cv2.bitwise_not(hardware_mask))
             
-            # --- 1. Basic Size Filter ---
-            if cw + ch < 80 or area < 100: 
-                continue
-            
-            # --- 2. Geometric "Clump" Filter ---
-            # Real wires are elongated. Huge square clumps are usually noise or shadows.
-            aspect_ratio = max(cw, ch) / max(1, min(cw, ch))
-            solidity = area / (cw * ch)
-            
-            # If it's a large clumpy rectangle (high solidity, low elongation), it's likely noise
-            if cw > 150 and ch > 150 and solidity > 0.5 and aspect_ratio < 1.8:
-                continue
-            
-            # --- 3. Process Valid Wire ---
-            epsilon = 0.01 * cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, epsilon, True)
-            polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
-            
-            # Localized thickness
-            c_mask = np.zeros((h, w), dtype=np.uint8)
-            cv2.drawContours(c_mask, [c], -1, 255, -1)
-            local_skel = skel & (c_mask > 0)
-            local_thickness = dist[local_skel > 0] * 2
-            avg_thick = float(np.mean(local_thickness)) if len(local_thickness) > 0 else 0.0
-            
-            # Reject if the detected "wire" is physically impossible (too thick)
-            if avg_thick > 80:
-                continue
-            
-            final_detections.append({
-                "label": "conductor",
-                "confidence": 0.90,
-                "bbox": [cx, cy, cx+cw, cy+ch],
-                "polygon": polygon, # High precision UNet polygon
-                "source": "models/conductor_unet.pth",
-                "thickness": round(avg_thick, 1)
-            })
+            # B. Generate Conductor Polygons from clean mask
+            contours, _ = cv2.findContours(mask_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in contours:
+                cx, cy, cw, ch = cv2.boundingRect(c)
+                area = cv2.contourArea(c)
+                
+                if area < 500 or cw + ch < 80 or area < 100: 
+                    continue
+                
+                aspect_ratio = max(cw, ch) / max(1, min(cw, ch))
+                solidity = area / (cw * ch)
+                if cw > 150 and ch > 150 and solidity > 0.5 and aspect_ratio < 1.8:
+                    continue
+                
+                epsilon = 0.01 * cv2.arcLength(c, True)
+                approx = cv2.approxPolyDP(c, epsilon, True)
+                polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
+                
+                c_mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.drawContours(c_mask, [c], -1, 255, -1)
+                local_skel = skel & (c_mask > 0)
+                local_thickness = dist[local_skel > 0] * 2
+                avg_thick = float(np.mean(local_thickness)) if len(local_thickness) > 0 else 0.0
+                
+                if avg_thick > 80:
+                    continue
+                
+                final_detections.append({
+                    "label": "conductor",
+                    "confidence": 0.90,
+                    "bbox": [cx, cy, cx+cw, cy+ch],
+                    "polygon": polygon,
+                    "source": MODEL_PATHS["conductor_unet"],
+                    "thickness": round(avg_thick, 1)
+                })
 
         # Prepare Master Data (Asset Identity)
         master_data = {
@@ -490,9 +570,10 @@ def process_image_file(file_stream):
             "pole_type": pipe_res.pole_orientation.pole_type if pipe_res.pole_orientation else "none",
             "pole_status": pipe_res.pole_orientation.fault_severity if pipe_res.pole_orientation else "none",
             "model_summary": {
-                "structural": "models/component_model.pt",
-                "insulator": "models/insulator_model.pt",
-                "segmentation": "models/conductor_unet.pth"
+                "structural": MODEL_PATHS["pole"],
+                "components": MODEL_PATHS["components"],
+                "insulator": MODEL_PATHS["insulator"],
+                "segmentation": "skipped in fast mode" if fast_mode else MODEL_PATHS["conductor_unet"]
             }
         }
 
@@ -519,6 +600,7 @@ def process_image_file(file_stream):
             "height": h
         }
     finally:
+        print(f"[Timing] Total request: {time.perf_counter() - t0:.2f}s")
         # Final safety cleanup for 1.7GB RAM environment
         if 'img' in locals(): del img
         if 'pipe_res' in locals(): del pipe_res
@@ -549,7 +631,7 @@ def predict_stream():
     file_stream = io.BytesIO(img_data)
     
     try:
-        result = process_image_file(file_stream)
+        result = process_image_file(file_stream, fast_mode=True)
         # Strip annotated image to save bandwidth for the stream
         if "annotated_image" in result:
             del result["annotated_image"]
@@ -573,6 +655,7 @@ def admin_dashboard():
 @app.route('/admin/export/global/excel')
 @admin_required
 def export_global_excel():
+    _, _, generate_global_excel, _ = load_report_generators()
     conn = get_db_connection()
     assets = conn.execute('SELECT * FROM assets ORDER BY timestamp DESC').fetchall()
     asset_images = conn.execute('SELECT * FROM asset_images').fetchall()
@@ -584,7 +667,7 @@ def export_global_excel():
         aid = img['asset_id']
         if aid not in img_map: img_map[aid] = []
         parsed_img = dict(img)
-        parsed_img['detections'] = json.loads(img['detections'])
+        parsed_img['detections'] = parse_db_json(img['detections'])
         img_map[aid].append(parsed_img)
 
     assets_list = []
@@ -600,6 +683,7 @@ def export_global_excel():
 @app.route('/admin/export/global/pdf')
 @admin_required
 def export_global_pdf():
+    _, _, _, generate_global_pdf = load_report_generators()
     conn = get_db_connection()
     assets = conn.execute('SELECT * FROM assets ORDER BY timestamp DESC').fetchall()
     conn.close()
@@ -628,7 +712,7 @@ def view_asset(asset_id):
 
     for row in image_rows:
         img_dict = dict(row)
-        img_dict['detections'] = json.loads(img_dict['detections'])
+        img_dict['detections'] = parse_db_json(img_dict['detections'])
         total_detections += len(img_dict['detections'])
         images.append(img_dict)
     
@@ -640,16 +724,90 @@ def view_asset(asset_id):
 @app.route('/predict', methods=['POST'])
 @login_required
 def predict():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-    file = request.files['image']
+    # Handle up to 3 images
+    files = []
+    for i in range(1, 4):
+        key = f'image{i}'
+        if key in request.files:
+            files.append(request.files[key])
+    
+    # Fallback for single 'image' key
+    if not files and 'image' in request.files:
+        files.append(request.files['image'])
+
+    if not files:
+        return jsonify({"error": "No images uploaded"}), 400
+
     try:
-        result = process_image_file(file)
-        return jsonify(result)
+        if len(files) == 1:
+            # Single image: fast processing for interactive worker review
+            result = process_image_file(files[0], fast_mode=True)
+            return jsonify(result)
+        else:
+            # Multi-image: Merged processing
+            print(f"DEBUG: Processing {len(files)} images in merged mode...")
+            return jsonify(process_multi_images(files))
+            
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Inference Error: {str(e)}"}), 500
+
+def process_multi_images(file_streams):
+    """
+    Processes multiple images sequentially to avoid Out of Memory (OOM) on 1.7GB RAM instances.
+    """
+    results = [None] * len(file_streams)
+    for idx, stream in enumerate(file_streams):
+        try:
+            print(f"DEBUG: Processing image {idx+1}/{len(file_streams)} in merged mode...")
+            res = process_image_file(stream, fast_mode=True)
+            if res:
+                results[idx] = res
+        except Exception as e:
+            print(f"[ERROR] Failed to process image {idx+1} in merged mode: {e}")
+            import traceback
+            traceback.print_exc()
+
+    valid_results = [r for r in results if r is not None]
+    if not valid_results:
+        return {"error": "No valid results generated from uploaded images"}
+
+    # --- MERGE LOGIC ---
+    # 1. Best Pole ID (OCR)
+    best_pole_id = "Not Found"
+    for r in valid_results:
+        if r.get('master', {}).get('pole_id') and r['master']['pole_id'] != "Not Found":
+            # Prefer IDs that aren't 'Not Found'
+            best_pole_id = r['master']['pole_id']
+            break
+
+    # 2. Choose the 'Best' result as the Master
+    best_result = max(valid_results, key=lambda x: (len(x.get('detections', [])), x['master']['confidence'] == 'high'))
+    
+    # Clone to avoid modifying the original element inside `results` directly
+    merged_result = {
+        "detections": best_result.get("detections", []),
+        "master": {**best_result.get("master", {})},
+        "survey_questionnaire": best_result.get("survey_questionnaire", {}),
+        "annotated_image": best_result.get("annotated_image", ""),
+        "width": best_result.get("width", 0),
+        "height": best_result.get("height", 0)
+    }
+
+    # Inject the best OCR found across all images
+    merged_result['master']['pole_id'] = best_pole_id
+    
+    # Add a flag that this was a merged result
+    merged_result['master']['reason'] = f"[Merged from {len(valid_results)} images] " + merged_result['master']['reason']
+    
+    # Store all images in the result so the UI can display them maintaining correct index mapping
+    merged_result['all_images'] = [r['annotated_image'] if r else None for r in results]
+    merged_result['all_detections'] = [r['detections'] if r else [] for r in results]
+    merged_result['all_dims'] = [{"width": r['width'], "height": r['height']} if r else {"width": 0, "height": 0} for r in results]
+    merged_result['all_pole_ids'] = [r['master'].get('pole_id', 'Not Found') if r else 'Not Found' for r in results]
+
+    return merged_result
 
 # =========================
 # API ENDPOINTS
@@ -682,17 +840,20 @@ def save_asset():
         a_volt  = master.get('voltage')
         a_reason = master.get('reason')
         
+        a_pole_id = master.get('pole_id', 'Not Found')
+        
         if isinstance(a_class, (dict, list)): a_class = json.dumps(a_class)
         if isinstance(a_volt, (dict, list)):  a_volt = json.dumps(a_volt)
         if isinstance(a_reason, (dict, list)): a_reason = json.dumps(a_reason)
 
         conn.execute('''
-            INSERT INTO assets (id, worker_name, status, timestamp, asset_class, voltage, reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO assets (id, worker_name, status, timestamp, asset_class, voltage, reason, pole_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (str(asset_id), str(worker_name), 'pending', str(timestamp), 
               str(a_class) if a_class is not None else None,
               str(a_volt) if a_volt is not None else None,
-              str(a_reason) if a_reason is not None else None))
+              str(a_reason) if a_reason is not None else None,
+              str(a_pole_id)))
         
         # 2. Save Images
         for idx, img_data in enumerate(data['images']):
@@ -781,7 +942,7 @@ def download_annotated(asset_id):
         return "Asset image not found", 404
         
     from report_generator import annotate_image
-    annotated_b64 = annotate_image(row['image_b64'], json.loads(row['detections'] or '[]'))
+    annotated_b64 = annotate_image(row['image_b64'], parse_db_json(row['detections']))
     
     # Ensure any prefix is stripped before final decode
     try:
@@ -832,10 +993,7 @@ def get_assets():
     for r in rows:
         d = dict(r)
         if d.get('detections'):
-            try:
-                d['detections'] = json.loads(d['detections'])
-            except:
-                d['detections'] = []
+            d['detections'] = parse_db_json(d['detections'])
         data.append(d)
     
     return jsonify(data)
@@ -843,6 +1001,7 @@ def get_assets():
 @app.route('/admin/asset/pdf/<asset_id>')
 @admin_required
 def export_asset_pdf(asset_id):
+    generate_asset_pdf, _, _, _ = load_report_generators()
     conn = get_db_connection()
     asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
     if not asset_row:
@@ -855,7 +1014,7 @@ def export_asset_pdf(asset_id):
     asset_data = dict(asset_row)
     asset_data['images'] = [dict(r) for r in image_rows]
     for img in asset_data['images']:
-        img['detections'] = json.loads(img['detections'])
+        img['detections'] = parse_db_json(img['detections'])
 
     pdf_buffer = generate_asset_pdf(asset_data)
     filename = f"Inspection_Report_{asset_id[:8]}.pdf"
@@ -865,6 +1024,7 @@ def export_asset_pdf(asset_id):
 @app.route('/admin/asset/excel/<asset_id>')
 @admin_required
 def export_asset_excel(asset_id):
+    _, generate_asset_excel, _, _ = load_report_generators()
     conn = get_db_connection()
     asset_row = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
     if not asset_row:
@@ -877,7 +1037,7 @@ def export_asset_excel(asset_id):
     asset_data = dict(asset_row)
     asset_data['images'] = [dict(r) for r in image_rows]
     for img in asset_data['images']:
-        img['detections'] = json.loads(img['detections'])
+        img['detections'] = parse_db_json(img['detections'])
 
     excel_buffer = generate_asset_excel(asset_data)
     filename = f"Detection_Log_{asset_id[:8]}.xlsx"
@@ -902,6 +1062,7 @@ def update_asset_status():
     # When admin APPROVES → auto-export annotations as YOLO training data
     if status == 'approved':
         try:
+            export_asset_to_training, _ = load_training_pipeline()
             result = export_asset_to_training(asset_id, approved_by=session['user'])
             log_activity(
                 session['user'],
@@ -999,21 +1160,37 @@ def get_asset_history(asset_id):
 # TRAINING PIPELINE API
 # =========================
 @app.route('/api/training_stats')
-@admin_required
+@login_required
 def training_stats():
-    """Returns training pool stats for the Admin dashboard."""
-    stats = get_training_stats()
-    return jsonify(stats)
+    """Returns training pool stats for authenticated dashboards."""
+    try:
+        _, get_training_stats = load_training_pipeline()
+        stats = get_training_stats()
+        return jsonify(stats)
+    except Exception as e:
+        print(f"[app] Training stats unavailable: {e}")
+        return jsonify({
+            "total_samples": 0,
+            "total_classes": 0,
+            "total_annotations": 0,
+            "avg_confidence": 0,
+            "by_class": {},
+            "class_confidence": {},
+            "models": [],
+            "datasets": [],
+            "status": "unavailable"
+        })
 
 @app.route('/api/training_export/<asset_id>', methods=['POST'])
 @admin_required
 def manual_training_export(asset_id):
     """Manually trigger export for a specific asset (re-export if needed)."""
     try:
+        export_asset_to_training, _ = load_training_pipeline()
         result = export_asset_to_training(asset_id, approved_by=session['user'])
         return jsonify({"status": "success", **result})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5002, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)

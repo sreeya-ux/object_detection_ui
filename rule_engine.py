@@ -15,12 +15,53 @@ Each decision includes a reason string for traceability.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Tuple, Dict
 
 from config import POLE_CLASSES
 
 
-# ── Input structure for rule engine ──────────────────────────
+# ── Data Structures ──────────────────────────────────────────
+
+@dataclass
+class PoleResult:
+    pole_type: str
+    lean_angle_deg: float
+    box: Tuple[int, int, int, int]
+    obb_polygon: Optional[List] = None
+    detection_conf: float = 0.0
+    shape: str = "straight"
+    note: str = ""
+    fault_severity: str = "none"
+
+@dataclass
+class InsulatorResult:
+    box: Tuple[int, int, int, int]
+    confidence: float
+    type_final: str = "unknown"
+    voltage: str = "unknown"
+    shed_count: int = 0
+    classification_conf: float = 0.0
+    obb_polygon: Optional[List] = None
+
+@dataclass
+class PipelineResult:
+    final_class: str
+    class_id: int
+    reason: str
+    voltage: str
+    confidence: str
+    signals_used: List[str]
+    insulators: List[InsulatorResult]
+    all_poles: List[PoleResult] = field(default_factory=list)
+    all_arms: List[PoleResult] = field(default_factory=list) # Re-using PoleResult for simplicity in UI
+    street_lights: List[Tuple[Tuple[int, int, int, int], float, Optional[List]]] = field(default_factory=list)
+    pole_orientation: Optional[PoleResult] = None
+    conductor_count: int = 0
+    crossarm_count: int = 0
+    pole_id: str = "PID-UNKNOWN"
+    flags: Dict[str, bool] = field(default_factory=dict)
+    adjustment_faults: List[str] = field(default_factory=list)
+    others: List[Tuple[str, Tuple[int, int, int, int], float, Optional[List]]] = field(default_factory=list)
 
 @dataclass
 class ComponentSignals:
@@ -82,11 +123,21 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
     """
 
     def make(cls_name, reason, voltage=None, conf="medium", signals_used=None):
-        cls_id = POLE_CLASSES.index(cls_name) if cls_name in POLE_CLASSES else -1
+        # --- AUTOMATIC REFINEMENT: Force Strut if lean is high ---
+        current_class = cls_name
+        current_reason = reason
         
-        # --- NEW: ANOMALY DETECTION (Requirement 2.4) ---
+        # Do not override main pole to strut_pole based on lean angle alone.
+        # A leaning main pole is still a main pole.
+        # if signals.lean_angle_deg > 20.0 and signals.pole_type != "strut_pole":
+        #     current_class = "strut_pole"
+        #     current_reason = f"High lean angle ({signals.lean_angle_deg}°) → re-classified as Strut/Support"
+            
+        cls_id = list(POLE_CLASSES.keys()).index(current_class) if current_class in POLE_CLASSES else -1
+        
+        # --- ANOMALY DETECTION ---
         found_faults = []
-        if signals.lean_angle_deg > 5.0 and signals.pole_type == "vertical_pole":
+        if signals.lean_angle_deg > 5.0:
             found_faults.append(f"CRITICAL LEAN ({signals.lean_angle_deg}°)")
             
         if signals.insulator_type == "unknown" and signals.conductor_count > 0:
@@ -98,12 +149,10 @@ def classify_pole(signals: ComponentSignals) -> ClassificationResult:
         if signals.has_vegetation:
             found_faults.append("VEGETATION ENCROACHMENT")
 
-        # Anomaly detection results are stored in the faults list for backend auditing,
-        # but are no longer prepended to the user-facing reason string.
         return ClassificationResult(
-            final_class   = cls_name,
+            final_class   = current_class,
             class_id      = cls_id,
-            reason        = reason,
+            reason        = current_reason,
             voltage       = voltage or signals.insulator_voltage,
             confidence    = conf,
             signals_used  = signals_used or [],

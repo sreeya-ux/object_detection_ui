@@ -6,6 +6,7 @@ __pycache__/
 temp_*.jpg
 *_result*.jpg
 *.tar.gz
+*.zip
 *.db
 *.pth
 *.pt

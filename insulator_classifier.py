@@ -22,6 +22,19 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
 from ultralytics import YOLO
+import torch.nn as nn
+
+def _safe_yolo_load(path: str) -> YOLO:
+    """Load YOLO and patch away the 'Conv has no attribute bn' error on Ultralytics 8.3+."""
+    model = YOLO(path)
+    # Patch individual Conv modules that are missing bn (from older training runs)
+    try:
+        for m in model.model.modules():
+            if type(m).__name__ == 'Conv' and not hasattr(m, 'bn'):
+                m.bn = nn.Identity()
+    except Exception as e:
+        print(f"[WARNING] Conv.bn patch skipped for {path}: {e}")
+    return model
 
 from config import (
     INSULATOR_PIN_RATIO_MIN,
@@ -107,7 +120,7 @@ class InsulatorCropClassifier:
         self.model = None
         if model_path:
             try:
-                self.model = YOLO(model_path)
+                self.model = _safe_yolo_load(model_path)
                 print(f"Crop classifier loaded: {model_path}")
             except Exception as e:
                 print(f"Crop classifier load failed: {e} — using edge heuristic")
@@ -168,7 +181,7 @@ class ShedCounter:
     """Runs your existing shed-count model on a pin insulator crop."""
 
     def __init__(self, model_path: str):
-        self.model = YOLO(model_path)
+        self.model = _safe_yolo_load(model_path)
         print(f"Shed counter loaded: {model_path}")
 
     def count(self, img: np.ndarray, box: tuple, padding: int = 25) -> int:
@@ -249,7 +262,7 @@ def check_adjustment_fault(
     For DISC insulators:
       - Should be near-horizontal (OBB angle ≈ 0° or 180°)
       - NOT checked here — disc string orientation is handled
-        by crossarm_classifier.py (checks crossarm level instead)
+        by the main pipeline's crossarm level checks instead
 
     Args:
         insulator_type : "pin" or "disc"
