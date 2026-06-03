@@ -129,12 +129,23 @@
         <main id="mainWorkspaceContainer" class="dashboard-grid gap-8">
             <!-- Left Side: Input & Action -->
             <div class="space-y-6 lg:sticky lg:top-8 lg:self-start">
-                <!-- 1. ENTER INPUT IMAGE (Top) -->
+                <!-- 1. ENTER INPUT MEDIA (Top) -->
                 <div class="card bg-gray-900/60 border-white/5 shadow-inner">
                     <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-camera-retro text-blue-500 text-xs"></i> 
-                        ENTER INPUT IMAGE
+                        ENTER INPUT MEDIA
                     </h2>
+
+                    <div class="grid grid-cols-2 gap-3 mb-5">
+                        <button id="btnImageMode" onclick="switchInputMode('image')" class="media-mode-btn active">
+                            <i class="fa-solid fa-image"></i>
+                            Upload Photo
+                        </button>
+                        <button id="btnVideoMode" onclick="switchInputMode('video')" class="media-mode-btn">
+                            <i class="fa-solid fa-video"></i>
+                            Upload Video
+                        </button>
+                    </div>
 
                     <!-- Hidden but required for JS -->
                     <div id="batchStripWrapper" class="hidden">
@@ -145,14 +156,15 @@
                     <div id="dropZone"
                         class="card p-10 border-2 border-dashed border-white/5 hover:border-blue-500/30 bg-gray-900/40 cursor-pointer transition-all flex flex-col items-center justify-center gap-6 group relative overflow-hidden">
                         <input type="file" id="upload" class="hidden" accept="image/*" multiple />
+                        <input type="file" id="videoUpload" class="hidden" accept="video/*" />
                         
                         <div id="uploadPrompt" class="space-y-4 text-center">
                             <div class="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
                                 <i class="fa-solid fa-cloud-arrow-up text-2xl text-gray-400 group-hover:text-blue-400"></i>
                             </div>
                             <div>
-                                <p class="text-gray-300 font-bold uppercase tracking-tight text-xs">Select inspection image(s)</p>
-                                <p class="text-[9px] text-gray-500 mt-1 uppercase font-bold tracking-widest">DRAG AND DROP OR CLICK</p>
+                                <p id="uploadPromptTitle" class="text-gray-300 font-bold uppercase tracking-tight text-xs">Select inspection image(s)</p>
+                                <p id="uploadPromptSubtitle" class="text-[9px] text-gray-500 mt-1 uppercase font-bold tracking-widest">DRAG AND DROP OR CLICK</p>
                             </div>
                         </div>
 
@@ -162,15 +174,62 @@
                             <svg id="detectionOverlay" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
                             <div id="manualPointHud" class="absolute inset-0 pointer-events-none"></div>
                         </div>
+
+                        <div id="videoContainer" class="hidden w-full space-y-4">
+                            <div class="relative rounded-xl border border-white/10 bg-black overflow-hidden shadow-2xl">
+                                <video id="videoPreview" class="block w-full max-h-[500px] bg-black" playsinline></video>
+                                <div class="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/70 border border-white/10 text-[8px] font-bold uppercase tracking-widest text-blue-300 backdrop-blur">
+                                    3 FPS + ByteTrack + Pole Only
+                                </div>
+                                <div class="video-preview-controls">
+                                    <button id="videoPreviewPlayBtn" type="button" class="video-preview-play" onclick="toggleVideoPreviewPlayback(event)">
+                                        <i class="fa-solid fa-play"></i>
+                                    </button>
+                                    <input id="videoPreviewScrubber" type="range" min="0" max="100" value="0" step="0.1" class="video-preview-scrubber" oninput="seekVideoPreviewClip(this.value)" />
+                                    <span id="videoPreviewTimeLabel" class="video-preview-time">0.0s / 0.0s</span>
+                                </div>
+                            </div>
+                            <div id="videoTrimPanel" class="hidden p-4 rounded-2xl border border-white/5 bg-black/30 space-y-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p class="text-[9px] font-bold uppercase tracking-widest text-gray-400">Select processing window (max 30 sec)</p>
+                                        <p id="videoTrimLabel" class="text-[10px] text-blue-300 font-mono mt-1">0.0s - 30.0s</p>
+                                    </div>
+                                    <span id="videoDurationLabel" class="px-2 py-1 rounded-lg bg-white/5 text-[8px] text-gray-500 font-bold uppercase tracking-widest">0.0s total</span>
+                                </div>
+                                <div id="videoTrimTrack" class="video-trim-track">
+                                    <div id="videoTrimWindow" class="video-trim-window">
+                                        <span class="video-trim-grip left"></span>
+                                        <span id="videoTrimHandleLabel" class="video-trim-handle-label">30 sec</span>
+                                        <span class="video-trim-grip right"></span>
+                                    </div>
+                                </div>
+                                <input id="videoTrimSlider" type="range" min="0" max="0" step="0.1" value="0" class="hidden" />
+                                <div class="h-2 rounded-full bg-gray-800 overflow-hidden">
+                                    <div id="videoTrimBar" class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400" style="width:100%"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 2. RUN INTERFACE (Below Image) -->
                     <div class="flex gap-4 mt-6">
-                        <button id="btnRun" onclick="processImage()"
-                            class="bg-blue-600 hover:bg-blue-500 text-white flex-1 h-[50px] rounded-xl shadow-xl shadow-blue-900/20 transition-all flex items-center justify-center gap-3 active:scale-95 border border-blue-500/20">
-                            <i class="fa-solid fa-microscope text-sm"></i>
-                            <span class="btn-text uppercase font-bold text-[12px] tracking-widest leading-none">Run Interface</span>
-                            <div class="loader hidden flex-shrink-0 w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <button id="btnRun" onclick="processMedia()"
+                            class="relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white flex-1 h-[58px] rounded-xl shadow-xl shadow-blue-900/20 transition-all active:scale-95 border border-blue-500/20">
+                            <span class="btn-main relative z-10 flex h-full items-center justify-center gap-3">
+                                <i class="fa-solid fa-microscope text-sm"></i>
+                                <span class="btn-text uppercase font-bold text-[12px] tracking-widest leading-none">Run Photo Interface</span>
+                                <span class="loader hidden flex-shrink-0 w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            </span>
+                            <span id="videoProgressWrap" class="hidden absolute left-3 right-3 bottom-2 z-10 space-y-1">
+                                <span class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-blue-50/90">
+                                    <span id="videoProgressLabel">Waiting</span>
+                                    <span id="videoProgressPercent">0%</span>
+                                </span>
+                                <span class="block h-1.5 rounded-full bg-black/25 overflow-hidden">
+                                    <span id="videoProgressBar" class="block h-full rounded-full bg-gradient-to-r from-cyan-200 via-sky-300 to-emerald-200 transition-all duration-500" style="width:0%"></span>
+                                </span>
+                            </span>
                         </button>
                         <button id="btnCancel" onclick="resetSession()"
                             class="bg-gray-800 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 w-[120px] h-[50px] rounded-xl transition-all flex items-center justify-center gap-3 active:scale-95 border border-white/5">

@@ -14,6 +14,7 @@ import json
 import os
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
 
 from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
 
@@ -57,13 +58,70 @@ pipeline_engine = None
 unet_model = None
 device = None
 rapidocr_engine = None
+video_component_model = None
 MODEL_PATHS = {
-    "pole": "backup_models/best (2).pt",
-    "components": "backup_models/channel_12class_v2.pt",
-    "insulator": "backup_models/insulator_model.pt",
+    "pole": "models/best (2).pt",
+    "components": "models/channel_12class_v2.pt",
+    "insulator": "models/insulator_model.pt",
     "shed": "models/shed_model.pt",
     "conductor_unet": "models/conductor_unet.pth",
+    "video_component": "models/component_model.pt",
 }
+
+VIDEO_RESULTS_FOLDER = os.path.join("static", "results")
+os.makedirs(VIDEO_RESULTS_FOLDER, exist_ok=True)
+VIDEO_LOG_FILE = "video_processing.log"
+VIDEO_PROGRESS = {}
+
+def log_video(message):
+    line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
+    print(line, flush=True)
+    try:
+        with open(VIDEO_LOG_FILE, "a", encoding="utf-8") as log_file:
+            log_file.write(line + "\n")
+    except Exception as exc:
+        print(f"[VIDEO] Unable to write video log file: {exc}", flush=True)
+
+def set_video_progress(job_id, percent, message, status="processing"):
+    if not job_id:
+        return
+    VIDEO_PROGRESS[job_id] = {
+        "percent": max(0, min(100, int(percent))),
+        "message": message,
+        "status": status,
+        "updated_at": time.time(),
+    }
+
+def validate_model_paths(*keys):
+    missing = []
+    for key in keys:
+        path = MODEL_PATHS[key]
+        if not os.path.exists(path):
+            missing.append(f"{key}: {path}")
+    if missing:
+        raise FileNotFoundError(
+            "Missing local model file(s): "
+            + ", ".join(missing)
+            + ". Check the models/ folder; network downloads are disabled for this app."
+        )
+
+def safe_remove_file(path, label="temp file"):
+    """Best-effort cleanup for Windows, where model readers may release files late."""
+    if not path or not os.path.exists(path):
+        return
+    for attempt in range(3):
+        try:
+            os.remove(path)
+            return
+        except PermissionError as exc:
+            if attempt < 2:
+                time.sleep(0.2)
+                continue
+            print(f"[cleanup] Could not remove locked {label}: {path} ({exc})", flush=True)
+            return
+        except OSError as exc:
+            print(f"[cleanup] Could not remove {label}: {path} ({exc})", flush=True)
+            return
 
 def load_detection_models(load_unet=False):
     """Load heavy AI dependencies only when image prediction is requested."""
@@ -73,6 +131,11 @@ def load_detection_models(load_unet=False):
 
     import torch
     from pipeline import InfrastructurePipeline
+
+    required = ["pole", "components", "shed", "insulator"]
+    if load_unet:
+        required.append("conductor_unet")
+    validate_model_paths(*required)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -90,6 +153,19 @@ def load_detection_models(load_unet=False):
         unet_model.load_state_dict(torch.load(MODEL_PATHS["conductor_unet"], map_location="cpu"))
         unet_model.eval()
         unet_model.to(device)
+
+def load_video_component_model():
+    """Load only the component model used for video pole/strut-pole detection."""
+    global video_component_model
+    if video_component_model is not None:
+        return video_component_model
+
+    validate_model_paths("video_component")
+    log_video(f"[VIDEO] Loading video model: {MODEL_PATHS['video_component']}")
+    from pipeline import _safe_yolo_load
+    video_component_model = _safe_yolo_load(MODEL_PATHS["video_component"])
+    log_video("[VIDEO] component_model.pt loaded for video detection")
+    return video_component_model
 
 def load_training_pipeline():
     from training_pipeline import export_asset_to_training, get_training_stats
@@ -120,6 +196,83 @@ class DBConn:
     def rollback(self): self.conn.rollback()
     def close(self): self.conn.close()
 
+def ensure_sqlite_schema(conn):
+    """Create or repair the local SQLite fallback schema without deleting data."""
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS assets (
+            id TEXT PRIMARY KEY,
+            worker_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            timestamp TEXT NOT NULL,
+            asset_class TEXT,
+            voltage TEXT,
+            reason TEXT,
+            pole_id TEXT
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS asset_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id TEXT NOT NULL,
+            image_b64 TEXT NOT NULL,
+            detections TEXT NOT NULL,
+            pole_angle FLOAT DEFAULT 0.0,
+            FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT,
+            timestamp TEXT NOT NULL
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS training_samples (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL,
+            image_file TEXT,
+            label_file TEXT,
+            class_counts TEXT,
+            approved_by TEXT,
+            timestamp TEXT NOT NULL
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS training_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            triggered_at TEXT,
+            sample_count INTEGER,
+            status TEXT DEFAULT 'queued',
+            result TEXT
+        )
+    ''')
+
+    asset_cols = [row["name"] for row in conn.execute("PRAGMA table_info(assets)").fetchall()]
+    if "pole_id" not in asset_cols:
+        conn.execute("ALTER TABLE assets ADD COLUMN pole_id TEXT")
+
+    default_users = [
+        ("admin 1", generate_password_hash("admin@asakta"), "admin"),
+        ("user 1", generate_password_hash("1233@asakta"), "user"),
+        ("admin", generate_password_hash("admin@asakta"), "admin"),
+    ]
+    conn.executemany(
+        "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)",
+        default_users
+    )
+    conn.commit()
+
 def get_db_connection():
     if DB_TYPE == "postgres" and psycopg2 is not None:
         try:
@@ -138,6 +291,11 @@ def get_db_connection():
         sqlite_name = "database.db"
     conn = sqlite3.connect(sqlite_name)
     conn.row_factory = sqlite3.Row
+    # Local fallback mode can run under restricted Windows folders where SQLite
+    # rollback journal files fail with disk I/O errors. Keep writes in-place.
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    ensure_sqlite_schema(conn)
     return DBConn(conn, is_pg=False)
 
 def parse_db_json(field_data):
@@ -385,14 +543,13 @@ def prepare_ocr_image(img):
         return img
 
 def read_pole_id_for_blob(blob):
-    temp_filename = f"temp_ocr_{uuid.uuid4()}.jpg"
+    temp_filename = os.path.join(UPLOADS_FOLDER, f"temp_ocr_{uuid.uuid4()}.jpg")
     try:
         with open(temp_filename, "wb") as f:
             f.write(blob)
         return read_pole_id_with_rapidocr(temp_filename)
     finally:
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        safe_remove_file(temp_filename, "OCR temp image")
 
 def read_pole_id_with_rapidocr(image_path):
     try:
@@ -691,7 +848,7 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
 
     log_mem("Start Inference")
     t0 = time.perf_counter()
-    temp_filename = f"temp_{uuid.uuid4()}.jpg"
+    temp_filename = os.path.join(UPLOADS_FOLDER, f"temp_{uuid.uuid4()}.jpg")
     try:
         with open(temp_filename, "wb") as f:
             f.write(file_stream.read())
@@ -937,9 +1094,9 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        # Cleanup temporary image file
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        # Cleanup temporary image file. Do not fail inference if Windows keeps
+        # the file locked briefly after OpenCV/Ultralytics reads it.
+        safe_remove_file(temp_filename, "inference temp image")
         log_mem("Request End")
 
 # =========================
@@ -1150,6 +1307,449 @@ def process_multi_images(file_streams):
         for idx, r in enumerate(results)
     ]
     return merged_result
+
+def _normalise_video_pole_label(raw_label):
+    label = str(raw_label or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if "strut" in label:
+        return "STRUT_POLE"
+    if "pole" in label:
+        return "MAIN_POLE"
+    return label.upper()
+
+def _draw_video_detection(frame, bbox, label, confidence, track_id=None):
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    color = (80, 180, 255) if label == "MAIN_POLE" else (90, 220, 120)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+    title = f"{label.replace('_', ' ')} {confidence:.2f}"
+    if track_id is not None:
+        title = f"ID {track_id} | {title}"
+
+    (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+    y_text = max(24, y1 - 8)
+    cv2.rectangle(frame, (x1, y_text - th - 8), (x1 + tw + 10, y_text + 4), color, -1)
+    cv2.putText(frame, title, (x1 + 5, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (5, 8, 14), 2, cv2.LINE_AA)
+
+def _frame_sharpness(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+def _clip_bbox(bbox, width, height, padding=0):
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    return [
+        max(0, x1 - padding),
+        max(0, y1 - padding),
+        min(width, x2 + padding),
+        min(height, y2 + padding),
+    ]
+
+def _bbox_iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    area_a = max(1, (ax2 - ax1) * (ay2 - ay1))
+    area_b = max(1, (bx2 - bx1) * (by2 - by1))
+    return inter / max(1, area_a + area_b - inter)
+
+def _center_distance_ratio(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    acx, acy = (ax1 + ax2) / 2, (ay1 + ay2) / 2
+    bcx, bcy = (bx1 + bx2) / 2, (by1 + by2) / 2
+    diag = max(1.0, (((ax2 - ax1) + (bx2 - bx1)) / 2) ** 2 + (((ay2 - ay1) + (by2 - by1)) / 2) ** 2)
+    return (((acx - bcx) ** 2 + (acy - bcy) ** 2) / diag) ** 0.5
+
+def _vertical_overlap_ratio(a, b):
+    _, ay1, _, ay2 = a
+    _, by1, _, by2 = b
+    overlap = max(0, min(ay2, by2) - max(ay1, by1))
+    return overlap / max(1, min(ay2 - ay1, by2 - by1))
+
+def _same_physical_pole(track, group):
+    if track["label"] != group["label"]:
+        return False
+    a = track["best"]["bbox"]
+    b = group["best"]["bbox"]
+    iou = _bbox_iou(a, b)
+    center_ratio = _center_distance_ratio(a, b)
+    vertical_overlap = _vertical_overlap_ratio(a, b)
+    # ByteTrack may fragment IDs, so merge fragments that repeatedly occupy
+    # the same physical pole location even if their tracker IDs differ.
+    return iou >= 0.18 or (center_ratio <= 0.55 and vertical_overlap >= 0.45)
+
+def _merge_pole_track_fragments(tracks):
+    groups = []
+    fragments = [t for t in tracks.values() if t.get("best")]
+    fragments.sort(key=lambda t: (t["label"], -t["appearances"], -t["best_score"]))
+
+    for track in fragments:
+        matched = None
+        for group in groups:
+            if _same_physical_pole(track, group):
+                matched = group
+                break
+
+        if matched is None:
+            groups.append({
+                "label": track["label"],
+                "track_ids": [track["track_id"]],
+                "appearances": track["appearances"],
+                "best_score": track["best_score"],
+                "best": track["best"],
+                "fragments": 1,
+            })
+            continue
+
+        matched["track_ids"].append(track["track_id"])
+        matched["appearances"] += track["appearances"]
+        matched["fragments"] += 1
+        if track["best_score"] > matched["best_score"]:
+            matched["best_score"] = track["best_score"]
+            matched["best"] = track["best"]
+
+    return groups
+
+def _video_tracker_backend():
+    try:
+        import lap  # noqa: F401
+        return "bytetrack"
+    except Exception:
+        return "fallback"
+
+def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=None):
+    """
+    Process a selected 30-second video segment:
+    3 FPS sampling -> pole detection -> ByteTrack -> one track per pole ->
+    best frame selection. Video mode only returns MAIN_POLE and STRUT_POLE.
+    """
+    import gc
+    import torch
+
+    request_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id or uuid.uuid4())) or str(uuid.uuid4())
+    input_path = os.path.join(UPLOADS_FOLDER, f"video_{request_id}.mp4")
+    output_name = f"processed_video_{request_id}.webm"
+    output_path = os.path.join(VIDEO_RESULTS_FOLDER, output_name)
+
+    log_video(f"[VIDEO:{request_id}] Received upload for video processing")
+    set_video_progress(request_id, 1, "Upload received")
+    pole_model = load_video_component_model()
+    set_video_progress(request_id, 4, "Pole model ready")
+
+    with open(input_path, "wb") as f:
+        f.write(file_stream.read())
+    log_video(f"[VIDEO:{request_id}] Saved input video: {input_path}")
+    set_video_progress(request_id, 8, "Input video saved")
+
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        safe_remove_file(input_path, "video input")
+        raise ValueError("Unable to read uploaded video")
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+
+        trim_start = max(0.0, float(trim_start or 0.0))
+        trim_duration = max(1.0, min(30.0, float(trim_duration or 30.0)))
+        if duration > 0:
+            trim_start = min(trim_start, max(0.0, duration - 0.1))
+        trim_end = min(trim_start + trim_duration, duration) if duration > 0 else trim_start + trim_duration
+        max_frames = int(max(1, round((trim_end - trim_start) * fps)))
+        sample_fps = 3.0
+        sample_interval = max(1, int(round(fps / sample_fps)))
+        sampled_frame_limit = int(max(1, round((trim_end - trim_start) * sample_fps)))
+        log_video(
+            f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
+            f"size={width}x{height}, duration={duration:.2f}s"
+        )
+        log_video(
+            f"[VIDEO:{request_id}] Extracting 3 FPS from {trim_start:.2f}s to {trim_end:.2f}s "
+            f"({sampled_frame_limit} sampled frames max); output remains {fps:.2f} FPS for smooth playback"
+        )
+        set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
+        tracker_backend = _video_tracker_backend()
+        if tracker_backend == "bytetrack":
+            log_video(f"[VIDEO:{request_id}] Using ByteTrack tracker")
+            set_video_progress(request_id, 14, "Using ByteTrack tracker")
+        else:
+            log_video(f"[VIDEO:{request_id}] lap package missing; using built-in IoU/proximity tracker fallback")
+            set_video_progress(request_id, 14, "Using built-in tracker fallback")
+
+        cap.set(cv2.CAP_PROP_POS_MSEC, trim_start * 1000.0)
+
+        # VP8/WebM is browser-playable; OpenCV mp4v MP4 often shows
+        # "No video with supported format" in Chrome/Edge.
+        fourcc = cv2.VideoWriter_fourcc(*"VP80")
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if not writer.isOpened():
+            raise ValueError("Unable to create processed video")
+
+        tracks = {}
+        class_counts = defaultdict(int)
+        processed_frames = 0
+        sampled_frames = 0
+        last_frame_detections = []
+
+        while processed_frames < max_frames:
+            ok, frame = cap.read()
+            if not ok:
+                log_video(f"[VIDEO:{request_id}] Frame read stopped at frame {processed_frames}")
+                break
+
+            frame_time = trim_start + (processed_frames / fps)
+            should_sample = processed_frames % sample_interval == 0
+            annotated = frame.copy()
+
+            if should_sample:
+                sampled_frames += 1
+                sharpness = _frame_sharpness(frame)
+                last_frame_detections = []
+                if tracker_backend == "bytetrack":
+                    results = pole_model.track(
+                        frame,
+                        persist=True,
+                        tracker="bytetrack.yaml",
+                        conf=0.25,
+                        iou=0.45,
+                        imgsz=640,
+                        verbose=False
+                    )
+                else:
+                    results = pole_model(
+                        frame,
+                        conf=0.25,
+                        iou=0.45,
+                        imgsz=640,
+                        verbose=False
+                    )
+
+                for res in results:
+                    if not getattr(res, "boxes", None):
+                        continue
+                    for box_obj in res.boxes:
+                        cls_id = int(box_obj.cls)
+                        raw_label = pole_model.names.get(cls_id, str(cls_id)) if hasattr(pole_model.names, "get") else pole_model.names[cls_id]
+                        label = _normalise_video_pole_label(raw_label)
+                        if label not in {"MAIN_POLE", "STRUT_POLE"}:
+                            continue
+
+                        conf = float(box_obj.conf)
+                        bbox = [int(v) for v in box_obj.xyxy[0].cpu().numpy().tolist()]
+                        x1, y1, x2, y2 = _clip_bbox(bbox, width, height)
+                        area = max(1, (x2 - x1) * (y2 - y1))
+                        norm_area = area / max(1, width * height)
+                        track_id = None
+                        if getattr(box_obj, "id", None) is not None:
+                            track_id = int(box_obj.id.item())
+                        if track_id is not None:
+                            track_key = f"{label}:{track_id}"
+                        else:
+                            # Fallback mode: create short fragments, then merge them
+                            # into physical poles after all sampled frames.
+                            track_key = f"{label}:sample-{sampled_frames}:det-{len(tracks)}"
+
+                        class_counts[label] += 1
+                        current = tracks.get(track_key)
+                        if current is None:
+                            current = {
+                                "label": label,
+                                "track_id": track_id,
+                                "appearances": 0,
+                                "best_score": -1.0,
+                                "best": None
+                            }
+                            tracks[track_key] = current
+
+                        current["appearances"] += 1
+                        # Best frame priority: confidence, pole size, then sharpness.
+                        best_score = (conf * 0.55) + (min(norm_area * 10, 1.0) * 0.30) + (min(sharpness / 1000.0, 1.0) * 0.15)
+                        if best_score > current["best_score"]:
+                            crop_bbox = _clip_bbox(bbox, width, height, padding=24)
+                            cx1, cy1, cx2, cy2 = crop_bbox
+                            current["best_score"] = best_score
+                            current["best"] = {
+                                "confidence": conf,
+                                "bbox": [x1, y1, x2, y2],
+                                "crop_bbox": crop_bbox,
+                                "frame_time": frame_time,
+                                "sharpness": sharpness,
+                                "area": area,
+                                "frame": frame.copy(),
+                                "crop": frame[cy1:cy2, cx1:cx2].copy()
+                            }
+
+                        last_frame_detections.append(([x1, y1, x2, y2], label, conf, track_id))
+
+            for bbox, label, conf, track_id in last_frame_detections:
+                _draw_video_detection(annotated, bbox, label, conf, track_id)
+
+            writer.write(annotated)
+            processed_frames += 1
+
+            if sampled_frames % 15 == 0:
+                progress_pct = 15 + int((sampled_frames / max(1, sampled_frame_limit)) * 70)
+                set_video_progress(
+                    request_id,
+                    progress_pct,
+                    f"Sampled {sampled_frames}/{sampled_frame_limit} frames; raw fragments={len(tracks)}"
+                )
+                log_video(
+                    f"[VIDEO:{request_id}] Sampled {sampled_frames}/{sampled_frame_limit} frames; "
+                    f"pole_tracks={len(tracks)}"
+                )
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        log_video(f"[VIDEO:{request_id}] Consolidating {len(tracks)} ByteTrack fragments into physical poles")
+        set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
+        physical_poles = _merge_pole_track_fragments(tracks)
+        for idx, pole in enumerate(physical_poles, start=1):
+            best = pole["best"]
+            log_video(
+                f"[VIDEO:{request_id}] Physical pole {idx}: label={pole['label']} "
+                f"fragments={pole['fragments']} frames={pole['appearances']} "
+                f"track_ids={pole['track_ids']} best_time={best['frame_time']:.2f}s"
+            )
+
+        log_video(f"[VIDEO:{request_id}] Selecting one best frame per physical pole")
+        set_video_progress(request_id, 92, "Selecting one best frame per physical pole")
+        detections = []
+        for idx, pole in enumerate(physical_poles, start=1):
+            best = pole.get("best")
+            if not best:
+                continue
+
+            detections.append({
+                "label": pole["label"],
+                "confidence": best["confidence"],
+                "bbox": best["bbox"],
+                "source": MODEL_PATHS["video_component"],
+                "details": {
+                    "type": "strut_pole" if pole["label"] == "STRUT_POLE" else "main_pole",
+                    "track_id": pole["track_ids"][0],
+                    "track_ids": [tid for tid in pole["track_ids"] if tid is not None],
+                    "track_fragments": pole["fragments"],
+                    "appearances": pole["appearances"],
+                    "frame_time": round(best["frame_time"], 2),
+                    "sharpness": round(best["sharpness"], 1),
+                    "pole_area": int(best["area"]),
+                    "best_frame_rank": idx,
+                    "attributes": []
+                }
+            })
+
+        detections = sorted(
+            detections,
+            key=lambda d: (d["label"], -float(d.get("confidence", 0)))
+        )
+        detected_classes = {
+            label: sum(1 for d in detections if d["label"] == label)
+            for label in ["MAIN_POLE", "STRUT_POLE"]
+        }
+        detected_classes = {k: v for k, v in detected_classes.items() if v > 0}
+        has_strut = any(d["label"] == "STRUT_POLE" for d in detections)
+        survey_q = {
+            "strut_pole": "Yes" if has_strut else "No",
+            "strut_pole_count": sum(1 for d in detections if d["label"] == "STRUT_POLE"),
+            "main_pole_count": sum(1 for d in detections if d["label"] == "MAIN_POLE"),
+            "best_frame_count": len([d for d in detections if d["label"] in {"MAIN_POLE", "STRUT_POLE"}]),
+            "raw_track_fragments": len(tracks),
+            "physical_pole_count": len(physical_poles),
+            "video_sampling_fps": sample_fps,
+            "component_attributes": []
+        }
+        log_video(
+            f"[VIDEO:{request_id}] Complete: sampled_frames={sampled_frames}, "
+            f"raw_track_fragments={len(tracks)}, physical_poles={len(physical_poles)}, "
+            f"detections={len(detections)}, class_counts={detected_classes}"
+        )
+        log_video(f"[VIDEO:{request_id}] Output video: {output_path}")
+        set_video_progress(request_id, 100, "Video analysis complete", status="complete")
+
+        return {
+            "video_url": url_for("static", filename=f"results/{output_name}"),
+            "detections": detections,
+            "class_counts": detected_classes,
+            "frame_detection_counts": dict(class_counts),
+            "survey_questionnaire": survey_q,
+            "master": {
+                "final_class": "video_pole_detection",
+                "voltage": "VIDEO",
+                "pole_id": "Not Found",
+                "ocr_text_lines": [],
+                "reason": f"Sampled {sampled_frames} frames at 3 FPS, wrote smooth output at {fps:.2f} FPS, merged {len(tracks)} tracker fragments into {len(physical_poles)} physical pole(s), and selected one best frame per pole. Only MAIN_POLE and STRUT_POLE were processed.",
+                "confidence": "high" if detections else "low",
+                "pole_type": "video",
+                "pole_status": "tracked",
+                "model_summary": {
+                    "pole_detector": MODEL_PATHS["video_component"],
+                    "tracker": "ByteTrack" if tracker_backend == "bytetrack" else "IoU/proximity fallback",
+                    "sampling_fps": sample_fps
+                }
+            },
+            "width": width,
+            "height": height,
+            "duration": duration,
+            "trim_start": trim_start,
+            "trim_duration": sampled_frames / sample_fps if sample_fps > 0 else 0.0,
+            "processed_frames": sampled_frames,
+            "pipeline": [
+                "Video",
+                "Extract 3 FPS",
+                "Pole Detector (YOLOv8)",
+                "ByteTrack",
+                "One Track = One Pole",
+                "Best Frame Selection",
+                "Survey Form Auto-fill"
+            ],
+        }
+    finally:
+        cap.release()
+        if "writer" in locals():
+            writer.release()
+        safe_remove_file(input_path, "video input")
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+@app.route('/predict_video', methods=['POST'])
+@login_required
+def predict_video():
+    if 'video' not in request.files:
+        return jsonify({"error": "No video uploaded"}), 400
+
+    try:
+        trim_start = request.form.get("trim_start", 0)
+        trim_duration = request.form.get("trim_duration", 30)
+        job_id = request.form.get("job_id") or str(uuid.uuid4())
+        log_video(f"[VIDEO] /predict_video called trim_start={trim_start}, trim_duration={trim_duration}, job_id={job_id}")
+        return jsonify(process_video_file(request.files['video'], trim_start=trim_start, trim_duration=trim_duration, job_id=job_id))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        if 'job_id' in locals():
+            set_video_progress(job_id, 100, f"Video analysis failed: {str(e)}", status="error")
+        return jsonify({"error": f"Video Inference Error: {str(e)}"}), 500
+
+@app.route('/api/video_progress/<job_id>')
+@login_required
+def video_progress(job_id):
+    clean_job_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id))
+    return jsonify(VIDEO_PROGRESS.get(clean_job_id, {
+        "percent": 0,
+        "message": "Waiting for video job",
+        "status": "waiting",
+    }))
 
 # =========================
 # API ENDPOINTS

@@ -10,6 +10,13 @@ let activeBatchIndex = -1;
 let masterResult = null;
 let surveyResult = {};
 let imageDimensions = { width: 0, height: 0 };
+let currentInputMode = 'image';
+let uploadedVideoFile = null;
+let videoObjectUrl = null;
+let videoDuration = 0;
+let videoTrimStart = 0;
+let videoTrimDuration = 30;
+let activeVideoJobId = null;
 
 function normalizePoleIdText(text) {
     if (!text) return "Not Found";
@@ -162,6 +169,7 @@ const DRAFT_KEY = 'asakta_worker_draft';
 
 function persistDraftToStorage() {
     if (!batchImages.length) return;
+    if (batchImages[0]?.mediaType === 'video') return;
     try {
         const payload = {
             savedAt: Date.now(),
@@ -413,8 +421,11 @@ async function loadUserTrainingStats() {
 
 document.addEventListener('DOMContentLoaded', () => {
     const uploadInput = document.getElementById('upload');
+    const videoInput = document.getElementById('videoUpload');
     const previewImg = document.getElementById('preview');
     const dropZone = document.getElementById('dropZone');
+    const trimSlider = document.getElementById('videoTrimSlider');
+    const trimTrack = document.getElementById('videoTrimTrack');
 
     // Check for saved draft on page load
     checkAndRestoreDraft();
@@ -444,10 +455,83 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadInput.addEventListener('change', handleUpload);
     }
 
+    if (videoInput) {
+        videoInput.addEventListener('change', handleVideoUpload);
+    }
+
+    if (trimSlider) {
+        trimSlider.addEventListener('input', (e) => {
+            videoTrimStart = parseFloat(e.target.value || '0');
+            videoTrimDuration = Math.min(videoTrimDuration, Math.max(0, videoDuration - videoTrimStart));
+            updateVideoTrimUI();
+            appendVideoLog(`Trim window set to ${formatSeconds(videoTrimStart)} - ${formatSeconds(videoTrimStart + videoTrimDuration)} (${videoTrimDuration.toFixed(1)} sec)`, 'info');
+        });
+    }
+
+    if (trimTrack) {
+        const MIN_TRIM_SECONDS = 3;
+        const MAX_TRIM_SECONDS = 30;
+        const pointerToSeconds = (event) => {
+            const rect = trimTrack.getBoundingClientRect();
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+            return ratio * videoDuration;
+        };
+        const setTrimFromPointer = (event, mode, startSnapshot, durationSnapshot, pointerStartSeconds) => {
+            if (!videoDuration) return;
+            const pointerSeconds = pointerToSeconds(event);
+            const delta = pointerSeconds - pointerStartSeconds;
+            const maxDuration = Math.min(MAX_TRIM_SECONDS, videoDuration);
+
+            if (mode === 'resize-left') {
+                const originalEnd = startSnapshot + durationSnapshot;
+                const nextStart = Math.max(0, Math.min(originalEnd - MIN_TRIM_SECONDS, startSnapshot + delta));
+                videoTrimStart = nextStart;
+                videoTrimDuration = Math.max(MIN_TRIM_SECONDS, Math.min(maxDuration, originalEnd - nextStart));
+            } else if (mode === 'resize-right') {
+                const nextDuration = Math.max(MIN_TRIM_SECONDS, Math.min(maxDuration, durationSnapshot + delta));
+                videoTrimDuration = Math.min(nextDuration, videoDuration - startSnapshot);
+                videoTrimStart = startSnapshot;
+            } else {
+                const maxStart = Math.max(0, videoDuration - durationSnapshot);
+                videoTrimStart = Math.max(0, Math.min(maxStart, startSnapshot + delta));
+                videoTrimDuration = Math.min(durationSnapshot, videoDuration - videoTrimStart);
+            }
+            updateVideoTrimUI();
+        };
+
+        trimTrack.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            const target = event.target;
+            const mode = target.classList.contains('left')
+                ? 'resize-left'
+                : target.classList.contains('right')
+                    ? 'resize-right'
+                    : 'move';
+            const startSnapshot = videoTrimStart;
+            const durationSnapshot = videoTrimDuration;
+            const pointerStartSeconds = pointerToSeconds(event);
+            setTrimFromPointer(event, mode, startSnapshot, durationSnapshot, pointerStartSeconds);
+            const onMove = (moveEvent) => setTrimFromPointer(moveEvent, mode, startSnapshot, durationSnapshot, pointerStartSeconds);
+            const onUp = () => {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                appendVideoLog(`Trim window set to ${formatSeconds(videoTrimStart)} - ${formatSeconds(videoTrimStart + videoTrimDuration)} (${videoTrimDuration.toFixed(1)} sec)`, 'info');
+            };
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+        });
+    }
+
     if (dropZone) {
         dropZone.addEventListener('click', (e) => {
-            // Allow adding more images even if batch is active
-            uploadInput.click();
+            if (e.target.closest('#videoTrimPanel') || e.target.closest('#videoPreview')) return;
+            if (currentInputMode === 'video') {
+                videoInput.click();
+            } else {
+                // Allow adding more images even if batch is active
+                uploadInput.click();
+            }
         });
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -460,8 +544,13 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             dropZone.classList.remove('border-blue-500', 'bg-blue-500/5');
             if (e.dataTransfer.files.length) {
-                uploadInput.files = e.dataTransfer.files;
-                handleUpload({ target: uploadInput });
+                if (currentInputMode === 'video') {
+                    videoInput.files = e.dataTransfer.files;
+                    handleVideoUpload({ target: videoInput });
+                } else {
+                    uploadInput.files = e.dataTransfer.files;
+                    handleUpload({ target: uploadInput });
+                }
             }
         });
     }
@@ -474,7 +563,258 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+function switchInputMode(mode) {
+    if (!['image', 'video'].includes(mode) || currentInputMode === mode) return;
+    resetSession(true);
+    currentInputMode = mode;
+
+    const isVideo = mode === 'video';
+    document.getElementById('btnImageMode')?.classList.toggle('active', !isVideo);
+    document.getElementById('btnVideoMode')?.classList.toggle('active', isVideo);
+    document.getElementById('uploadPromptTitle').textContent = isVideo ? 'Select inspection video' : 'Select inspection image(s)';
+    document.getElementById('uploadPromptSubtitle').textContent = isVideo ? 'DRAG AND DROP OR CLICK - ONLY 30 SEC WILL BE PROCESSED' : 'DRAG AND DROP OR CLICK';
+    document.querySelector('#btnRun .btn-text').textContent = isVideo ? 'Run Video Interface' : 'Run Photo Interface';
+
+    const drawBtn = document.getElementById('btnDrawMode');
+    if (drawBtn) {
+        drawBtn.disabled = isVideo;
+        drawBtn.classList.toggle('opacity-40', isVideo);
+        drawBtn.classList.toggle('cursor-not-allowed', isVideo);
+    }
+}
+
+function formatSeconds(seconds) {
+    const safe = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(safe / 60);
+    const secs = (safe % 60).toFixed(1).padStart(4, '0');
+    return mins > 0 ? `${mins}:${secs}` : `${safe.toFixed(1)}s`;
+}
+
+function resetVideoLogs(status = 'Idle') {
+    setVideoProgress(0, 'Waiting');
+    setVideoButtonProgressVisible(false);
+}
+
+function setVideoProgress(percent, message = '') {
+    const bar = document.getElementById('videoProgressBar');
+    const pct = document.getElementById('videoProgressPercent');
+    const label = document.getElementById('videoProgressLabel');
+    const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    if (bar) bar.style.width = `${safePercent}%`;
+    if (pct) pct.textContent = `${safePercent}%`;
+    if (label && message) label.textContent = message;
+}
+
+function setVideoButtonProgressVisible(isVisible) {
+    const wrap = document.getElementById('videoProgressWrap');
+    const btn = document.getElementById('btnRun');
+    if (wrap) wrap.classList.toggle('hidden', !isVisible);
+    if (btn) btn.classList.toggle('is-video-processing', isVisible);
+}
+
+function appendVideoLog(message, level = 'info') {
+    console.debug('[Video]', level, message);
+}
+
+function updateVideoTrimUI() {
+    const slider = document.getElementById('videoTrimSlider');
+    const label = document.getElementById('videoTrimLabel');
+    const durationLabel = document.getElementById('videoDurationLabel');
+    const trimBar = document.getElementById('videoTrimBar');
+    const trimWindow = document.getElementById('videoTrimWindow');
+    const trimHandleLabel = document.getElementById('videoTrimHandleLabel');
+    const trimLength = Math.min(videoTrimDuration, Math.max(0, videoDuration - videoTrimStart));
+
+    if (label) {
+        label.textContent = `${formatSeconds(videoTrimStart)} - ${formatSeconds(videoTrimStart + trimLength)} (${trimLength.toFixed(1)} sec selected)`;
+    }
+    if (durationLabel) {
+        durationLabel.textContent = `${formatSeconds(videoDuration)} total`;
+    }
+    if (trimBar) {
+        const pct = videoDuration > 0 ? Math.min(100, (trimLength / videoDuration) * 100) : 100;
+        trimBar.style.width = `${pct}%`;
+        trimBar.style.marginLeft = videoDuration > 0 ? `${Math.min(100, (videoTrimStart / videoDuration) * 100)}%` : '0%';
+    }
+    if (trimWindow) {
+        const widthPct = videoDuration > 0 ? Math.min(100, (trimLength / videoDuration) * 100) : 100;
+        const leftPct = videoDuration > 0 ? Math.min(100 - widthPct, (videoTrimStart / videoDuration) * 100) : 0;
+        trimWindow.style.width = `${widthPct}%`;
+        trimWindow.style.left = `${leftPct}%`;
+    }
+    if (trimHandleLabel) {
+        trimHandleLabel.textContent = `${trimLength.toFixed(1)} sec`;
+    }
+    if (slider) {
+        slider.max = Math.max(0, videoDuration - trimLength).toFixed(1);
+    }
+    if (slider && Number(slider.value) !== videoTrimStart) {
+        slider.value = String(videoTrimStart);
+    }
+    syncVideoPreviewToTrim();
+    updateVideoPreviewControls();
+}
+
+function getVideoTrimEnd() {
+    return Math.min(videoDuration || 0, videoTrimStart + videoTrimDuration);
+}
+
+function isShowingProcessedVideo() {
+    return Boolean(batchImages[0]?.mediaType === 'video' && batchImages[0]?.processed);
+}
+
+function syncVideoPreviewToTrim(force = false) {
+    const video = document.getElementById('videoPreview');
+    if (!video || !uploadedVideoFile || isShowingProcessedVideo() || !videoDuration) return;
+    const trimEnd = getVideoTrimEnd();
+    if (force || video.currentTime < videoTrimStart || video.currentTime > trimEnd) {
+        video.currentTime = videoTrimStart;
+    }
+    updateVideoPreviewControls();
+}
+
+function getVideoPreviewClipDuration() {
+    const video = document.getElementById('videoPreview');
+    if (isShowingProcessedVideo()) {
+        return Number.isFinite(video?.duration) ? video.duration : 0;
+    }
+    return Math.min(videoTrimDuration, Math.max(0, videoDuration - videoTrimStart));
+}
+
+function getVideoPreviewClipElapsed() {
+    const video = document.getElementById('videoPreview');
+    if (!video) return 0;
+    if (isShowingProcessedVideo()) {
+        return Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    }
+    return Math.max(0, Math.min(getVideoPreviewClipDuration(), video.currentTime - videoTrimStart));
+}
+
+function updateVideoPreviewControls() {
+    const video = document.getElementById('videoPreview');
+    const scrubber = document.getElementById('videoPreviewScrubber');
+    const timeLabel = document.getElementById('videoPreviewTimeLabel');
+    const playBtn = document.getElementById('videoPreviewPlayBtn');
+    const duration = getVideoPreviewClipDuration();
+    const elapsed = getVideoPreviewClipElapsed();
+
+    if (scrubber) {
+        scrubber.max = duration ? String(duration) : '0';
+        scrubber.value = String(Math.min(elapsed, duration || 0));
+    }
+    if (timeLabel) {
+        timeLabel.textContent = `${formatSeconds(elapsed)} / ${formatSeconds(duration)}`;
+    }
+    if (playBtn) {
+        playBtn.innerHTML = `<i class="fa-solid ${video && !video.paused ? 'fa-pause' : 'fa-play'}"></i>`;
+    }
+}
+
+function toggleVideoPreviewPlayback(event) {
+    if (event) event.stopPropagation();
+    const video = document.getElementById('videoPreview');
+    if (!video) return;
+    if (!isShowingProcessedVideo() && (video.currentTime < videoTrimStart || video.currentTime >= getVideoTrimEnd())) {
+        video.currentTime = videoTrimStart;
+    }
+    if (video.paused) {
+        video.play();
+    } else {
+        video.pause();
+    }
+    updateVideoPreviewControls();
+}
+
+function seekVideoPreviewClip(value) {
+    const video = document.getElementById('videoPreview');
+    if (!video) return;
+    const elapsed = Math.max(0, Number(value) || 0);
+    video.currentTime = isShowingProcessedVideo() ? elapsed : videoTrimStart + elapsed;
+    updateVideoPreviewControls();
+}
+
+function handleVideoUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
+    uploadedVideoFile = file;
+    videoObjectUrl = URL.createObjectURL(file);
+    videoDuration = 0;
+    videoTrimStart = 0;
+    videoTrimDuration = 30;
+    resetVideoLogs('Ready');
+    appendVideoLog(`Selected video: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`, 'info');
+
+    batchImages = [{
+        file,
+        name: file.name,
+        src: videoObjectUrl,
+        detections: [],
+        master: null,
+        dims: { width: 0, height: 0 },
+        processed: false,
+        mediaType: 'video'
+    }];
+    activeBatchIndex = 0;
+    detections = [];
+    masterResult = null;
+    imageDimensions = { width: 0, height: 0 };
+
+    const video = document.getElementById('videoPreview');
+    video.src = videoObjectUrl;
+    video.load();
+    video.ontimeupdate = () => {
+        if (!uploadedVideoFile || !videoDuration) {
+            updateVideoPreviewControls();
+            return;
+        }
+        if (!isShowingProcessedVideo() && video.currentTime >= getVideoTrimEnd()) {
+            video.pause();
+            video.currentTime = videoTrimStart;
+        }
+        updateVideoPreviewControls();
+    };
+    video.onplay = updateVideoPreviewControls;
+    video.onpause = updateVideoPreviewControls;
+    video.onloadeddata = updateVideoPreviewControls;
+    video.onloadedmetadata = () => {
+        videoDuration = Number.isFinite(video.duration) ? video.duration : 0;
+        videoTrimDuration = Math.min(30, videoDuration || 30);
+        const slider = document.getElementById('videoTrimSlider');
+        if (slider) {
+            slider.max = Math.max(0, videoDuration - videoTrimDuration).toFixed(1);
+            slider.value = '0';
+        }
+        document.getElementById('videoTrimPanel')?.classList.remove('hidden');
+        updateVideoTrimUI();
+        syncVideoPreviewToTrim(true);
+        appendVideoLog(`Loaded metadata: ${formatSeconds(videoDuration)} total duration`, 'success');
+        appendVideoLog('Drag the trim window to move it, or drag either edge to squeeze the duration.', 'info');
+    };
+
+    document.getElementById('uploadPrompt').classList.add('hidden');
+    document.getElementById('imageContainer').classList.add('hidden');
+    document.getElementById('videoContainer').classList.remove('hidden');
+    document.getElementById('batchStripWrapper').classList.add('hidden');
+
+    const dz = document.getElementById('dropZone');
+    dz.classList.add('py-4', 'border-transparent');
+    dz.classList.remove('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30');
+
+    renderResults();
+    e.target.value = '';
+}
+
+function processMedia() {
+    if (currentInputMode === 'video') {
+        return processVideo();
+    }
+    return processImage();
+}
+
 function handleUpload(e) {
+    if (currentInputMode !== 'image') return;
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
@@ -619,18 +959,42 @@ function resetSession(force = false) {
     activeBatchIndex = -1;
     detections = [];
     uploadedFile = null;
+    uploadedVideoFile = null;
     masterResult = null;
+    videoDuration = 0;
+    videoTrimStart = 0;
+    videoTrimDuration = 30;
+    if (videoObjectUrl) {
+        URL.revokeObjectURL(videoObjectUrl);
+        videoObjectUrl = null;
+    }
 
     // UI Reset
     document.getElementById('uploadPrompt').classList.remove('hidden');
     document.getElementById('batchStripWrapper').classList.add('hidden');
     document.getElementById('imageContainer').classList.add('hidden');
+    document.getElementById('videoContainer')?.classList.add('hidden');
+    document.getElementById('videoTrimPanel')?.classList.add('hidden');
+    const video = document.getElementById('videoPreview');
+    if (video) {
+        video.pause();
+        video.ontimeupdate = null;
+        video.onplay = null;
+        video.onpause = null;
+        video.onloadeddata = null;
+        video.onloadedmetadata = null;
+        video.removeAttribute('src');
+        video.load();
+    }
+    updateVideoPreviewControls();
     document.getElementById('resultBox').innerHTML = '';
     document.getElementById('masterIdentityCard').classList.add('hidden');
     const dz = document.getElementById('dropZone');
     dz.classList.remove('py-4', 'border-transparent');
     dz.classList.add('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30', 'cursor-pointer');
     document.getElementById('upload').value = ''; // Clear file input
+    document.getElementById('videoUpload').value = '';
+    setVideoButtonProgressVisible(false);
 
     // Hide and reset Submit Section
     const submitSection = document.getElementById('submitSection');
@@ -642,6 +1006,7 @@ function resetSession(force = false) {
         finalSubmitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> SUBMIT RESULTS';
     }
 
+    document.querySelector('#btnRun .btn-text').textContent = currentInputMode === 'video' ? 'Run Video Interface' : 'Run Photo Interface';
     showToast("Session reset", "info");
 }
 
@@ -816,6 +1181,133 @@ async function processImage() {
         btn.disabled = false;
         btnText.textContent = "Run Interface";
         loader.classList.add('hidden');
+    }
+}
+
+async function processVideo() {
+    if (!uploadedVideoFile) {
+        showToast("Please upload a video first", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnRun');
+    const btnText = btn.querySelector('.btn-text');
+    const loader = btn.querySelector('.loader');
+    const clipDuration = Math.min(videoTrimDuration, Math.max(0, videoDuration - videoTrimStart));
+
+    btn.disabled = true;
+    loader.classList.remove('hidden');
+    btnText.textContent = `Processing ${clipDuration.toFixed(1)} sec clip...`;
+    resetVideoLogs('Processing');
+    setVideoButtonProgressVisible(true);
+    setVideoProgress(0, 'Starting video job');
+    appendVideoLog(`Preparing upload for ${formatSeconds(videoTrimStart)} - ${formatSeconds(videoTrimStart + clipDuration)} (${clipDuration.toFixed(1)} sec)`, 'active');
+    appendVideoLog('Sending video to backend endpoint /predict_video...', 'active');
+
+    let progressTimer = null;
+    try {
+        activeVideoJobId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `video-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const formData = new FormData();
+        formData.append("video", uploadedVideoFile, uploadedVideoFile.name || "inspection-video.mp4");
+        formData.append("trim_start", String(videoTrimStart || 0));
+        formData.append("trim_duration", String(videoTrimDuration || 30));
+        formData.append("job_id", activeVideoJobId);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 240000);
+        let lastProgressMessage = '';
+        progressTimer = setInterval(async () => {
+            if (!activeVideoJobId) return;
+            try {
+                const progressRes = await fetch(`/api/video_progress/${activeVideoJobId}`, {
+                    headers: { "ngrok-skip-browser-warning": "69420" }
+                });
+                if (!progressRes.ok) return;
+                const progress = await progressRes.json();
+                setVideoProgress(progress.percent || 0, progress.message || 'Processing');
+                if (progress.message && progress.message !== lastProgressMessage) {
+                    appendVideoLog(progress.message, progress.status === 'error' ? 'error' : (progress.status === 'complete' ? 'success' : 'active'));
+                    lastProgressMessage = progress.message;
+                }
+            } catch (pollErr) {
+                console.warn('[VideoProgress] Poll failed', pollErr);
+            }
+        }, 1000);
+
+        const response = await fetch("/predict_video", {
+            method: "POST",
+            headers: { "ngrok-skip-browser-warning": "69420" },
+            body: formData,
+            signal: controller.signal
+        }).finally(() => {
+            clearTimeout(timeoutId);
+            if (progressTimer) clearInterval(progressTimer);
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            appendVideoLog(`Backend returned error: ${errorData.error || response.status}`, 'error');
+            showToast(`Video analysis failed: ${errorData.error || response.status}`, "danger");
+            return;
+        }
+
+        const data = await response.json();
+        setVideoProgress(100, 'Video analysis complete');
+        appendVideoLog(`Backend response received: ${data.processed_frames || 0} frames processed`, 'success');
+        const processedUrl = `${data.video_url}?t=${Date.now()}`;
+        const video = document.getElementById('videoPreview');
+        video.src = processedUrl;
+        video.load();
+        video.onloadedmetadata = updateVideoPreviewControls;
+        video.ontimeupdate = updateVideoPreviewControls;
+        video.onplay = updateVideoPreviewControls;
+        video.onpause = updateVideoPreviewControls;
+        appendVideoLog('Processed video loaded into preview player.', 'success');
+
+        const videoDetections = (data.detections || []).map(d => ({
+            ...d,
+            label: String(d.label || '').toUpperCase(),
+            confirmed: false
+        }));
+
+        batchImages = [{
+            file: uploadedVideoFile,
+            name: uploadedVideoFile.name,
+            src: processedUrl,
+            detections: videoDetections,
+            master: sanitizeMasterResult(data.master),
+            dims: { width: data.width, height: data.height },
+            processed: true,
+            mediaType: 'video',
+            classCounts: data.class_counts || {},
+            frameDetectionCounts: data.frame_detection_counts || {},
+            trimStart: data.trim_start,
+            trimDuration: data.trim_duration || videoTrimDuration
+        }];
+        activeBatchIndex = 0;
+        detections = [...videoDetections];
+        masterResult = batchImages[0].master;
+        surveyResult = data.survey_questionnaire || {};
+        imageDimensions = { ...batchImages[0].dims };
+
+        document.getElementById("videoContainer").classList.remove("hidden");
+        document.getElementById("imageContainer").classList.add("hidden");
+        document.getElementById("submitSection").classList.remove("hidden");
+        renderResults();
+        appendVideoLog(`Detected ${videoDetections.length} pole track result${videoDetections.length === 1 ? '' : 's'} across the selected clip.`, 'success');
+        showToast("Video analysis complete", "success");
+    } catch (err) {
+        if (progressTimer) clearInterval(progressTimer);
+        const message = err.name === 'AbortError' ? "Video processing timed out" : (err.message || "Video processing error");
+        setVideoProgress(100, 'Video analysis failed');
+        appendVideoLog(message, 'error');
+        showToast(message, "danger");
+    } finally {
+        if (progressTimer) clearInterval(progressTimer);
+        btn.disabled = false;
+        btnText.textContent = "Run Video Interface";
+        loader.classList.add('hidden');
+        setVideoButtonProgressVisible(false);
     }
 }
 
@@ -1009,10 +1501,38 @@ function renderResults() {
         container.innerHTML = `
             <div class="text-center py-20 bg-black/30 rounded-2xl border border-dashed border-gray-800">
                 <i class="fa-solid fa-wand-magic-sparkles text-4xl text-gray-700 mb-4 block"></i>
-                <p class="text-gray-600 text-sm italic font-bold">Waiting for analysis results...</p>
+                <p class="text-gray-600 text-sm italic font-bold">${currentInputMode === 'video' ? 'Waiting for video analysis results...' : 'Waiting for analysis results...'}</p>
             </div>
         `;
         return;
+    }
+
+    const activeMedia = batchImages[0]?.mediaType || 'image';
+    if (activeMedia === 'video') {
+        const counts = batchImages[0].classCounts || {};
+        const countEntries = Object.entries(counts).sort(([, a], [, b]) => b - a);
+        const trimStart = Number(batchImages[0].trimStart || 0);
+        const trimDuration = Number(batchImages[0].trimDuration || 0);
+        const summary = document.createElement("div");
+        summary.className = "mb-3 p-4 rounded-2xl border border-blue-500/20 bg-blue-500/5";
+        summary.innerHTML = `
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-film text-blue-400"></i>
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-blue-200">Whole Video Classes</span>
+                </div>
+                <span class="text-[8px] font-mono text-gray-500">${formatSeconds(trimStart)} - ${formatSeconds(trimStart + trimDuration)}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                ${(countEntries.length ? countEntries : [['MAIN_POLE', 0], ['STRUT_POLE', 0]]).map(([label, count]) => `
+                    <div class="p-3 rounded-xl bg-black/25 border border-white/5">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-widest font-bold">${label.replace(/_/g, ' ')}</div>
+                        <div class="text-2xl font-black mt-1" style="color:${CLASS_COLORS[label] || '#94a3b8'}">${count || 0}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        container.appendChild(summary);
     }
 
     // 2. Aggregate all detections across all batch images
@@ -1105,6 +1625,13 @@ function renderResults() {
                 detailStr = `Geometry: ${obj.details.shape} | Conf: ${fakeConfStr}`;
                 metaIcon = "fa-compass-drafting";
             } else if (obj.label.includes('POLE') && obj.details) {
+                if (activeMedia === 'video') {
+                    const appearances = obj.details.appearances || 1;
+                    const fragments = obj.details.track_fragments || 1;
+                    const track = obj.details.track_ids?.length ? `MERGED TRACKS ${obj.details.track_ids.join(',')}` : 'MERGED POLE';
+                    detailStr = `${track} | ${fragments} fragment${fragments === 1 ? '' : 's'} | ${appearances} frame${appearances === 1 ? '' : 's'} | Conf: ${fakeConfStr}`;
+                    metaIcon = obj.label === 'STRUT_POLE' ? "fa-ruler-combined" : "fa-tower-broadcast";
+                } else {
                 const lean = obj.details.lean || 0;
                 const isStrut = obj.details.type === 'strut_pole';
                 const isExtreme = !isStrut && lean > 10;
@@ -1117,6 +1644,7 @@ function renderResults() {
                     const abnormalityTag = isExtreme ? `<span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[7px] border border-rose-500/30 ml-2 animate-pulse">ABNORMALITY</span>` : "";
                     detailStr = `<span class="${leanColor}">LEAN: ${lean}°</span>${abnormalityTag} | MAIN POLE | <span class="text-white/60">Conf: ${fakeConfStr}</span>`;
                     metaIcon = "fa-triangle-exclamation";
+                }
                 }
             } else if (obj.label === 'WIRE_BROKEN') {
                 detailStr = `<span class="text-rose-500 font-bold underline">CRITICAL: SNAPPED CONDUCTOR</span> | Conf: ${fakeConfStr}`;
@@ -1135,6 +1663,7 @@ function renderResults() {
                     <div class="flex items-center gap-2">
                         <p class="text-[10px] font-bold text-gray-200 uppercase tracking-tight">${label} ID-${obj.detIdx + 1}</p>
                         ${batchImages.length > 1 ? `<span class="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded border border-blue-500/30 text-[7px] font-bold">IMAGE ${obj.imgIdx + 1}</span>` : ''}
+                        ${activeMedia === 'video' && obj.details?.frame_time !== undefined ? `<span class="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 rounded border border-emerald-500/20 text-[7px] font-bold">${formatSeconds(obj.details.frame_time)}</span>` : ''}
                     </div>
                     <div class="flex items-center gap-1.5 mt-0.5">
                         <i class="fa-solid ${metaIcon} text-[8px] text-gray-600"></i>
