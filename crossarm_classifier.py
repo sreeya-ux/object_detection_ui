@@ -71,7 +71,7 @@ class PoleOrientationResult:
 
 # ── Adjustment fault checkers ─────────────────────────────────
 
-def check_crossarm_fault(obb_angle_deg: Optional[float]) -> tuple:
+def check_crossarm_fault(obb_angle_deg: Optional[float], tilt_compensation: float = 0.0) -> tuple:
     """
     Checks if a crossarm is misaligned (not level).
 
@@ -83,12 +83,15 @@ def check_crossarm_fault(obb_angle_deg: Optional[float]) -> tuple:
     if obb_angle_deg is None:
         return False, "none", 0.0, "no OBB angle available"
 
+    # Subtract camera tilt compensation to get true structural tilt
+    comp_angle = obb_angle_deg - tilt_compensation
+
     # For a horizontal crossarm, OBB angle should be near 0° (or 90° for
     # the orthogonal interpretation — depends on labeling convention).
     # We measure deviation from horizontal:
-    tilt = min(abs(obb_angle_deg), abs(90 - obb_angle_deg))
+    tilt = min(abs(comp_angle), abs(90 - comp_angle))
     # Take the smaller of the two interpretations
-    tilt = min(tilt, abs(obb_angle_deg - CROSSARM_IDEAL_ANGLE_DEG))
+    tilt = min(tilt, abs(comp_angle - CROSSARM_IDEAL_ANGLE_DEG))
 
     if tilt <= CROSSARM_TOLERANCE_DEG:
         return False, "none", tilt, f"tilt={tilt:.1f}° within ±{CROSSARM_TOLERANCE_DEG}°"
@@ -236,6 +239,7 @@ def classify_crossarm_shape(
     obb_angle_deg: Optional[float] = None,
     insulator_results: list = None,
     native_class: str = "",
+    tilt_compensation: float = 0.0,
 ) -> CrossarmResult:
     """
     Classifies crossarm as straight / v_arm / t_raising (or native labels).
@@ -249,6 +253,7 @@ def classify_crossarm_shape(
         obb_angle_deg  : from OBB detection (None = not available)
         insulator_results: list of InsulatorResult objects
         native_class   : original YOLO class string
+        tilt_compensation: camera tilt compensation offset
     """
     x1, y1, x2, y2 = crossarm_box
     c_w   = x2 - x1
@@ -258,10 +263,12 @@ def classify_crossarm_shape(
     img_h, img_w = img_shape[:2]
 
     # ── Adjustment fault check ────────────────────────────────
-    fault, severity, tilt, fault_note = check_crossarm_fault(obb_angle_deg)
+    fault, severity, tilt, fault_note = check_crossarm_fault(obb_angle_deg, tilt_compensation=tilt_compensation)
 
     # ── AI Native Label Override ──────────────────────────────
-    if "t_rising" in native_class or "t_arm" in native_class:
+    norm_class = native_class.lower().replace("_", " ").strip()
+
+    if "t rising" in norm_class or "t arm" in norm_class or "t-rising" in norm_class or "t rising" in native_class or "t_rising" in native_class:
         return CrossarmResult(
             box=crossarm_box, shape="t_raising", confidence="high",
             aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
@@ -269,7 +276,7 @@ def classify_crossarm_shape(
             tilt_deg=tilt, fault_note=fault_note,
             note=f"Trusting YOLO Native Label: {native_class}"
         )
-    if "v_cross" in native_class or "v_arm" in native_class:
+    if "v cross" in norm_class or "v arm" in norm_class or "v-arm" in norm_class or "v_cross" in native_class or "v_arm" in native_class:
         return CrossarmResult(
             box=crossarm_box, shape="v_arm", confidence="high",
             aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
@@ -277,9 +284,18 @@ def classify_crossarm_shape(
             tilt_deg=tilt, fault_note=fault_note,
             note=f"Trusting YOLO Native Label: {native_class}"
         )
-    if native_class in ["side_arm_channel", "tapping_channel"]:
+    if norm_class in ["side arm channel", "tapping channel", "side arm", "tapping arm", "box arm"] or \
+       any(kw in norm_class for kw in ["side arm", "tapping arm", "box arm", "tapping channel", "side arm channel"]):
+        
+        # Clean standard shape string for app.py UI mapping
+        clean_shape = native_class
+        if "tapping" in norm_class:
+            clean_shape = "tapping_channel"
+        elif "side" in norm_class:
+            clean_shape = "side_arm_channel"
+            
         return CrossarmResult(
-            box=crossarm_box, shape=native_class, confidence="high",
+            box=crossarm_box, shape=clean_shape, confidence="high",
             aspect_ratio=round(ar, 2), obb_angle_deg=obb_angle_deg,
             adjustment_fault=fault, fault_severity=severity,
             tilt_deg=tilt, fault_note=fault_note,

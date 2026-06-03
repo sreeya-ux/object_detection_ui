@@ -15,7 +15,6 @@
     </script>
     <script>window.tailwind={config:{borderColor:'rgba(255,255,255,0.1)'}}</script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --primary: #3b82f6; --danger: #f43f5e; --bg: #030712; }
@@ -93,7 +92,7 @@
     <main class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         <!-- LEFT SIDEBAR -->
-        <div class="lg:col-span-3 space-y-4">
+        <div class="lg:col-span-3 space-y-4 lg:sticky lg:top-4 lg:self-start">
             <div class="studio-card p-5 space-y-5">
 
                 <!-- Diagnostic Result -->
@@ -233,17 +232,17 @@
 
 <script>
 const CLASS_COLORS = {
-    POLE_9M: '#0ea5e9', POLE_11M: '#38bdf8', "POLE_8.1M": '#0284c7',
-    INS_PIN: '#00ff00', INS_DISC: '#22c55e',
+    HT_DISC: '#00ff00', HT_PIN: '#22c55e', LT_PIN: '#84cc16', SHACKLE_INSULATOR: '#14b8a6',
+    INS_PIN: '#00ff00', INS_DISC: '#22c55e', INSULATOR: '#14b8a6',
     T_RISING: '#ff00ff', TAPPING_CHANNEL: '#d946ef', SIDE_ARM_CHANNEL: '#a855f7', V_CROSS: '#f43f5e',
-    CONDUCTOR: '#00ffff', STREET_LIGHT: '#f59e0b', DTR: '#8b5cf6', 
+    CONDUCTOR: '#00ffff', STREET_LIGHT: '#f59e0b', SPECIAL_CLAMP: '#64748b', STAY_SET: '#475569', DTR: '#8b5cf6', 
     WIRE_BROKEN: '#ef4444', VEGETATION: '#fbbf24', OBJECT: '#a8a29e'
 };
 const CLASS_OPTIONS = [
-    'POLE_9M', 'POLE_11M', 'POLE_8.1M',
+    'HT_DISC', 'HT_PIN', 'LT_PIN', 'SHACKLE_INSULATOR',
     'INS_PIN', 'INS_DISC',
     'T_RISING', 'TAPPING_CHANNEL', 'SIDE_ARM_CHANNEL', 'V_CROSS',
-    'CONDUCTOR', 'STREET_LIGHT', 'DTR', 'WIRE_BROKEN', 'VEGETATION', 'OBJECT'
+    'CONDUCTOR', 'STREET_LIGHT', 'SPECIAL_CLAMP', 'STAY_SET', 'DTR', 'WIRE_BROKEN', 'VEGETATION', 'OBJECT'
 ];
 
 // === STATE ===
@@ -259,12 +258,18 @@ function formatB64(src) {
     
     let str = src.toString().trim();
 
-    // Support for new file-based URLs
-    if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png')) {
-        return '/uploads/' + str;
+    // 1. Check if it's already a full URL or a file path
+    if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png') || str.startsWith('/uploads/')) {
+        return str.startsWith('/uploads/') ? str : '/uploads/' + str;
+    }
+
+    // 2. Detection for UUID-style filenames that might be missing extensions
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidPattern.test(str)) {
+        return '/uploads/' + str + '.jpg'; // Fallback to .jpg
     }
     
-    // 1. Recursive removal of ALL possible prefix patterns
+    // 3. Recursive removal of ALL possible prefix patterns
     const prefixPatterns = [
         /^data:image\/[a-z]+;base64,/, 
         /base64,/g,
@@ -282,11 +287,16 @@ function formatB64(src) {
         changed = (before !== cleaned);
     }
     
-    // 2. Final normalization & Whitespace Stripping
+    // 4. Final normalization & Whitespace Stripping
     cleaned = cleaned.trim().replace(/\s/g, '');
     if (cleaned.startsWith('http') || cleaned.startsWith('/uploads/')) return cleaned;
     
-    // 3. Re-apply a single, clean prefix
+    // If it looks like a filename (short, no base64 special chars), don't prefix it as b64
+    if (cleaned.length < 100 && !cleaned.includes('/') && !cleaned.includes('+')) {
+        return '/uploads/' + cleaned + (cleaned.includes('.') ? '' : '.jpg');
+    }
+
+    // 5. Re-apply a single, clean prefix
     return 'data:image/jpeg;base64,' + cleaned;
 }
 
@@ -303,6 +313,14 @@ let selectedBox = null;
 let activeImageIdx = 0;
 let lastSaveTime = 0;
 const assetId = "{{ asset.id }}";
+
+function getDetectionLabel(det) {
+    const rawLabel = (det.label || '').toString().toUpperCase();
+    const detectorClass = det.details?.detector_class?.toString().toUpperCase();
+    if (detectorClass) return detectorClass;
+    if (rawLabel === 'INSULATOR' && det.details?.type) return `INS_${det.details.type}`.toUpperCase();
+    return rawLabel || 'OBJECT';
+}
 
 // === DRAW MODE TOGGLE ===
 function toggleDrawMode() {
@@ -378,7 +396,8 @@ function initSVG(idx) {
     dets.forEach((det, dIdx) => {
         if (!det.bbox || det.bbox.length < 4) return;
         const [x1, y1, x2, y2] = det.bbox;
-        const color = CLASS_COLORS[det.label?.toUpperCase()] || '#a8a29e';
+        const displayLabel = getDetectionLabel(det);
+        const color = CLASS_COLORS[displayLabel] || '#a8a29e';
         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -392,7 +411,7 @@ function initSVG(idx) {
         // Label pill
         const labelG = document.createElementNS("http://www.w3.org/2000/svg", "g");
         const labelText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        labelText.textContent = (det.label || 'OBJECT').toUpperCase();
+        labelText.textContent = displayLabel;
         labelText.setAttribute("x", x1 + 6);
         labelText.setAttribute("y", y1 - 5);
         labelText.setAttribute("font-size", "20");
@@ -401,7 +420,7 @@ function initSVG(idx) {
         labelText.setAttribute("fill", det.manual ? "#f43f5e" : color);
         const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         labelBg.setAttribute("x", x1); labelBg.setAttribute("y", y1 - 28);
-        labelBg.setAttribute("width", Math.max((det.label?.length || 6) * 13, 60));
+        labelBg.setAttribute("width", Math.max(displayLabel.length * 13, 60));
         labelBg.setAttribute("height", 26); labelBg.setAttribute("rx", "6");
         labelBg.setAttribute("fill", `${det.manual ? '#f43f5e' : color}33`);
         labelG.appendChild(labelBg); labelG.appendChild(labelText);
@@ -457,7 +476,7 @@ function renderDetList(idx, dets) {
     if (dets.length === 0) { panel.innerHTML = '<p class="text-[9px] text-gray-600 italic">No detections</p>'; return; }
 
     const groups = {};
-    dets.forEach(d => { const l = d.label?.toUpperCase() || 'OBJECT'; groups[l] = (groups[l]||0)+1; });
+    dets.forEach(d => { const l = getDetectionLabel(d); groups[l] = (groups[l]||0)+1; });
 
     panel.innerHTML = Object.entries(groups).map(([label, count]) => {
         const color = CLASS_COLORS[label] || '#a8a29e';

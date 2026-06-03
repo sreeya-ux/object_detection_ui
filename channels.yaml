@@ -1,0 +1,17 @@
+names:
+  0: insulators
+  1: v_cross_arm
+  2: tapping_arm
+  3: top_cleat
+  4: side_arm
+  5: t_rising
+  6: special_clamp
+  7: street_light
+  8: stay_set
+  9: box_arm
+  10: ab_switch
+  11: dtr
+nc: 12
+path: C:\Users\ASK037-PC\Downloads\object_detection_ui-main\object_detection_ui-main\dataset_channels
+train: images/train
+val: images/train

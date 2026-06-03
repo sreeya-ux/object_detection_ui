@@ -14,7 +14,6 @@
         })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; }
@@ -88,16 +87,26 @@
                 <span class="text-[10px] text-gray-500" id="lastApprovedTime">Loading...</span>
             </div>
 
-            <!-- Progress bar to next retrain -->
-            <div>
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Samples Until Auto-Retrain</span>
-                    <span class="text-[10px] text-purple-400 font-bold" id="sampleProgressLabel">0 / 50</span>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
+                    <div class="text-xl font-bold text-purple-300" id="trainedImagesCount">0</div>
+                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Trained Images</div>
                 </div>
-                <div class="w-full bg-gray-800 rounded-full h-2">
-                    <div id="sampleProgressBar" class="bg-gradient-to-r from-purple-600 to-blue-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
+                    <div class="text-xl font-bold text-blue-300" id="trainedClassCount">0</div>
+                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Classes</div>
+                </div>
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
+                    <div class="text-xl font-bold text-emerald-300" id="trainedAnnotationCount">0</div>
+                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Total Objects Identified</div>
+                </div>
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
+                    <div class="text-xl font-bold text-amber-300" id="avgConfidenceCount">--</div>
+                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Avg Confidence</div>
                 </div>
             </div>
+
+            <!-- Auto-retrain progress removed -->
 
             <!-- Per-class breakdown -->
             <div>
@@ -106,6 +115,16 @@
                     <div class="text-[9px] text-gray-600 italic col-span-full">Loading class stats...</div>
                 </div>
             </div>
+
+            <details class="rounded-xl border border-white/5 bg-gray-900/50">
+                <summary class="cursor-pointer select-none px-3 py-2 text-[9px] text-purple-300 uppercase font-bold tracking-widest flex items-center justify-between">
+                    <span>Active Dataset</span>
+                    <i class="fa-solid fa-chevron-down text-[8px] text-gray-500"></i>
+                </summary>
+                <div id="activeDatasetList" class="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div class="text-[9px] text-gray-600 italic">Loading active datasets...</div>
+                </div>
+            </details>
 
             <!-- Weak classes alert -->
             <div id="weakClassAlert" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
@@ -134,9 +153,9 @@
                                 </button>
                             </div>
                             <div class="flex gap-2">
-                                <button onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50">Pending</button>
-                                <button onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full hover:bg-gray-700">Recent Approved</button>
-                                <button onclick="filterTasks('rejected')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full hover:bg-gray-700">Rejected</button>
+                                <button id="filterBtn-pending" onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50 transition-all">Pending</button>
+                                <button id="filterBtn-approved" onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Recent Approved</button>
+                                <button id="filterBtn-rejected" onclick="filterTasks('rejected')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Rejected</button>
                             </div>
                         </div>
                     </div>
@@ -242,11 +261,18 @@
             
             let str = src.toString().trim();
 
-            // Support for new file-based URLs
-            if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png')) {
-                return '/uploads/' + str;
+            // 1. Check if it's already a full URL or a file path
+            if (str.toLowerCase().endsWith('.jpg') || str.toLowerCase().endsWith('.png') || str.startsWith('/uploads/')) {
+                return str.startsWith('/uploads/') ? str : '/uploads/' + str;
             }
 
+            // 2. Detection for UUID-style filenames that might be missing extensions
+            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (uuidPattern.test(str)) {
+                return '/uploads/' + str + '.jpg'; // Fallback to .jpg if extension is missing
+            }
+
+            // 3. Fallback: Treat as Base64 (strip prefixes first)
             const prefixPatterns = [
                 /^data:image\/[a-z]+;base64,/, 
                 /base64,/g,
@@ -266,6 +292,12 @@
             
             cleaned = cleaned.trim().replace(/\s/g, '');
             if (cleaned.startsWith('http') || cleaned.startsWith('/uploads/')) return cleaned;
+            
+            // If it looks like a filename (short, no base64 special chars), don't prefix it as b64
+            if (cleaned.length < 100 && !cleaned.includes('/') && !cleaned.includes('+')) {
+                return '/uploads/' + cleaned + (cleaned.includes('.') ? '' : '.jpg');
+            }
+
             return 'data:image/jpeg;base64,' + cleaned;
         }
 
@@ -354,8 +386,6 @@
             document.getElementById('modalMainReason').textContent = task.reason || 'Deep analysis pending...';
 
             // Set Download Links
-            document.getElementById('modalDlAnnotated').href = `/api/download_annotated/${taskId}`;
-            document.getElementById('modalDlPdf').href = `/admin/asset/pdf/${taskId}`;
             document.getElementById('modalPathwayLink').href = `/view_pathway/${task.image_db_id}`;
             
             // Draw Overlay
@@ -608,6 +638,18 @@
 
         function filterTasks(status) {
             currentFilter = status;
+            
+            // Update Tab UI
+            ['pending', 'approved', 'rejected'].forEach(s => {
+                const btn = document.getElementById('filterBtn-' + s);
+                if (!btn) return;
+                if (s === status) {
+                    btn.className = "text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50 transition-all";
+                } else {
+                    btn.className = "text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all";
+                }
+            });
+
             loadTasks();
         }
 
@@ -731,37 +773,68 @@
             CROSSARM: '#10b981', STREET_LIGHT: '#f97316', DTR: '#a78bfa', OBJECT: '#ec4899'
         };
 
+        function getTrainClassCategory(cls) {
+            const name = cls.toUpperCase();
+            if (name.includes('INSULATOR')) return 'INSULATOR';
+            if (name.includes('POLE')) return 'POLE';
+            if (name.includes('CONDUCTOR') || name.includes('WIRE') || name.includes('LINE') || name.includes('CLEAT')) return 'CONDUCTOR';
+            if (name.includes('ARM') || name.includes('CROSS') || name.includes('CHANNEL') || name.includes('RISING')) return 'CROSSARM';
+            if (name.includes('LIGHT') || name.includes('LAMP')) return 'STREET_LIGHT';
+            if (name.includes('DTR') || name.includes('TRANSFORMER') || name.includes('SWITCH')) return 'DTR';
+            return 'OBJECT';
+        }
+
         async function loadTrainingStats() {
             try {
                 const res = await fetch('/api/training_stats');
                 if (!res.ok) return;
                 const s = await res.json();
+                const threshold = s.threshold || 50;
+                const avgConfidence = typeof s.avg_confidence === 'number' ? `${Math.round(s.avg_confidence * 100)}%` : '--';
 
-                // Progress bar
-                const pct = Math.min(100, (s.total_samples / s.threshold) * 100);
-                document.getElementById('sampleProgressBar').style.width = pct + '%';
-                document.getElementById('sampleProgressLabel').textContent = `${s.total_samples} / ${s.threshold}`;
+                document.getElementById('trainedImagesCount').textContent = s.trained_images || s.total_samples || 0;
+                document.getElementById('trainedClassCount').textContent = s.total_classes || 0;
+                document.getElementById('trainedAnnotationCount').textContent = s.total_annotations || 0;
+                document.getElementById('avgConfidenceCount').textContent = avgConfidence;
+                const activeDatasetList = document.getElementById('activeDatasetList');
+                if (activeDatasetList) {
+                    activeDatasetList.innerHTML = (s.datasets || []).map(ds => `
+                        <div class="p-2 rounded-lg border border-white/5 bg-black/20">
+                            <div class="text-[9px] text-white font-bold truncate">${ds.name}</div>
+                            <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">${ds.images || 0} images</div>
+                            <div class="text-[8px] text-gray-600">${ds.annotations || 0} objects identified</div>
+                        </div>
+                    `).join('') || '<div class="text-[9px] text-gray-600 italic">No active datasets found.</div>';
+                }
+
+                // Progress bar updates removed
                 document.getElementById('lastApprovedTime').textContent = 
                     s.last_approved ? `Last: ${s.last_approved}` : 'No samples yet';
 
                 // Class breakdown
                 const breakdown = document.getElementById('classBreakdown');
                 const byClass = s.by_class || {};
+                const classConfidence = s.class_confidence || {};
                 if (Object.keys(byClass).length === 0) {
                     breakdown.innerHTML = '<div class="text-[9px] text-gray-600 italic col-span-full">No samples exported yet. Approve assets to begin collecting training data.</div>';
                 } else {
                     breakdown.innerHTML = Object.entries(byClass).map(([cls, cnt]) => {
-                        const color = CLASS_COLORS_TRAIN[cls] || '#a8a29e';
+                        const cat = getTrainClassCategory(cls);
+                        const color = CLASS_COLORS_TRAIN[cat] || '#a8a29e';
                         const pctBar = Math.min(100, (cnt / 300) * 100);
+                        const clsConf = typeof classConfidence[cls] === 'number' ? `${Math.round(classConfidence[cls] * 100)}%` : '--';
+                        const displayName = cls.replace(/_/g, ' ').toUpperCase();
                         return `<div class="p-2 bg-gray-900/50 rounded-lg border border-white/5">
                             <div class="flex justify-between items-center mb-1">
-                                <span class="text-[9px] font-bold uppercase" style="color:${color}">${cls}</span>
+                                <span class="text-[9px] font-bold uppercase" style="color:${color}">${displayName}</span>
                                 <span class="text-[9px] font-mono text-gray-400">${cnt}</span>
                             </div>
                             <div class="w-full bg-gray-800 rounded-full h-1">
                                 <div class="h-1 rounded-full transition-all" style="width:${pctBar}%;background:${color}"></div>
                             </div>
-                            <div class="text-[7px] text-gray-600 mt-0.5">${cnt < 300 ? `Need ${300-cnt} more` : '✓ Ready'}</div>
+                            <div class="text-[7px] text-gray-500 mt-0.5">Identified: ${cnt}</div>
+                            <div class="text-[7px] text-gray-600">Avg Confidence: ${clsConf}</div>
+                            <div class="text-[7px] text-gray-600 mt-0.5">${cnt < 300 ? `Need ${300-cnt} more` : 'Ready'}</div>
                         </div>`;
                     }).join('');
                 }
@@ -851,6 +924,20 @@
             loadTasks();
             loadTrainingStats();
         }, 30000); // Refresh every 30s
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                if (!document.getElementById('btnAdminUndo').disabled) {
+                    undoAdminAction();
+                }
+            }
+            if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+                e.preventDefault();
+                if (!document.getElementById('btnAdminRedo').disabled) {
+                    redoAdminAction();
+                }
+            }
+        });
     </script>
 </body>
 </html>

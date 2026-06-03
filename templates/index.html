@@ -16,11 +16,8 @@
         })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap"
-        rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.3">
 </head>
 
 <body class="bg-[#030712] min-h-screen text-slate-100">
@@ -31,8 +28,11 @@
             class="flex justify-between items-center bg-gray-900/40 p-6 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl">
             <div class="flex items-center gap-4">
                 <div
-                    class="bg-blue-600 w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
-                    <i class="fa-solid fa-microscope text-2xl text-white"></i>
+                    class="w-16 h-16 rounded-2xl flex items-center justify-center bg-white/5 border border-white/10 shadow-lg shadow-blue-900/10 overflow-hidden p-2">
+                    <img
+                        src="{{ url_for('static', filename='images/asakta-logo.png') }}"
+                        alt="Asakta logo"
+                        class="w-full h-full object-contain">
                 </div>
                 <div>
                     <h1 class="text-2xl font-bold tracking-tight text-white leading-none">Asakta <span
@@ -44,6 +44,11 @@
             </div>
 
             <div class="flex items-center gap-6">
+                <!-- Stats Toggle Button -->
+                <button id="btnToggleStats" onclick="toggleStatsDashboard()" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-4 py-2 h-10 rounded-xl border border-blue-500/20 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-chart-simple"></i> Stats
+                </button>
+
                 <div class="text-right hidden sm:block border-r border-white/10 pr-6">
                     <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">Operator Profile</p>
                     <p class="text-sm font-bold text-blue-400">{{ session['user'] }}</p>
@@ -54,6 +59,51 @@
                 </a>
             </div>
         </header>
+
+        <!-- Performance Dashboard -->
+        <div id="statsDashboardContainer" class="hidden space-y-6 animate-fade-in">
+            <div class="flex justify-between items-center">
+                <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <i class="fa-solid fa-chart-line text-blue-500"></i> Performance Overview
+                </h2>
+                <!-- Active Datasets / Models Collapsible Button -->
+                <button id="btnActiveDatasets" onclick="toggleActiveDatasetsModal()" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-3 py-1.5 rounded-lg border border-blue-500/20 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                    <i class="fa-solid fa-cube"></i> Datasets & Models
+                </button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in">
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg">
+                    <div class="text-3xl font-bold text-blue-400 font-mono" id="statImagesTrained">0</div>
+                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Total Images Annotated</div>
+                </div>
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg">
+                    <div class="text-3xl font-bold text-purple-400 font-mono" id="statClassesTrained">0</div>
+                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Total Classes</div>
+                </div>
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg">
+                    <div class="text-3xl font-bold text-emerald-400 font-mono" id="statTotalAnnotations">0</div>
+                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Total Objects Identified</div>
+                </div>
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg">
+                    <div class="text-3xl font-bold text-amber-400 font-mono" id="statAvgConfidence">0%</div>
+                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Avg Confidence</div>
+                </div>
+            </div>
+            
+            <!-- Dynamic Breakdown Grid (Frequency Full-Width) -->
+            <div class="animate-fade-in">
+                <!-- Class Annotation Frequency -->
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl shadow-xl space-y-4">
+                    <h3 class="text-[10px] font-bold text-purple-400 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-tags text-purple-400"></i> Class Annotation Frequency
+                    </h3>
+                    <div id="classesList" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+                        <div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold col-span-2">Parsing label files...</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
 
         <!-- Draft Restore Banner -->
         <div id="draftRestoreBanner" class="hidden flex items-center justify-between bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl gap-4 animate-in slide-in-from-top duration-300">
@@ -76,9 +126,9 @@
             </div>
         </div>
 
-        <main class="dashboard-grid gap-8">
+        <main id="mainWorkspaceContainer" class="dashboard-grid gap-8">
             <!-- Left Side: Input & Action -->
-            <div class="space-y-6">
+            <div class="space-y-6 lg:sticky lg:top-8 lg:self-start">
                 <!-- 1. ENTER INPUT IMAGE (Top) -->
                 <div class="card bg-gray-900/60 border-white/5 shadow-inner">
                     <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -154,20 +204,12 @@
 
             <!-- Right Side: Analysis Results -->
             <div class="space-y-6 flex flex-col h-full">
-                <div class="card bg-gray-900/60 border-white/5 flex-1 flex flex-col min-h-[600px]">
+                <div class="card bg-gray-900/60 border-white/5 flex-1 flex flex-col min-h-[750px]">
                     <div class="flex items-center justify-between mb-6">
                         <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                             <i class="fa-solid fa-brain text-blue-500 text-xs"></i> 
                             REAL-TIME ANALYSIS
                         </h2>
-                        <div class="flex items-center gap-1.5">
-                            <button onclick="undo()" class="bg-white/5 hover:bg-white/10 w-8 h-8 rounded-lg flex items-center justify-center transition-all">
-                                <i class="fa-solid fa-rotate-left text-[10px] text-gray-500"></i>
-                            </button>
-                            <button onclick="redo()" class="bg-white/5 hover:bg-white/10 w-8 h-8 rounded-lg flex items-center justify-center transition-all">
-                                <i class="fa-solid fa-rotate-right text-[10px] text-gray-500"></i>
-                            </button>
-                        </div>
                     </div>
 
                     <!-- Master Identity Card -->
@@ -178,7 +220,22 @@
                        </div>
                        <h1 id="masterClass" class="text-lg font-bold text-white mb-2 leading-tight tracking-tight">ANALYZING...</h1>
                        
-                       <div id="poleStabilityRow" class="hidden flex items-center justify-between py-2 border-t border-white/5 mb-2 mt-2">
+                        <div id="poleIdRow" class="flex items-center gap-2 mb-3 bg-white/5 p-2 rounded-lg border border-white/5">
+                            <i class="fa-solid fa-id-card text-[10px] text-blue-400"></i>
+                            <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Asset ID:</span>
+                            <span id="masterPoleId" class="text-[10px] font-mono text-white font-bold">---</span>
+                        </div>
+                        <div id="poleTextLinesRow" class="hidden mb-3 bg-white/5 p-2 rounded-lg border border-white/5">
+                            <div class="flex items-start gap-2">
+                                <i class="fa-solid fa-font text-[10px] text-blue-400 mt-0.5"></i>
+                                <div class="min-w-0">
+                                    <div class="text-[8px] text-gray-500 font-bold uppercase tracking-widest mb-1">Tag Text</div>
+                                    <div id="masterPoleExtraLines" class="text-[10px] font-mono text-white font-bold whitespace-pre-line">---</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="poleStabilityRow" class="hidden flex items-center justify-between py-2 border-t border-white/5 mb-2 mt-2">
                            <span class="text-[9px] text-gray-500 font-bold uppercase">Stability</span>
                            <div class="flex items-center gap-2">
                                <span id="poleLeanAngle" class="text-[10px] font-mono text-white">0.0°</span>
@@ -186,9 +243,10 @@
                            </div>
                        </div>
                        
-                       <!-- Max Batch Hardware Counts -->
-                       <div id="batchCountsRow" class="hidden flex flex-wrap gap-1.5 py-2 border-t border-white/5 mb-2">
+                       <div id="batchCountsRow" class="hidden flex flex-wrap gap-2 py-2 border-t border-white/5 mb-2 mt-2">
                        </div>
+
+                       <p id="masterReason" class="text-[10px] text-gray-400 italic pt-2 border-t border-white/5">Gathering signals from image...</p>
                     </div>
 
                     <!-- Results List -->
@@ -228,6 +286,290 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <!-- Datasets & Models Modal -->
+    <div id="datasetsModalBackdrop" onclick="toggleActiveDatasetsModal()" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] transition-opacity duration-300"></div>
+    <div id="datasetsModal" class="hidden fixed z-[101] bg-gray-900 border border-white/10 p-6 rounded-2xl shadow-2xl w-[95%] max-w-[850px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform scale-95 transition-all duration-300">
+        <div class="space-y-4">
+            <div class="flex justify-between items-center pb-3 border-b border-white/5">
+                <h3 class="text-xs font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2 font-['Outfit']">
+                    <i class="fa-solid fa-cube"></i> Datasets & Models
+                </h3>
+                <button onclick="toggleActiveDatasetsModal()" class="text-gray-500 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[70vh] overflow-y-auto pr-1 custom-scrollbar">
+                <!-- Left Section: Active Datasets -->
+                <div class="space-y-3">
+                    <h4 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-1.5 pb-2 border-b border-white/5">
+                        <i class="fa-solid fa-database"></i> Active Dataset Folders
+                    </h4>
+                    <div id="datasetsList" class="space-y-3">
+                        <div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">Scanning dataset folders...</div>
+                    </div>
+                </div>
+                <!-- Right Section: Trained Model Files -->
+                <div class="space-y-3">
+                    <h4 class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 pb-2 border-b border-white/5">
+                        <i class="fa-solid fa-brain"></i> Trained Model Files
+                    </h4>
+                    <div id="modelsList" class="space-y-3">
+                        <div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">Loading model files...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v=3.1"></script>
+    <script>
+        let userStatsInFlight = false;
+        let userStatsRetryDelay = 30000;
+
+        async function loadUserStats() {
+            if (userStatsInFlight) return;
+            userStatsInFlight = true;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            try {
+                const res = await fetch('/api/training_stats', {
+                    signal: controller.signal,
+                    cache: 'no-store'
+                });
+                if (!res.ok) return;
+                const s = await res.json();
+                userStatsRetryDelay = 30000;
+                
+                // Update basic metrics
+                document.getElementById('statImagesTrained').textContent = s.total_samples || 0;
+                document.getElementById('statClassesTrained').textContent = s.total_classes || 0;
+                document.getElementById('statTotalAnnotations').textContent = s.total_annotations || 0;
+                
+                // Read from s.avg_confidence (float 0-1) or s.overall_avg_confidence (percentage)
+                let displayAvgConf = 0;
+                if (typeof s.avg_confidence === 'number') {
+                    displayAvgConf = Math.round(s.avg_confidence * 100);
+                } else if (typeof s.overall_avg_confidence === 'number') {
+                    displayAvgConf = s.overall_avg_confidence;
+                }
+                document.getElementById('statAvgConfidence').textContent = displayAvgConf + '%';
+
+                // Helper to match granular class name to detection average confidence
+                const getAvgConf = (clsName, avgConfs) => {
+                    if (!avgConfs) return '0.0%';
+                    const name = clsName.toUpperCase().replace(/\s+/g, '_');
+                    
+                    const getRawVal = (k) => {
+                        let val = avgConfs[k];
+                        if (val === undefined) return undefined;
+                        // If it's a float between 0 and 1 (like 0.88), convert to percent (88)
+                        if (typeof val === 'number' && val > 0 && val <= 1) {
+                            return Math.round(val * 100);
+                        }
+                        return val;
+                    };
+
+                    let directVal = getRawVal(name);
+                    if (directVal !== undefined) return directVal + '%';
+                    
+                    // Singular/plural fallbacks
+                    if (name.includes('INS_') || name.includes('INSULATOR') || name.includes('INSULATORS')) {
+                        let insVal = getRawVal('INSULATOR') || getRawVal('INSULATORS') || getRawVal('INS_PIN') || getRawVal('INS_DISC');
+                        if (insVal !== undefined) return insVal + '%';
+                    }
+                    if (name.includes('POLE')) {
+                        let poleVal = getRawVal('POLE') || getRawVal('STRUT_POLE') || getRawVal('MAIN_POLE');
+                        if (poleVal !== undefined) return poleVal + '%';
+                    }
+                    if (name.includes('CONDUCTOR') || name.includes('WIRE') || name.includes('CABLE')) {
+                        let condVal = getRawVal('CONDUCTOR') || getRawVal('WIRE_BROKEN');
+                        if (condVal !== undefined) return condVal + '%';
+                    }
+                    if (name.includes('CROSS') || name.includes('ARM') || name.includes('CHANNEL') || name.includes('CLEAT')) {
+                        let armVal = getRawVal('CROSSARM') || getRawVal('V_CROSS_ARM') || getRawVal('SIDE_ARM') || getRawVal('TAPPING_ARM') || getRawVal('TOP_CLEAT') || getRawVal('BOX_ARM');
+                        if (armVal !== undefined) return armVal + '%';
+                    }
+                    if (name.includes('LIGHT') || name.includes('LAMP')) {
+                        let lightVal = getRawVal('STREET_LIGHT');
+                        if (lightVal !== undefined) return lightVal + '%';
+                    }
+                    
+                    for (const key in avgConfs) {
+                        if (name.includes(key) || key.includes(name)) {
+                            let val = getRawVal(key);
+                            if (val !== undefined) return val + '%';
+                        }
+                    }
+                    return '0.0%';
+                };
+
+                // Update Active Dataset Folders
+                const datasetsContainer = document.getElementById('datasetsList');
+                if (datasetsContainer && s.datasets) {
+                    if (s.datasets.length === 0) {
+                        datasetsContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">No active datasets found</div>`;
+                    } else {
+                        datasetsContainer.innerHTML = s.datasets.map(d => `
+                            <div class="flex justify-between items-center bg-gray-950/40 p-3.5 rounded-xl border border-white/5 hover:border-blue-500/20 transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-blue-500/10 text-blue-400 w-8 h-8 rounded-lg flex items-center justify-center border border-blue-500/25">
+                                        <i class="fa-solid fa-folder-open text-xs"></i>
+                                    </div>
+                                    <div class="text-left">
+                                        <div class="text-[11px] font-bold text-white">${d.name}</div>
+                                        <div class="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">${d.annotations || 0} objects identified</div>
+                                    </div>
+                                </div>
+                                <div class="text-[11px] font-mono font-bold text-blue-400 bg-blue-500/5 px-2.5 py-1 rounded-lg border border-blue-500/10">${d.count} images</div>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // Update Class Annotation Frequencies
+                const classesContainer = document.getElementById('classesList');
+                if (classesContainer && s.by_class) {
+                    const totalAnns = s.total_annotations || 1;
+                    const sortedClasses = Object.entries(s.by_class).sort((a, b) => b[1] - a[1]);
+                    
+                    if (sortedClasses.length === 0) {
+                        classesContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold col-span-2">No identified objects found</div>`;
+                    } else {
+                        // Accept both backend key class_confidence or avg_confidences fallback
+                        const confidenceSource = s.class_confidence || s.avg_confidences || {};
+                        classesContainer.innerHTML = sortedClasses.map(([cname, count]) => {
+                            const pct = Math.min(100, Math.round((count / totalAnns) * 100));
+                            const confStr = getAvgConf(cname, confidenceSource);
+                            return `
+                                <div class="space-y-2 p-3 bg-gray-955/20 rounded-xl border border-white/5 hover:border-purple-500/20 transition-all">
+                                    <div class="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight">
+                                        <span class="text-gray-300">${cname}</span>
+                                        <span class="text-purple-400 font-mono bg-purple-500/5 px-2 py-0.5 rounded border border-purple-500/10">${count} identified (${pct}%)</span>
+                                    </div>
+                                    <div class="w-full bg-gray-950/80 h-1.5 rounded-full overflow-hidden border border-white/5">
+                                        <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                                    </div>
+                                    <div class="flex justify-between items-center text-[8px] text-gray-500 font-mono">
+                                        <span>Average Confidence</span>
+                                        <span class="text-blue-400 font-bold">${confStr}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+
+                // Update Trained Model Files
+                const modelsContainer = document.getElementById('modelsList');
+                if (modelsContainer && s.models) {
+                    if (s.models.length === 0) {
+                        modelsContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">No model files found</div>`;
+                    } else {
+                        const modelColors = [
+                            { border: 'border-blue-500/20', bg: 'bg-blue-500/5', icon: 'text-blue-400', badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20', bar: 'from-blue-500 to-cyan-400' },
+                            { border: 'border-emerald-500/20', bg: 'bg-emerald-500/5', icon: 'text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', bar: 'from-emerald-500 to-teal-400' },
+                            { border: 'border-violet-500/20', bg: 'bg-violet-500/5', icon: 'text-violet-400', badge: 'bg-violet-500/10 text-violet-400 border-violet-500/20', bar: 'from-violet-500 to-purple-400' },
+                        ];
+                        modelsContainer.innerHTML = s.models.map((m, i) => {
+                            const c = modelColors[i % modelColors.length];
+                            const statusDot = m.exists
+                                ? `<span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] inline-block"></span>`
+                                : `<span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>`;
+                            const statusText = m.exists ? 'Active' : 'Not Found';
+                            const sizeStr = m.size_mb !== null ? `${m.size_mb} MB` : '--';
+                            const classPreview = (m.classes || []).slice(0, 4).join(', ') + (m.classes && m.classes.length > 4 ? ` +${m.classes.length - 4} more` : '');
+                            return `
+                                <div class="p-4 rounded-2xl border ${c.border} ${c.bg} flex flex-col gap-3 hover:scale-[1.01] transition-all shadow-lg">
+                                    <div class="flex items-start justify-between">
+                                        <div class="w-10 h-10 rounded-xl bg-black/30 border ${c.border} flex items-center justify-center shrink-0">
+                                            <i class="fa-solid fa-microchip ${c.icon} text-sm"></i>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg border ${c.badge} text-[8px] font-bold uppercase tracking-widest">
+                                            ${statusDot} ${statusText}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="text-[11px] font-bold text-white font-mono leading-tight break-all">${m.label}</div>
+                                        <div class="text-[9px] text-gray-500 mt-1 uppercase tracking-wider">${m.description}</div>
+                                    </div>
+                                    <div class="flex items-center justify-between text-[9px] text-gray-500 border-t border-white/5 pt-2 mt-auto">
+                                        <span class="font-mono">${m.num_classes} classes</span>
+                                        <span class="font-mono font-bold ${c.icon}">${sizeStr}</span>
+                                    </div>
+                                    <div class="text-[8px] text-gray-600 font-mono leading-relaxed">${classPreview}</div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+            } catch (e) {
+                userStatsRetryDelay = Math.min(userStatsRetryDelay * 2, 120000);
+            } finally {
+                clearTimeout(timeoutId);
+                userStatsInFlight = false;
+            }
+        }
+
+        function toggleActiveDatasetsModal() {
+            const backdrop = document.getElementById('datasetsModalBackdrop');
+            const modal = document.getElementById('datasetsModal');
+            if (modal.classList.contains('hidden')) {
+                backdrop.classList.remove('hidden');
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    modal.classList.remove('scale-95');
+                    modal.classList.add('scale-100');
+                }, 10);
+            } else {
+                modal.classList.remove('scale-100');
+                modal.classList.add('scale-95');
+                setTimeout(() => {
+                    backdrop.classList.add('hidden');
+                    modal.classList.add('hidden');
+                }, 150);
+            }
+        }
+
+        function toggleStatsDashboard() {
+            const container = document.getElementById('statsDashboardContainer');
+            const btn = document.getElementById('btnToggleStats');
+            const workspace = document.getElementById('mainWorkspaceContainer');
+            const banner = document.getElementById('draftRestoreBanner');
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                btn.classList.add('bg-blue-600', 'text-white');
+                btn.classList.remove('bg-blue-600/10', 'text-blue-400');
+                btn.innerHTML = `<i class="fa-solid fa-xmark"></i> Stats`;
+                if (workspace) workspace.classList.add('hidden');
+                if (banner) banner.classList.add('hidden');
+                // Scroll to stats dashboard beautifully
+                container.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                container.classList.add('hidden');
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('bg-blue-600/10', 'text-blue-400');
+                btn.innerHTML = `<i class="fa-solid fa-chart-simple"></i> Stats`;
+                if (workspace) workspace.classList.remove('hidden');
+                // Restore draft banner if draft exists
+                const raw = localStorage.getItem('asakta_worker_draft');
+                if (raw && banner) {
+                    banner.classList.remove('hidden');
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadUserStats);
+        // Refresh quietly; if the server is busy, back off instead of spamming errors.
+        setInterval(() => {
+            if (userStatsRetryDelay <= 30000) loadUserStats();
+        }, 30000);
+        setInterval(() => {
+            if (userStatsRetryDelay > 30000) {
+                userStatsRetryDelay -= 30000;
+                if (userStatsRetryDelay <= 30000) loadUserStats();
+            }
+        }, 30000);
+    </script>
 </body>
 </html>

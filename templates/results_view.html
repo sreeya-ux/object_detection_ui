@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Separated AI Analysis Pathway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@400;700&family=JetBrains+Mono&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #030712; color: #f3f4f6; }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-4xl mx-auto">
+        <header class="flex items-center justify-between mb-12">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
+                    <i class="fa-solid fa-microchip text-blue-400 text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold font-['Outfit'] tracking-tight">AI Results Pathway</h1>
+                    <p class="text-xs text-gray-500 font-mono">Decoupled Analysis · PostgreSQL Source</p>
+                </div>
+            </div>
+            <a href="/admin" class="text-xs bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl border border-white/5 transition-all">
+                <i class="fa-solid fa-arrow-left mr-2"></i> Back to Dashboard
+            </a>
+        </header>
+
+        <div class="bg-gray-900/50 border border-white/5 rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
+            <div class="flex items-center gap-2 mb-8">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Linked Results for Image ID: <span class="text-blue-400" id="imageID">--</span></p>
+            </div>
+
+            <div id="resultsContent" class="space-y-8">
+                <!-- Data will load here -->
+                <div class="animate-pulse flex space-y-4 flex-col">
+                    <div class="h-4 bg-white/5 rounded w-1/4"></div>
+                    <div class="h-20 bg-white/5 rounded w-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-12 text-center">
+            <p class="text-[10px] text-gray-600 font-mono uppercase tracking-[0.2em]">Asakta Vision AI · Decoupled Data Model v2.0</p>
+        </footer>
+    </div>
+
+    <script>
+        const imageId = window.location.pathname.split('/').pop();
+        document.getElementById('imageID').textContent = imageId;
+
+        async function loadData() {
+            try {
+                const res = await fetch(`/api/get_results/${imageId}`);
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    const dets = data.detections || [];
+                    const content = document.getElementById('resultsContent');
+                    
+                    let html = `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                <p class="text-[9px] text-gray-500 font-bold uppercase mb-4 tracking-wider">Pole Orientation</p>
+                                <div class="flex items-end gap-3">
+                                    <span class="text-4xl font-bold font-['Outfit']">${data.pole_angle}°</span>
+                                    <span class="text-xs text-gray-500 pb-1">Leaning Angle</span>
+                                </div>
+                            </div>
+                            <div class="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                <p class="text-[9px] text-gray-500 font-bold uppercase mb-4 tracking-wider">Total Detections</p>
+                                <div class="flex items-end gap-3">
+                                    <span class="text-4xl font-bold font-['Outfit']">${dets.length}</span>
+                                    <span class="text-xs text-gray-500 pb-1">Identified Objects</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="text-[9px] text-gray-500 font-bold uppercase mb-4 tracking-wider">Raw JSON Pathway (Separated Data)</p>
+                            <pre class="p-6 bg-black/40 rounded-2xl border border-white/5 text-[11px] font-mono text-emerald-400 overflow-x-auto">${JSON.stringify(dets, null, 4)}</pre>
+                        </div>
+                    `;
+                    content.innerHTML = html;
+                } else {
+                    document.getElementById('resultsContent').innerHTML = `<p class="text-rose-400 font-bold">Error: ${data.message}</p>`;
+                }
+            } catch (e) {
+                document.getElementById('resultsContent').innerHTML = `<p class="text-rose-400 font-bold">Failed to connect to Pathway API.</p>`;
+            }
+        }
+        loadData();
+    </script>
+</body>
+</html>

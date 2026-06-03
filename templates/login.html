@@ -4,9 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Asakta Vision AI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Login - Asakta Vision</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -18,7 +16,14 @@
         }
 
         body {
-            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
             background: var(--bg);
             background-image:
                 radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
@@ -27,12 +32,107 @@
             overflow: hidden;
         }
 
+        * {
+            box-sizing: border-box;
+        }
+
+        .w-full { width: 100%; }
+        .max-w-md { max-width: 448px; }
+        .relative { position: relative; }
+        .absolute { position: absolute; }
+        .hidden { display: none; }
+        .flex { display: flex; }
+        .block { display: block; }
+        .inline-flex { display: inline-flex; }
+        .items-center { align-items: center; }
+        .justify-center { justify-content: center; }
+        .text-center { text-align: center; }
+        .space-y-8 > * + * { margin-top: 32px; }
+        .space-y-6 > * + * { margin-top: 24px; }
+        .space-y-4 > * + * { margin-top: 16px; }
+        .space-y-3 > * + * { margin-top: 12px; }
+        .space-y-2 > * + * { margin-top: 8px; }
+        .gap-3 { gap: 12px; }
+        .gap-2 { gap: 8px; }
+        .p-10 { padding: 40px; }
+        .p-4 { padding: 16px; }
+        .p-3 { padding: 12px; }
+        .mt-6 { margin-top: 24px; }
+        .mt-4 { margin-top: 16px; }
+        .mt-2 { margin-top: 8px; }
+        .mb-2 { margin-bottom: 8px; }
+        .ml-1 { margin-left: 4px; }
+        .pt-4 { padding-top: 16px; }
+        .pl-12 { padding-left: 48px; }
+        .pr-4 { padding-right: 16px; }
+        .pr-12 { padding-right: 48px; }
+        .py-4 { padding-top: 16px; padding-bottom: 16px; }
+        .py-3\\.5 { padding-top: 14px; padding-bottom: 14px; }
+        .px-3 { padding-left: 12px; padding-right: 12px; }
+        .py-1 { padding-top: 4px; padding-bottom: 4px; }
+        .w-16 { width: 64px; }
+        .h-16 { height: 64px; }
+        .w-24 { width: 96px; }
+        .h-24 { height: 96px; }
+        .text-3xl { font-size: 30px; line-height: 36px; }
+        .text-sm { font-size: 14px; line-height: 20px; }
+        .text-xs { font-size: 12px; line-height: 16px; }
+        .text-\\[10px\\] { font-size: 10px; }
+        .font-bold { font-weight: 700; }
+        .font-medium { font-weight: 500; }
+        .font-mono { font-family: Consolas, monospace; }
+        .tracking-tight { letter-spacing: 0; }
+        .leading-none { line-height: 1; }
+        .rounded-2xl { border-radius: 16px; }
+        .rounded-xl { border-radius: 12px; }
+        .rounded-full { border-radius: 999px; }
+        .border { border-width: 1px; border-style: solid; }
+        .border-t { border-top: 1px solid rgb(31, 41, 55); }
+        .outline-none { outline: none; }
+        .transition-colors, .transition-all { transition: all 0.2s ease; }
+
         .glass-card {
             background: var(--card-bg);
             backdrop-filter: blur(12px);
             border: 1px solid var(--border);
             border-radius: 24px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        h1, p {
+            margin: 0;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        label {
+            display: block;
+        }
+
+        input {
+            width: 100%;
+            color: #fff;
+            font: inherit;
+        }
+
+        button {
+            width: 100%;
+            border: 0;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .icon-button {
+            width: auto;
+            background: transparent;
+            color: #6b7280;
+            padding: 0;
+        }
+
+        .icon-button:hover {
+            color: #9ca3af;
         }
 
         .input-group input {
@@ -73,10 +173,38 @@
                 transform: translateY(-10px);
             }
         }
+
+        .bg-blue-600 { background: #2563eb; }
+        .hover\:bg-blue-500:hover { background: #3b82f6; }
+        .bg-blue-500\/10 { background: rgba(59, 130, 246, 0.1); }
+        .bg-red-500\/10 { background: rgba(239, 68, 68, 0.1); }
+        .border-blue-500\/20 { border-color: rgba(59, 130, 246, 0.2); }
+        .border-red-500\/20 { border-color: rgba(239, 68, 68, 0.2); }
+        .border-gray-800 { border-color: #1f2937; }
+        .text-white { color: #fff; }
+        .text-blue-500 { color: #3b82f6; }
+        .text-blue-400 { color: #60a5fa; }
+        .text-gray-400 { color: #9ca3af; }
+        .text-gray-500 { color: #6b7280; }
+        .text-red-400 { color: #f87171; }
+        .hover\:text-white:hover { color: #fff; }
+
+        .top-1\/2 { top: 50%; }
+        .left-4 { left: 16px; }
+        .-translate-y-1\/2 { transform: translateY(-50%); }
+        .-top-12 { top: -48px; }
+        .-left-12 { left: -48px; }
+        .-bottom-12 { bottom: -48px; }
+        .-right-12 { right: -48px; }
+        .blur-3xl { filter: blur(44px); }
+        .bg-blue-600\/20 { background: rgba(37, 99, 235, 0.2); }
+        .bg-blue-600\/10 { background: rgba(37, 99, 235, 0.1); }
+
+        .right-4 { right: 16px; }
     </style>
 </head>
 
-<body class="min-h-screen flex items-center justify-center p-6">
+<body>
     <div class="w-full max-w-md">
         <div class="glass-card p-10 space-y-8 relative">
             <div class="absolute -top-12 -left-12 w-24 h-24 bg-blue-600/20 rounded-full blur-3xl"></div>
@@ -84,8 +212,11 @@
 
             <div class="text-center space-y-3">
                 <div
-                    class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl shadow-lg shadow-blue-900/20 mb-2 animate-float">
-                    <i class="fa-solid fa-microscope text-3xl text-white"></i>
+                    class="inline-flex items-center justify-center w-20 h-20 bg-white/5 border border-white/10 rounded-2xl shadow-lg shadow-blue-900/10 mb-2 animate-float overflow-hidden p-2">
+                    <img
+                        src="{{ url_for('static', filename='images/asakta-logo.png') }}"
+                        alt="Asakta logo"
+                        class="w-full h-full object-contain">
                 </div>
                 <h1 class="text-3xl font-bold tracking-tight text-white">Asakta <span
                         class="text-blue-500">Vision</span></h1>
@@ -107,12 +238,12 @@
             </div>
             {% endif %}
 
-            <form action="/login" method="POST" class="space-y-6">
+            <form id="loginForm" class="space-y-6">
                 <div class="space-y-2 input-group text-sm">
                     <label class="text-gray-400 ml-1 font-medium">Username</label>
                     <div class="relative">
                         <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
-                        <input type="text" name="username"
+                        <input type="text" name="username" id="username"
                             class="w-full pl-12 pr-4 py-3.5 rounded-xl text-white outline-none"
                             placeholder="Enter username" required>
                     </div>
@@ -122,10 +253,18 @@
                     <label class="text-gray-400 ml-1 font-medium">Password</label>
                     <div class="relative">
                         <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
-                        <input type="password" name="password"
-                            class="w-full pl-12 pr-4 py-3.5 rounded-xl text-white outline-none" placeholder="••••••••"
+                        <input type="password" name="password" id="password"
+                            class="w-full pl-12 pr-12 py-3.5 rounded-xl text-white outline-none" placeholder="••••••••"
                             required>
+                        <button type="button" id="togglePassword" class="icon-button absolute right-4 top-1/2 -translate-y-1/2" aria-label="Show password">
+                            <i class="fa-regular fa-eye"></i>
+                        </button>
                     </div>
+                </div>
+
+                <div id="errorMessage" class="hidden bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-xl text-sm items-center gap-3 mt-4">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span id="errorText"></span>
                 </div>
 
                 <button type="submit"
@@ -137,11 +276,61 @@
             <div class="text-center mt-6 space-y-4">
                 <a href="/signup" class="block text-sm text-gray-400 hover:text-white transition-colors">Don't have an account? <span class="text-blue-500 font-medium">Sign up</span></a>
                 <p class="text-xs text-gray-500 font-medium border-t border-gray-800 pt-4 cursor-default">
-                    &copy; 2026 Asakta Technologies Group
+                    &copy; 2026 Asakta Electronics and Communication Private Limited
                 </p>
             </div>
         </div>
     </div>
+    
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(event) {
+            event.preventDefault(); // Prevent default form submission
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+            
+            errorDiv.classList.add('hidden');
+            errorDiv.classList.remove('flex');
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    window.location.href = data.redirect;
+                } else {
+                    errorText.textContent = data.message || "Login failed. Please try again.";
+                    errorDiv.classList.remove('hidden');
+                    errorDiv.classList.add('flex');
+                }
+            } catch (error) {
+                console.error("Login error:", error);
+                errorText.textContent = "A network error occurred. Please try again.";
+                errorDiv.classList.remove('hidden');
+                errorDiv.classList.add('flex');
+            }
+        });
+
+        const passwordInput = document.getElementById('password');
+        const togglePasswordButton = document.getElementById('togglePassword');
+        const togglePasswordIcon = togglePasswordButton.querySelector('i');
+
+        togglePasswordButton.addEventListener('click', function() {
+            const showPassword = passwordInput.type === 'password';
+            passwordInput.type = showPassword ? 'text' : 'password';
+            togglePasswordIcon.className = showPassword ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+            togglePasswordButton.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
+        });
+    </script>
 </body>
 
 </html>
