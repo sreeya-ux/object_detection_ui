@@ -74,6 +74,8 @@ VIDEO_RESULTS_FOLDER = os.path.join("static", "results")
 os.makedirs(VIDEO_RESULTS_FOLDER, exist_ok=True)
 VIDEO_LOG_FILE = "video_processing.log"
 VIDEO_PROGRESS = {}
+VIDEO_INFER_IMGSZ = int(os.environ.get("VIDEO_INFER_IMGSZ", "416") or 416)
+VIDEO_OUTPUT_MAX_WIDTH = int(os.environ.get("VIDEO_OUTPUT_MAX_WIDTH", "960") or 960)
 
 def log_video(message):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -1352,6 +1354,15 @@ def _clip_bbox(bbox, width, height, padding=0):
         min(height, y2 + padding),
     ]
 
+def _scale_bbox(bbox, scale_x, scale_y):
+    x1, y1, x2, y2 = bbox
+    return [
+        int(round(x1 * scale_x)),
+        int(round(y1 * scale_y)),
+        int(round(x2 * scale_x)),
+        int(round(y2 * scale_y)),
+    ]
+
 def _bbox_iou(a, b):
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
@@ -1579,6 +1590,12 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        output_width, output_height = width, height
+        if VIDEO_OUTPUT_MAX_WIDTH > 0 and width > VIDEO_OUTPUT_MAX_WIDTH:
+            output_width = VIDEO_OUTPUT_MAX_WIDTH
+            output_height = int(round(height * (output_width / max(1, width))))
+        output_scale_x = output_width / max(1, width)
+        output_scale_y = output_height / max(1, height)
         duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
 
         trim_start = max(0.0, float(trim_start or 0.0))
@@ -1599,7 +1616,8 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         sample_index_set = set(sample_indices)
         video_log(
             f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
-            f"size={width}x{height}, duration={duration:.2f}s"
+            f"size={width}x{height}, output={output_width}x{output_height}, "
+            f"infer_imgsz={VIDEO_INFER_IMGSZ}, duration={duration:.2f}s"
         )
         video_log(
             f"[VIDEO:{request_id}] Extracting 3 FPS from {trim_start:.2f}s to {trim_end:.2f}s "
@@ -1619,7 +1637,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         # VP8/WebM is browser-playable; OpenCV mp4v MP4 often shows
         # "No video with supported format" in Chrome/Edge.
         fourcc = cv2.VideoWriter_fourcc(*"VP80")
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
         if not writer.isOpened():
             raise ValueError("Unable to create processed video")
 
@@ -1639,7 +1657,11 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
             source_frame_index = start_frame + processed_frames
             frame_time = source_frame_index / fps if fps > 0 else trim_start
             should_sample = source_frame_index in sample_index_set
-            annotated = frame.copy()
+            annotated = (
+                cv2.resize(frame, (output_width, output_height), interpolation=cv2.INTER_AREA)
+                if output_width != width or output_height != height
+                else frame.copy()
+            )
 
             if should_sample:
                 sampled_frames += 1
@@ -1652,7 +1674,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                         tracker="bytetrack.yaml",
                         conf=0.25,
                         iou=0.45,
-                        imgsz=640,
+                        imgsz=VIDEO_INFER_IMGSZ,
                         verbose=False
                     )
                 else:
@@ -1660,7 +1682,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                         frame,
                         conf=0.25,
                         iou=0.45,
-                        imgsz=640,
+                        imgsz=VIDEO_INFER_IMGSZ,
                         verbose=False
                     )
 
@@ -1707,7 +1729,6 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                         scored_bbox = [x1, y1, x2, y2]
                         best_score = _video_best_frame_score(conf, scored_bbox, width, height)
                         crop_bbox = _clip_bbox(bbox, width, height, padding=24)
-                        cx1, cy1, cx2, cy2 = crop_bbox
                         _add_track_observation(current, source_frame_index, {
                             "confidence": conf,
                             "bbox": scored_bbox,
@@ -1716,15 +1737,13 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                             "frame_index": source_frame_index,
                             "sharpness": sharpness,
                             "area": area,
-                            "score": best_score,
-                            "frame": frame.copy(),
-                            "crop": frame[cy1:cy2, cx1:cx2].copy()
+                            "score": best_score
                         })
 
                         last_frame_detections.append(([x1, y1, x2, y2], label, conf, track_id))
 
             for bbox, label, conf, track_id in last_frame_detections:
-                _draw_video_detection(annotated, bbox, label, conf, track_id)
+                _draw_video_detection(annotated, _scale_bbox(bbox, output_scale_x, output_scale_y), label, conf, track_id)
 
             writer.write(annotated)
             processed_frames += 1
