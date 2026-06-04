@@ -258,7 +258,7 @@ def sanitize_database():
     """Permanent fix: Strips all legacy prefixes from the DB so clean_b64 never fails."""
     conn = get_db_connection()
     try:
-        rows = conn.execute('SELECT id, image_b64 FROM asset_images').fetchall()
+        rows = conn.execute("SELECT id, image_b64 FROM asset_images WHERE image_b64 LIKE '%base64%' OR image_b64 LIKE '%,%'").fetchall()
         count = 0
         for r in rows:
             b = r['image_b64']
