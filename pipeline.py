@@ -434,12 +434,7 @@ class InfrastructurePipeline:
     def _categorise_12class(self, cls_id, box, conf, ins_b, arm_b, other_b, poly, pole_b=None, cond_b=None):
         raw_name = self._normalise_model_name(self.hardware_model.names[cls_id])
         name = raw_name
-        # The channel_12class_v2 checkpoint has these two semantic labels reversed
-        # in practice: clamp hardware is emitted as street_light and vice versa.
-        if name == "street_light":
-            name = "special_clamp"
-        elif name == "special_clamp":
-            name = "street_light"
+        # Keep raw model labels visible in logs so class mapping mistakes are easy to trace.
         threshold = None
         bucket = "drop"
         kept = False
