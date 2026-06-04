@@ -45,7 +45,7 @@
 
             <div class="flex items-center gap-6">
                 <!-- Stats Toggle Button -->
-                <button id="btnToggleStats" onclick="toggleStatsDashboard()" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-4 py-2 h-10 rounded-xl border border-blue-500/20 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <button id="btnToggleStats" type="button" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-4 py-2 h-10 rounded-xl border border-blue-500/20 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                     <i class="fa-solid fa-chart-simple"></i> Stats
                 </button>
 
@@ -68,7 +68,7 @@
                 </h2>
                 <span id="statsStatusText" class="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Loading stats...</span>
                 <!-- Active Datasets / Models Collapsible Button -->
-                <button id="btnActiveDatasets" onclick="toggleActiveDatasetsModal()" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-3 py-1.5 rounded-lg border border-blue-500/20 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <button id="btnActiveDatasets" type="button" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-3 py-1.5 rounded-lg border border-blue-500/20 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                     <i class="fa-solid fa-cube"></i> Datasets & Models
                 </button>
             </div>
@@ -636,7 +636,14 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', loadUserStats);
+        window.toggleActiveDatasetsModal = toggleActiveDatasetsModal;
+        window.toggleStatsDashboard = toggleStatsDashboard;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('btnToggleStats')?.addEventListener('click', toggleStatsDashboard);
+            document.getElementById('btnActiveDatasets')?.addEventListener('click', toggleActiveDatasetsModal);
+            loadUserStats();
+        });
         // Refresh quietly; if the server is busy, back off instead of spamming errors.
         setInterval(() => {
             if (userStatsRetryDelay <= 30000) loadUserStats();
