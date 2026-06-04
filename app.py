@@ -76,7 +76,9 @@ VIDEO_LOG_FILE = "video_processing.log"
 VIDEO_PROGRESS = {}
 VIDEO_INFER_IMGSZ = int(os.environ.get("VIDEO_INFER_IMGSZ", "416") or 416)
 VIDEO_OUTPUT_MAX_WIDTH = int(os.environ.get("VIDEO_OUTPUT_MAX_WIDTH", "960") or 960)
-VIDEO_SAMPLE_FPS = max(0.1, float(os.environ.get("VIDEO_SAMPLE_FPS", "1") or 1))
+VIDEO_SAMPLE_FPS = max(0.1, float(os.environ.get("VIDEO_SAMPLE_FPS", "3") or 3))
+MIN_POLE_VISIBLE_SECONDS = 2.0
+TEMPORAL_GAP_MAX_SECONDS = 3.0
 
 def log_video(message):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -1462,21 +1464,21 @@ def _time_gap_to_group(track, group):
     gap = _track_start_frame(track) - _track_end_frame(group)
     return max(0, gap)
 
-def _same_physical_pole(track, group, frame_width=None):
+def _same_physical_pole(track, group, frame_width=None, temporal_gap_max_frames=15):
     if track["label"] != group["label"]:
         return False
     track_id = track.get("track_id")
     if track_id is not None and track_id in group.get("track_ids", []):
         return True
     temporal_gap = _time_gap_to_group(track, group)
-    if temporal_gap >= 15:
+    if temporal_gap >= temporal_gap_max_frames:
         return False
     a = _track_edge_bbox(group, "end")
     b = _track_edge_bbox(track, "start")
     width_threshold = max(1.0, (frame_width or max(a[2], b[2], 1)) * 0.15)
     return _track_centroid_distance_px(a, b) < width_threshold
 
-def _merge_pole_track_fragments(tracks, frame_width):
+def _merge_pole_track_fragments(tracks, frame_width, temporal_gap_max_frames=15):
     groups = []
     fragments = [t for t in tracks.values() if t.get("best")]
     fragments.sort(key=lambda t: (t["label"], _track_start_frame(t), _track_end_frame(t), -t["best_score"]))
@@ -1484,7 +1486,7 @@ def _merge_pole_track_fragments(tracks, frame_width):
     for track in fragments:
         matched = None
         for group in groups:
-            if _same_physical_pole(track, group, frame_width):
+            if _same_physical_pole(track, group, frame_width, temporal_gap_max_frames):
                 matched = group
                 break
 
@@ -1608,6 +1610,8 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         start_frame = int(round(trim_start * fps))
         max_frames = int(max(1, round(effective_trim_duration * fps)))
         sample_fps = VIDEO_SAMPLE_FPS
+        min_pole_appearances = max(2, int(MIN_POLE_VISIBLE_SECONDS * sample_fps))
+        temporal_gap_max_frames = max(1, int(TEMPORAL_GAP_MAX_SECONDS * sample_fps))
         sample_step = fps / sample_fps
         sampled_frame_limit = int(max(1, math.floor(effective_trim_duration * sample_fps)))
         sample_indices = [
@@ -1623,6 +1627,10 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         video_log(
             f"[VIDEO:{request_id}] Extracting {sample_fps:g} FPS from {trim_start:.2f}s to {trim_end:.2f}s "
             f"({sampled_frame_limit} deterministic sampled frames); output remains {fps:.2f} FPS for smooth playback"
+        )
+        video_log(
+            f"[VIDEO:{request_id}] Thresholds: sample_fps={sample_fps:g}, "
+            f"min_appearances={min_pole_appearances}, temporal_gap_max={temporal_gap_max_frames} frames"
         )
         set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
         tracker_backend = _video_tracker_backend()
@@ -1767,18 +1775,16 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
 
         video_log(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
-        fragment_groups = _merge_pole_track_fragments(tracks, width)
-        physical_poles = _merge_temporal_pole_events(fragment_groups, width)
-        min_pole_appearances = 5
+        fragment_groups = _merge_pole_track_fragments(tracks, width, temporal_gap_max_frames)
+        physical_poles = _merge_temporal_pole_events(fragment_groups, width, temporal_gap_max_frames)
         persistent_poles = [pole for pole in physical_poles if int(pole.get("appearances", 0)) >= min_pole_appearances]
-        if persistent_poles:
-            removed = len(physical_poles) - len(persistent_poles)
-            if removed > 0:
-                video_log(
-                    f"[VIDEO:{request_id}] Filtered {removed} short-lived pole group(s) "
-                    f"below {min_pole_appearances} sampled-frame appearances"
-                )
-            physical_poles = persistent_poles
+        removed = len(physical_poles) - len(persistent_poles)
+        if removed > 0:
+            video_log(
+                f"[VIDEO:{request_id}] Filtered {removed} short-lived pole group(s) "
+                f"below {min_pole_appearances} sampled-frame appearances"
+            )
+        physical_poles = persistent_poles
         video_log(
             f"[VIDEO:{request_id}] Temporal pole-event merge: "
             f"fragment_groups={len(fragment_groups)}, physical_poles={len(physical_poles)}"
