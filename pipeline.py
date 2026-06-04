@@ -433,6 +433,12 @@ class InfrastructurePipeline:
 
     def _categorise_12class(self, cls_id, box, conf, ins_b, arm_b, other_b, poly, pole_b=None, cond_b=None):
         name = self._normalise_model_name(self.hardware_model.names[cls_id])
+        # The channel_12class_v2 checkpoint has these two semantic labels reversed
+        # in practice: clamp hardware is emitted as street_light and vice versa.
+        if name == "street_light":
+            name = "special_clamp"
+        elif name == "special_clamp":
+            name = "street_light"
         if "pole" in name and pole_b is not None:
             if conf > THRESHOLD_POLE:
                 pole_b.append((box, conf, None, poly, "strut" in name))
