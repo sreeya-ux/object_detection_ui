@@ -76,6 +76,7 @@ VIDEO_LOG_FILE = "video_processing.log"
 VIDEO_PROGRESS = {}
 VIDEO_INFER_IMGSZ = int(os.environ.get("VIDEO_INFER_IMGSZ", "416") or 416)
 VIDEO_OUTPUT_MAX_WIDTH = int(os.environ.get("VIDEO_OUTPUT_MAX_WIDTH", "960") or 960)
+VIDEO_SAMPLE_FPS = max(0.1, float(os.environ.get("VIDEO_SAMPLE_FPS", "1") or 1))
 
 def log_video(message):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -1560,7 +1561,7 @@ def _video_tracker_backend():
 def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=None, pole_model=None, worker_name=None):
     """
     Process a selected 30-second video segment:
-    3 FPS sampling -> pole detection -> ByteTrack -> one track per pole ->
+    configurable FPS sampling -> pole detection -> ByteTrack -> one track per pole ->
     best frame selection. Video mode only returns MAIN_POLE and STRUT_POLE.
     """
     import gc
@@ -1606,7 +1607,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         effective_trim_duration = max(0.0, trim_end - trim_start)
         start_frame = int(round(trim_start * fps))
         max_frames = int(max(1, round(effective_trim_duration * fps)))
-        sample_fps = 3.0
+        sample_fps = VIDEO_SAMPLE_FPS
         sample_step = fps / sample_fps
         sampled_frame_limit = int(max(1, math.floor(effective_trim_duration * sample_fps)))
         sample_indices = [
@@ -1617,10 +1618,10 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         video_log(
             f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
             f"size={width}x{height}, output={output_width}x{output_height}, "
-            f"infer_imgsz={VIDEO_INFER_IMGSZ}, duration={duration:.2f}s"
+            f"infer_imgsz={VIDEO_INFER_IMGSZ}, sample_fps={sample_fps:g}, duration={duration:.2f}s"
         )
         video_log(
-            f"[VIDEO:{request_id}] Extracting 3 FPS from {trim_start:.2f}s to {trim_end:.2f}s "
+            f"[VIDEO:{request_id}] Extracting {sample_fps:g} FPS from {trim_start:.2f}s to {trim_end:.2f}s "
             f"({sampled_frame_limit} deterministic sampled frames); output remains {fps:.2f} FPS for smooth playback"
         )
         set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
@@ -1859,7 +1860,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                 "voltage": "VIDEO",
                 "pole_id": "Not Found",
                 "ocr_text_lines": [],
-                "reason": f"Sampled {sampled_frames} frames at 3 FPS, wrote smooth output at {fps:.2f} FPS, merged {len(tracks)} tracker fragments into {len(physical_poles)} physical pole(s), and selected one best frame per pole. Only MAIN_POLE and STRUT_POLE were processed.",
+                "reason": f"Sampled {sampled_frames} frames at {sample_fps:g} FPS, wrote smooth output at {fps:.2f} FPS, merged {len(tracks)} tracker fragments into {len(physical_poles)} physical pole(s), and selected one best frame per pole. Only MAIN_POLE and STRUT_POLE were processed.",
                 "confidence": "high" if detections else "low",
                 "pole_type": "video",
                 "pole_status": "tracked",
@@ -1877,7 +1878,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
             "processed_frames": sampled_frames,
             "pipeline": [
                 "Video",
-                "Extract 3 FPS",
+                f"Extract {sample_fps:g} FPS",
                 "Pole Detector (YOLOv8)",
                 "ByteTrack",
                 "One Track = One Pole",

@@ -9,6 +9,7 @@ WorkingDirectory=/home/ubuntu/object_detection_ui
 Environment=MAX_VIDEO_WORKERS=2
 Environment=VIDEO_INFER_IMGSZ=416
 Environment=VIDEO_OUTPUT_MAX_WIDTH=960
+Environment=VIDEO_SAMPLE_FPS=1
 ExecStart=/home/ubuntu/object_detection_ui/venv/bin/gunicorn -c /home/ubuntu/object_detection_ui/gunicorn.conf.py app:app
 Restart=always
 RestartSec=5
