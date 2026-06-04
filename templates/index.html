@@ -66,6 +66,7 @@
                 <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                     <i class="fa-solid fa-chart-line text-blue-500"></i> Performance Overview
                 </h2>
+                <span id="statsStatusText" class="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Loading stats...</span>
                 <!-- Active Datasets / Models Collapsible Button -->
                 <button id="btnActiveDatasets" onclick="toggleActiveDatasetsModal()" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-3 py-1.5 rounded-lg border border-blue-500/20 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                     <i class="fa-solid fa-cube"></i> Datasets & Models
@@ -390,15 +391,29 @@
             userStatsInFlight = true;
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 8000);
+            const statusText = document.getElementById('statsStatusText');
+            if (statusText) statusText.textContent = 'Loading stats...';
 
             try {
                 const res = await fetch('/api/training_stats', {
                     signal: controller.signal,
                     cache: 'no-store'
                 });
-                if (!res.ok) return;
+                if (!res.ok) {
+                    let message = `Stats unavailable (${res.status})`;
+                    try {
+                        const err = await res.json();
+                        if (err.message) message = err.message;
+                    } catch (_) {}
+                    if (statusText) statusText.textContent = message;
+                    return;
+                }
                 const s = await res.json();
                 userStatsRetryDelay = 30000;
+                if (statusText) {
+                    const updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    statusText.textContent = `Updated ${updatedAt}`;
+                }
                 
                 // Update basic metrics
                 document.getElementById('statImagesTrained').textContent = s.total_samples || 0;
@@ -564,6 +579,9 @@
                 }
             } catch (e) {
                 userStatsRetryDelay = Math.min(userStatsRetryDelay * 2, 120000);
+                if (statusText) {
+                    statusText.textContent = e.name === 'AbortError' ? 'Stats timed out' : 'Stats unavailable';
+                }
             } finally {
                 clearTimeout(timeoutId);
                 userStatsInFlight = false;

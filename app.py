@@ -131,6 +131,84 @@ def image_display_threshold(label):
         else IMAGE_DEFAULT_DISPLAY_THRESHOLD
     )
 
+def _count_dataset_files(folder):
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    label_exts = {".txt", ".json"}
+    image_count = 0
+    annotation_count = 0
+    if not os.path.isdir(folder):
+        return image_count, annotation_count
+    for root, _, files in os.walk(folder):
+        for filename in files:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in image_exts:
+                image_count += 1
+            elif ext in label_exts:
+                annotation_count += 1
+    return image_count, annotation_count
+
+def build_training_dashboard_stats(stats):
+    stats = dict(stats or {})
+    by_class = stats.get("by_class") or {}
+    total_annotations = int(sum(int(v or 0) for v in by_class.values()))
+    stats["total_classes"] = stats.get("total_classes") or len(by_class)
+    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
+    stats["avg_confidence"] = stats.get("avg_confidence", 0)
+    stats.setdefault("class_confidence", {})
+    stats.setdefault("images_per_class", {})
+
+    dataset_roots = [
+        "training_data",
+        "training_data_component",
+        "training_data_hardware",
+        "dataset_channels",
+        "dataset_combined",
+    ]
+    datasets = []
+    for folder in dataset_roots:
+        images, annotations = _count_dataset_files(folder)
+        if os.path.isdir(folder):
+            datasets.append({
+                "name": folder,
+                "path": os.path.abspath(folder),
+                "count": images,
+                "images": images,
+                "annotations": annotations,
+            })
+    stats["datasets"] = stats.get("datasets") or datasets
+
+    model_descriptions = {
+        "pole": "Pole and strut pole detector",
+        "components": "Hardware and component detector",
+        "insulator": "Insulator detector",
+        "shed": "Shed counter",
+        "conductor_unet": "Conductor segmentation model",
+        "video_component": "Video pole detector",
+    }
+    models = []
+    for key, path in MODEL_PATHS.items():
+        exists = os.path.exists(path)
+        models.append({
+            "key": key,
+            "label": os.path.basename(path),
+            "path": path,
+            "description": model_descriptions.get(key, key.replace("_", " ").title()),
+            "exists": exists,
+            "size_mb": round(os.path.getsize(path) / (1024 * 1024), 1) if exists else None,
+            "num_classes": 0,
+            "classes": [],
+        })
+    stats["models"] = stats.get("models") or models
+    stats["status"] = stats.get("status") or "ok"
+    print(
+        "[TRAINING-STATS] "
+        f"samples={stats.get('total_samples', 0)} classes={stats['total_classes']} "
+        f"annotations={stats['total_annotations']} datasets={len(stats['datasets'])} "
+        f"models={len(stats['models'])}",
+        flush=True
+    )
+    return stats
+
 def safe_remove_file(path, label="temp file"):
     """Best-effort cleanup for Windows, where model readers may release files late."""
     if not path or not os.path.exists(path):
@@ -693,6 +771,8 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "error", "message": "Authentication required"}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -2359,7 +2439,7 @@ def training_stats():
     try:
         _, get_training_stats = load_training_pipeline()
         stats = get_training_stats()
-        return jsonify(stats)
+        return jsonify(build_training_dashboard_stats(stats))
     except Exception as e:
         print(f"[app] Training stats unavailable: {e}")
         return jsonify({
