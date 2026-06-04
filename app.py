@@ -13,6 +13,7 @@ from datetime import datetime
 import sqlite3
 import json
 import os
+import ast
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter, defaultdict
@@ -82,6 +83,42 @@ TEMPORAL_GAP_MAX_SECONDS = 3.0
 IMAGE_DEFAULT_DISPLAY_THRESHOLD = 0.40
 IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD = 0.25
 IMAGE_SMALL_HARDWARE_CLASSES = {"street_light", "special_clamp"}
+DATASET_INVENTORY_ROOTS = [
+    "training_data",
+    "training_data_component",
+    "training_data_hardware",
+    "dataset_channels",
+    "dataset_combined",
+]
+DATASET_STATS_ROOTS = [
+    "training_data_component",
+    "training_data_hardware",
+    "dataset_channels",
+    "dataset_combined",
+]
+CHANNEL_DATASET_CLASS_MAP = {
+    0: "INSULATORS",
+    1: "V_CROSS_ARM",
+    2: "TAPPING_ARM",
+    3: "TOP_CLEAT",
+    4: "SIDE_ARM",
+    5: "T_RISING",
+    6: "SPECIAL_CLAMP",
+    7: "STREET_LIGHT",
+    8: "STAY_SET",
+    9: "BOX_ARM",
+    10: "AB_SWITCH",
+    11: "DTR",
+}
+COMPONENT_DATASET_CLASS_MAP = {
+    0: "MAIN_POLE",
+    1: "STRUT_POLE",
+}
+HARDWARE_DATASET_CLASS_MAP = {
+    0: "INSULATOR",
+    1: "CROSSARM",
+    2: "CONDUCTOR",
+}
 
 def log_video(message):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -147,35 +184,149 @@ def _count_dataset_files(folder):
                 annotation_count += 1
     return image_count, annotation_count
 
-def build_training_dashboard_stats(stats):
-    stats = dict(stats or {})
-    by_class = stats.get("by_class") or {}
-    total_annotations = int(sum(int(v or 0) for v in by_class.values()))
-    stats["total_classes"] = stats.get("total_classes") or len(by_class)
-    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
-    stats["avg_confidence"] = stats.get("avg_confidence", 0)
-    stats.setdefault("class_confidence", {})
-    stats.setdefault("images_per_class", {})
+def _normalise_stats_label(label):
+    return str(label or "OBJECT").strip().upper().replace(" ", "_")
 
-    dataset_roots = [
-        "training_data",
-        "training_data_component",
-        "training_data_hardware",
-        "dataset_channels",
-        "dataset_combined",
-    ]
+def _parse_dataset_names_yaml(yaml_path):
+    if not yaml_path or not os.path.exists(yaml_path):
+        return {}
+    try:
+        lines = pathlib.Path(yaml_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception as exc:
+        print(f"[TRAINING-STATS] Could not read class map {yaml_path}: {exc}", flush=True)
+        return {}
+
+    names = {}
+    for idx, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if not stripped.startswith("names"):
+            continue
+
+        inline = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+        if inline:
+            try:
+                parsed = ast.literal_eval(inline)
+                if isinstance(parsed, list):
+                    return {i: _normalise_stats_label(name) for i, name in enumerate(parsed)}
+                if isinstance(parsed, dict):
+                    return {int(k): _normalise_stats_label(v) for k, v in parsed.items()}
+            except Exception:
+                pass
+
+        for child in lines[idx + 1:]:
+            if not child.startswith((" ", "\t")):
+                break
+            child = child.strip()
+            if ":" not in child:
+                continue
+            key, value = child.split(":", 1)
+            try:
+                names[int(key.strip())] = _normalise_stats_label(value.strip().strip("'\""))
+            except ValueError:
+                continue
+        break
+    return names
+
+def _dataset_class_map_for(folder):
+    yaml_map = _parse_dataset_names_yaml(os.path.join(folder, "data.yaml"))
+    if yaml_map:
+        return yaml_map
+    if folder in {"dataset_channels", "dataset_combined"}:
+        channel_yaml_map = _parse_dataset_names_yaml("channels.yaml")
+        return channel_yaml_map or CHANNEL_DATASET_CLASS_MAP
+    if folder == "training_data_component":
+        return COMPONENT_DATASET_CLASS_MAP
+    if folder == "training_data_hardware":
+        return HARDWARE_DATASET_CLASS_MAP
+    return {}
+
+def _scan_dataset_label_stats(folder):
+    class_map = _dataset_class_map_for(folder)
+    by_class = Counter()
+    images_per_class = Counter()
+    unknown_ids = Counter()
+    label_files = 0
+
+    if not os.path.isdir(folder):
+        return by_class, images_per_class, unknown_ids, label_files, class_map
+
+    for root, _, files in os.walk(folder):
+        for filename in files:
+            if os.path.splitext(filename)[1].lower() != ".txt":
+                continue
+            label_files += 1
+            labels_in_file = set()
+            label_path = os.path.join(root, filename)
+            try:
+                with open(label_path, "r", encoding="utf-8", errors="ignore") as handle:
+                    for raw_line in handle:
+                        parts = raw_line.strip().split()
+                        if not parts:
+                            continue
+                        try:
+                            class_id = int(float(parts[0]))
+                        except ValueError:
+                            continue
+                        label = class_map.get(class_id)
+                        if not label:
+                            unknown_ids[class_id] += 1
+                            continue
+                        by_class[label] += 1
+                        labels_in_file.add(label)
+            except Exception as exc:
+                print(f"[TRAINING-STATS] Could not scan label file {label_path}: {exc}", flush=True)
+                continue
+            for label in labels_in_file:
+                images_per_class[label] += 1
+    return by_class, images_per_class, unknown_ids, label_files, class_map
+
+def build_training_dashboard_stats(stats=None):
+    stats = dict(stats or {})
+    dataset_by_class = Counter()
+    dataset_images_per_class = Counter()
+    unknown_by_dataset = {}
+    scanned_label_files = 0
+
     datasets = []
-    for folder in dataset_roots:
+    total_images = 0
+    for folder in DATASET_INVENTORY_ROOTS:
         if os.path.isdir(folder):
             images, annotations = _count_dataset_files(folder)
+            total_images += images
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
                 "count": images,
                 "images": images,
                 "annotations": annotations,
+                "included_in_stats": folder in DATASET_STATS_ROOTS,
             })
-    stats["datasets"] = stats.get("datasets") or datasets
+
+    for folder in DATASET_STATS_ROOTS:
+        by_class, images_per_class, unknown_ids, label_files, class_map = _scan_dataset_label_stats(folder)
+        dataset_by_class.update(by_class)
+        dataset_images_per_class.update(images_per_class)
+        scanned_label_files += label_files
+        if unknown_ids:
+            unknown_by_dataset[folder] = {str(k): v for k, v in sorted(unknown_ids.items())}
+            print(
+                f"[TRAINING-STATS] {folder} has label ids missing from its class map: "
+                f"{dict(sorted(unknown_ids.items()))}",
+                flush=True
+            )
+
+    by_class = dict(sorted(dataset_by_class.items(), key=lambda item: item[1], reverse=True))
+    stats["total_samples"] = total_images
+    stats["by_class"] = by_class
+    stats["total_classes"] = len(by_class)
+    stats["total_annotations"] = int(sum(by_class.values()))
+    stats["avg_confidence"] = 0
+    stats["class_confidence"] = {label: 0 for label in by_class}
+    stats["images_per_class"] = dict(dataset_images_per_class)
+    stats["datasets"] = datasets
+    stats["stats_source"] = "dataset_folders"
+    stats["scanned_label_files"] = scanned_label_files
+    stats["unknown_label_ids"] = unknown_by_dataset
 
     model_descriptions = {
         "pole": "Pole and strut pole detector",
@@ -198,13 +349,13 @@ def build_training_dashboard_stats(stats):
             "num_classes": 0,
             "classes": [],
         })
-    stats["models"] = stats.get("models") or models
-    stats["status"] = stats.get("status") or "ok"
+    stats["models"] = models
+    stats["status"] = "ok"
     print(
         "[TRAINING-STATS] "
-        f"samples={stats.get('total_samples', 0)} classes={stats['total_classes']} "
-        f"annotations={stats['total_annotations']} datasets={len(stats['datasets'])} "
-        f"models={len(stats['models'])}",
+        f"source=dataset_folders samples={stats.get('total_samples', 0)} "
+        f"classes={stats['total_classes']} annotations={stats['total_annotations']} "
+        f"label_files={scanned_label_files} datasets={len(stats['datasets'])} models={len(stats['models'])}",
         flush=True
     )
     return stats
