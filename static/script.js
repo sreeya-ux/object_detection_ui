@@ -17,6 +17,7 @@ let videoDuration = 0;
 let videoTrimStart = 0;
 let videoTrimDuration = 30;
 let activeVideoJobId = null;
+let processedVideoDownloadUrl = null;
 
 function normalizePoleIdText(text) {
     if (!text) return "Not Found";
@@ -693,6 +694,7 @@ function updateVideoPreviewControls() {
     const scrubber = document.getElementById('videoPreviewScrubber');
     const timeLabel = document.getElementById('videoPreviewTimeLabel');
     const playBtn = document.getElementById('videoPreviewPlayBtn');
+    const downloadBtn = document.getElementById('videoDownloadBtn');
     const duration = getVideoPreviewClipDuration();
     const elapsed = getVideoPreviewClipElapsed();
 
@@ -706,6 +708,23 @@ function updateVideoPreviewControls() {
     if (playBtn) {
         playBtn.innerHTML = `<i class="fa-solid ${video && !video.paused ? 'fa-pause' : 'fa-play'}"></i>`;
     }
+    if (downloadBtn) {
+        downloadBtn.classList.toggle('hidden', !processedVideoDownloadUrl || !isShowingProcessedVideo());
+    }
+}
+
+function downloadProcessedVideo(event) {
+    if (event) event.stopPropagation();
+    if (!processedVideoDownloadUrl) {
+        showToast("No processed video available to download", "warning");
+        return;
+    }
+    const link = document.createElement('a');
+    link.href = processedVideoDownloadUrl;
+    link.download = `processed-video-${Date.now()}.webm`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
 }
 
 function toggleVideoPreviewPlayback(event) {
@@ -741,6 +760,7 @@ function handleVideoUpload(e) {
     videoDuration = 0;
     videoTrimStart = 0;
     videoTrimDuration = 30;
+    processedVideoDownloadUrl = null;
     resetVideoLogs('Ready');
     appendVideoLog(`Selected video: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`, 'info');
 
@@ -962,6 +982,7 @@ function resetSession(force = false) {
     videoDuration = 0;
     videoTrimStart = 0;
     videoTrimDuration = 30;
+    processedVideoDownloadUrl = null;
     if (videoObjectUrl) {
         URL.revokeObjectURL(videoObjectUrl);
         videoObjectUrl = null;
@@ -1268,7 +1289,9 @@ async function processVideo() {
 
         setVideoProgress(100, 'Video analysis complete');
         appendVideoLog(`Backend response received: ${data.processed_frames || 0} frames processed`, 'success');
-        const processedUrl = `${data.video_url || data.processed_video_url}?t=${Date.now()}`;
+        const processedBaseUrl = data.video_url || data.processed_video_url;
+        const processedUrl = `${processedBaseUrl}?t=${Date.now()}`;
+        processedVideoDownloadUrl = processedBaseUrl;
         const video = document.getElementById('videoPreview');
         video.src = processedUrl;
         video.load();
