@@ -488,17 +488,17 @@ def process_image_file(file_stream, fast_mode=False):
         for box, conf, poly in pipe_res.street_lights:
             if float(conf) < 0.40:
                 continue
-            # Map to Hardware Mask (Street lights are hardware too, wires shouldn't pass THROUGH them)
+            # Map to Hardware Mask (special clamps are hardware too, wires shouldn't pass THROUGH them)
             x1, y1, x2, y2 = [int(v) for v in box]
             cv2.rectangle(hardware_mask, (max(0, x1-5), max(0, y1-5)), (min(w, x2+5), min(h, y2+5)), 255, -1)
             
             final_detections.append({
-                "label": "street_light",
+                "label": "special_clamp",
                 "confidence": float(conf),
                 "bbox": [int(x) for x in box],
                 "polygon": poly,
                 "source": MODEL_PATHS["components"],
-                "details": {"type": "Standard Lamp"}
+                "details": {"type": "Special Clamp"}
             })
 
         for label, box, conf, poly in pipe_res.others:
