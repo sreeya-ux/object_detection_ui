@@ -131,28 +131,54 @@ def image_display_threshold(label):
         else IMAGE_DEFAULT_DISPLAY_THRESHOLD
     )
 
-def _count_dataset_files(folder):
+def _scan_dataset_folder(folder, class_names_by_id=None):
     image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
     label_exts = {".txt", ".json"}
     image_count = 0
-    annotation_count = 0
+    label_file_count = 0
+    object_count = 0
+    by_class = Counter()
     if not os.path.isdir(folder):
-        return image_count, annotation_count
+        return image_count, label_file_count, object_count, by_class
     for root, _, files in os.walk(folder):
         for filename in files:
             ext = os.path.splitext(filename)[1].lower()
+            path = os.path.join(root, filename)
             if ext in image_exts:
                 image_count += 1
             elif ext in label_exts:
-                annotation_count += 1
-    return image_count, annotation_count
+                label_file_count += 1
+                if ext == ".txt":
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as label_file:
+                            for line in label_file:
+                                parts = line.strip().split()
+                                if not parts:
+                                    continue
+                                class_token = parts[0]
+                                try:
+                                    class_id = int(float(class_token))
+                                    class_name = (class_names_by_id or {}).get(class_id, f"CLASS_{class_id}")
+                                except ValueError:
+                                    class_name = class_token.upper()
+                                by_class[str(class_name).upper()] += 1
+                                object_count += 1
+                    except Exception as exc:
+                        print(f"[TRAINING-STATS] Unable to read label file {path}: {exc}", flush=True)
+                elif ext == ".json":
+                    object_count += 1
+                    by_class["OBJECT"] += 1
+    return image_count, label_file_count, object_count, by_class
 
 def build_training_dashboard_stats(stats):
     stats = dict(stats or {})
     by_class = stats.get("by_class") or {}
-    total_annotations = int(sum(int(v or 0) for v in by_class.values()))
-    stats["total_classes"] = stats.get("total_classes") or len(by_class)
-    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
+    try:
+        from training_pipeline import CLASS_MAP
+        class_names_by_id = {v: k for k, v in CLASS_MAP.items()}
+    except Exception:
+        class_names_by_id = {}
+
     stats["avg_confidence"] = stats.get("avg_confidence", 0)
     stats.setdefault("class_confidence", {})
     stats.setdefault("images_per_class", {})
@@ -165,17 +191,31 @@ def build_training_dashboard_stats(stats):
         "dataset_combined",
     ]
     datasets = []
+    dataset_class_counts = Counter()
+    dataset_image_count = 0
+    dataset_object_count = 0
     for folder in dataset_roots:
-        images, annotations = _count_dataset_files(folder)
         if os.path.isdir(folder):
+            images, label_files, objects, class_counts = _scan_dataset_folder(folder, class_names_by_id)
+            dataset_image_count += images
+            dataset_object_count += objects
+            dataset_class_counts.update(class_counts)
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
                 "count": images,
                 "images": images,
-                "annotations": annotations,
+                "annotations": objects or label_files,
             })
     stats["datasets"] = stats.get("datasets") or datasets
+
+    if not by_class and dataset_class_counts:
+        by_class = dict(dataset_class_counts)
+        stats["by_class"] = by_class
+    total_annotations = int(sum(int(v or 0) for v in by_class.values())) or dataset_object_count
+    stats["total_samples"] = stats.get("total_samples") or dataset_image_count
+    stats["total_classes"] = stats.get("total_classes") or len(by_class)
+    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
 
     model_descriptions = {
         "pole": "Pole and strut pole detector",
