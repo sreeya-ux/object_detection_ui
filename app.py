@@ -1367,17 +1367,39 @@ def _vertical_overlap_ratio(a, b):
     overlap = max(0, min(ay2, by2) - max(ay1, by1))
     return overlap / max(1, min(ay2 - ay1, by2 - by1))
 
+def _track_best_time(track):
+    best = track.get("best") or {}
+    return float(best.get("frame_time", 0.0) or 0.0)
+
+def _time_gap_to_group(track, group):
+    t = _track_best_time(track)
+    first = float(group.get("first_time", _track_best_time(group)) or 0.0)
+    last = float(group.get("last_time", first) or first)
+    if first <= t <= last:
+        return 0.0
+    return min(abs(t - first), abs(t - last))
+
 def _same_physical_pole(track, group):
     if track["label"] != group["label"]:
         return False
+    track_id = track.get("track_id")
+    if track_id is not None and track_id in group.get("track_ids", []):
+        return True
     a = track["best"]["bbox"]
     b = group["best"]["bbox"]
     iou = _bbox_iou(a, b)
     center_ratio = _center_distance_ratio(a, b)
     vertical_overlap = _vertical_overlap_ratio(a, b)
-    # ByteTrack may fragment IDs, so merge fragments that repeatedly occupy
-    # the same physical pole location even if their tracker IDs differ.
-    return iou >= 0.18 or (center_ratio <= 0.55 and vertical_overlap >= 0.45)
+    time_gap = _time_gap_to_group(track, group)
+    # Fallback detections are per sampled frame. Keep grouping local in time so
+    # different poles that pass through a similar screen position do not collapse.
+    if time_gap > 2.0 and iou < 0.45:
+        return False
+    return (
+        iou >= 0.35
+        or (iou >= 0.12 and center_ratio <= 0.40 and vertical_overlap >= 0.50)
+        or (center_ratio <= 0.24 and vertical_overlap >= 0.70)
+    )
 
 def _merge_pole_track_fragments(tracks):
     groups = []
@@ -1399,12 +1421,17 @@ def _merge_pole_track_fragments(tracks):
                 "best_score": track["best_score"],
                 "best": track["best"],
                 "fragments": 1,
+                "first_time": _track_best_time(track),
+                "last_time": _track_best_time(track),
             })
             continue
 
         matched["track_ids"].append(track["track_id"])
         matched["appearances"] += track["appearances"]
         matched["fragments"] += 1
+        t = _track_best_time(track)
+        matched["first_time"] = min(float(matched.get("first_time", t)), t)
+        matched["last_time"] = max(float(matched.get("last_time", t)), t)
         if track["best_score"] > matched["best_score"]:
             matched["best_score"] = track["best_score"]
             matched["best"] = track["best"]
