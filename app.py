@@ -79,6 +79,9 @@ VIDEO_OUTPUT_MAX_WIDTH = int(os.environ.get("VIDEO_OUTPUT_MAX_WIDTH", "960") or 
 VIDEO_SAMPLE_FPS = max(0.1, float(os.environ.get("VIDEO_SAMPLE_FPS", "3") or 3))
 MIN_POLE_VISIBLE_SECONDS = 2.0
 TEMPORAL_GAP_MAX_SECONDS = 3.0
+IMAGE_DEFAULT_DISPLAY_THRESHOLD = 0.40
+IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD = 0.25
+IMAGE_SMALL_HARDWARE_CLASSES = {"street_light", "special_clamp"}
 
 def log_video(message):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -119,6 +122,14 @@ def validate_model_paths(*keys):
             + ", ".join(missing)
             + ". Check the models/ folder; network downloads are disabled for this app."
         )
+
+def image_display_threshold(label):
+    normalized = str(label or "").strip().lower()
+    return (
+        IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD
+        if normalized in IMAGE_SMALL_HARDWARE_CLASSES
+        else IMAGE_DEFAULT_DISPLAY_THRESHOLD
+    )
 
 def safe_remove_file(path, label="temp file"):
     """Best-effort cleanup for Windows, where model readers may release files late."""
@@ -983,7 +994,7 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
             })
 
         for box, conf, poly in pipe_res.street_lights:
-            if float(conf) < 0.40:
+            if float(conf) < image_display_threshold("street_light"):
                 continue
             # Map to Hardware Mask (Street lights are hardware too, wires shouldn't pass THROUGH them)
             x1, y1, x2, y2 = [int(v) for v in box]
@@ -999,7 +1010,7 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
             })
 
         for label, box, conf, poly in pipe_res.others:
-            if float(conf) < 0.40:
+            if float(conf) < image_display_threshold(label):
                 continue
             # Add to hardware exclusion mask
             bw, bh = box[2]-box[0], box[3]-box[1]
