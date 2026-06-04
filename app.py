@@ -8,6 +8,7 @@ import time
 import re
 import pathlib
 import logging
+import math
 from datetime import datetime
 import sqlite3
 import json
@@ -1678,6 +1679,16 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
         fragment_groups = _merge_pole_track_fragments(tracks)
         physical_poles = _merge_temporal_pole_events(fragment_groups)
+        min_pole_appearances = max(2, int(math.ceil(sampled_frame_limit * 0.05)))
+        persistent_poles = [pole for pole in physical_poles if int(pole.get("appearances", 0)) >= min_pole_appearances]
+        if persistent_poles:
+            removed = len(physical_poles) - len(persistent_poles)
+            if removed > 0:
+                log_video(
+                    f"[VIDEO:{request_id}] Filtered {removed} short-lived pole group(s) "
+                    f"below {min_pole_appearances} sampled-frame appearances"
+                )
+            physical_poles = persistent_poles
         log_video(
             f"[VIDEO:{request_id}] Temporal pole-event merge: "
             f"fragment_groups={len(fragment_groups)}, physical_poles={len(physical_poles)}"
@@ -1727,6 +1738,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             for label in ["MAIN_POLE", "STRUT_POLE"]
         }
         detected_classes = {k: v for k, v in detected_classes.items() if v > 0}
+        processed_duration = processed_frames / fps if fps > 0 else (trim_end - trim_start)
         has_strut = any(d["label"] == "STRUT_POLE" for d in detections)
         survey_q = {
             "strut_pole": "Yes" if has_strut else "No",
@@ -1771,7 +1783,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             "height": height,
             "duration": duration,
             "trim_start": trim_start,
-            "trim_duration": sampled_frames / sample_fps if sample_fps > 0 else 0.0,
+            "trim_duration": round(processed_duration, 2),
             "processed_frames": sampled_frames,
             "pipeline": [
                 "Video",
