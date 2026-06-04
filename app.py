@@ -95,8 +95,12 @@ def set_video_progress(job_id, percent, message, status="processing"):
         "status": status,
         "updated_at": time.time(),
     }
-    queue_status = "failed" if status in {"error", "failed"} else status
-    update_video_job(job_id, progress=progress, message=message, status=queue_status)
+    updates = {"progress": progress, "message": message}
+    if status in {"error", "failed"}:
+        updates["status"] = "failed"
+    elif status in {"queued", "processing"}:
+        updates["status"] = status
+    update_video_job(job_id, **updates)
 
 def validate_model_paths(*keys):
     missing = []
