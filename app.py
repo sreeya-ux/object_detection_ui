@@ -1438,6 +1438,47 @@ def _merge_pole_track_fragments(tracks):
 
     return groups
 
+def _merge_group_into(target, source):
+    target["track_ids"].extend(source.get("track_ids", []))
+    target["appearances"] += source.get("appearances", 0)
+    target["fragments"] += source.get("fragments", 1)
+    target["first_time"] = min(float(target.get("first_time", 0.0)), float(source.get("first_time", _track_best_time(source))))
+    target["last_time"] = max(float(target.get("last_time", 0.0)), float(source.get("last_time", _track_best_time(source))))
+    if source.get("best_score", -1.0) > target.get("best_score", -1.0):
+        target["best_score"] = source["best_score"]
+        target["best"] = source["best"]
+
+def _merge_temporal_pole_events(groups, max_gap_seconds=4.0):
+    """Join fallback tracker splits that are the same pole across adjacent time windows."""
+    merged = []
+    ordered = sorted(
+        groups,
+        key=lambda g: (g["label"], float(g.get("first_time", _track_best_time(g))), float(g.get("last_time", _track_best_time(g))))
+    )
+
+    for group in ordered:
+        if not merged:
+            merged.append(group)
+            continue
+
+        current = merged[-1]
+        if current["label"] != group["label"]:
+            merged.append(group)
+            continue
+
+        group_first = float(group.get("first_time", _track_best_time(group)))
+        current_last = float(current.get("last_time", _track_best_time(current)))
+        gap = group_first - current_last
+        overlaps_in_time = gap <= 0
+        should_merge = gap <= max_gap_seconds and (not overlaps_in_time or _same_physical_pole(group, current))
+
+        if should_merge:
+            _merge_group_into(current, group)
+        else:
+            merged.append(group)
+
+    return merged
+
 def _video_tracker_backend():
     try:
         import lap  # noqa: F401
@@ -1633,15 +1674,21 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-        log_video(f"[VIDEO:{request_id}] Consolidating {len(tracks)} ByteTrack fragments into physical poles")
+        log_video(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
-        physical_poles = _merge_pole_track_fragments(tracks)
+        fragment_groups = _merge_pole_track_fragments(tracks)
+        physical_poles = _merge_temporal_pole_events(fragment_groups)
+        log_video(
+            f"[VIDEO:{request_id}] Temporal pole-event merge: "
+            f"fragment_groups={len(fragment_groups)}, physical_poles={len(physical_poles)}"
+        )
         for idx, pole in enumerate(physical_poles, start=1):
             best = pole["best"]
             log_video(
                 f"[VIDEO:{request_id}] Physical pole {idx}: label={pole['label']} "
                 f"fragments={pole['fragments']} frames={pole['appearances']} "
-                f"track_ids={pole['track_ids']} best_time={best['frame_time']:.2f}s"
+                f"track_ids={pole['track_ids']} time_range={pole.get('first_time', best['frame_time']):.2f}-"
+                f"{pole.get('last_time', best['frame_time']):.2f}s best_time={best['frame_time']:.2f}s"
             )
 
         log_video(f"[VIDEO:{request_id}] Selecting one best frame per physical pole")
