@@ -92,8 +92,6 @@ DATASET_INVENTORY_ROOTS = [
 ]
 DATASET_STATS_ROOTS = [
     "training_data_component",
-    "training_data_hardware",
-    "dataset_channels",
     "dataset_combined",
 ]
 CHANNEL_DATASET_CLASS_MAP = {
@@ -183,6 +181,26 @@ def _count_dataset_files(folder):
             elif ext in label_exts:
                 annotation_count += 1
     return image_count, annotation_count
+
+def _count_unique_dataset_images(folders):
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    unique_hashes = set()
+    fallback_paths = set()
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        for root, _, files in os.walk(folder):
+            for filename in files:
+                if os.path.splitext(filename)[1].lower() not in image_exts:
+                    continue
+                image_path = os.path.join(root, filename)
+                try:
+                    import hashlib
+                    with open(image_path, "rb") as handle:
+                        unique_hashes.add(hashlib.md5(handle.read()).hexdigest())
+                except Exception:
+                    fallback_paths.add(os.path.abspath(image_path))
+    return len(unique_hashes) + len(fallback_paths)
 
 def _normalise_stats_label(label):
     return str(label or "OBJECT").strip().upper().replace(" ", "_")
@@ -288,11 +306,9 @@ def build_training_dashboard_stats(stats=None):
     scanned_label_files = 0
 
     datasets = []
-    total_images = 0
     for folder in DATASET_INVENTORY_ROOTS:
         if os.path.isdir(folder):
             images, annotations = _count_dataset_files(folder)
-            total_images += images
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
@@ -316,7 +332,7 @@ def build_training_dashboard_stats(stats=None):
             )
 
     by_class = dict(sorted(dataset_by_class.items(), key=lambda item: item[1], reverse=True))
-    stats["total_samples"] = total_images
+    stats["total_samples"] = _count_unique_dataset_images(DATASET_STATS_ROOTS)
     stats["by_class"] = by_class
     stats["total_classes"] = len(by_class)
     stats["total_annotations"] = int(sum(by_class.values()))
