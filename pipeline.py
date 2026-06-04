@@ -378,7 +378,8 @@ class InfrastructurePipeline:
         st_lights = []
         final_others = []
         for name, box, conf, poly in other_b:
-            if "street_light" in name.lower() or "lamp" in name.lower():
+            name_lower = name.lower()
+            if name_lower == "street_light" or name_lower.startswith("lamp_") or name_lower in {"lamp", "lamp_head"}:
                 st_lights.append((box, conf, poly))
             else:
                 final_others.append((name, box, conf, poly))
