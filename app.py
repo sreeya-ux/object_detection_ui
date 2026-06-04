@@ -131,13 +131,51 @@ def image_display_threshold(label):
         else IMAGE_DEFAULT_DISPLAY_THRESHOLD
     )
 
-def _scan_dataset_folder(folder, class_names_by_id=None):
+def _parse_dataset_class_names(folder):
+    yaml_path = os.path.join(folder, "data.yaml")
+    if not os.path.exists(yaml_path):
+        return {}
+    try:
+        with open(yaml_path, "r", encoding="utf-8", errors="ignore") as handle:
+            lines = handle.readlines()
+        names = {}
+        in_names_block = False
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("names:"):
+                value = line.split(":", 1)[1].strip()
+                if value.startswith("[") and value.endswith("]"):
+                    for idx, item in enumerate(value.strip("[]").split(",")):
+                        name = item.strip().strip("'\"")
+                        if name:
+                            names[idx] = name
+                    return names
+                in_names_block = True
+                continue
+            if in_names_block:
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                try:
+                    class_id = int(key.strip())
+                except ValueError:
+                    continue
+                names[class_id] = value.strip().strip("'\"")
+        return names
+    except Exception as exc:
+        print(f"[TRAINING-STATS] Unable to parse dataset classes for {folder}: {exc}", flush=True)
+        return {}
+
+def _scan_dataset_folder(folder):
     image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
     label_exts = {".txt", ".json"}
     image_count = 0
     label_file_count = 0
     object_count = 0
     by_class = Counter()
+    class_names_by_id = _parse_dataset_class_names(folder)
     if not os.path.isdir(folder):
         return image_count, label_file_count, object_count, by_class
     for root, _, files in os.walk(folder):
@@ -158,7 +196,7 @@ def _scan_dataset_folder(folder, class_names_by_id=None):
                                 class_token = parts[0]
                                 try:
                                     class_id = int(float(class_token))
-                                    class_name = (class_names_by_id or {}).get(class_id, f"CLASS_{class_id}")
+                                    class_name = class_names_by_id.get(class_id, f"CLASS_{class_id}")
                                 except ValueError:
                                     class_name = class_token.upper()
                                 by_class[str(class_name).upper()] += 1
@@ -173,12 +211,6 @@ def _scan_dataset_folder(folder, class_names_by_id=None):
 def build_training_dashboard_stats(stats):
     stats = dict(stats or {})
     by_class = stats.get("by_class") or {}
-    try:
-        from training_pipeline import CLASS_MAP
-        class_names_by_id = {v: k for k, v in CLASS_MAP.items()}
-    except Exception:
-        class_names_by_id = {}
-
     stats["avg_confidence"] = stats.get("avg_confidence", 0)
     stats.setdefault("class_confidence", {})
     stats.setdefault("images_per_class", {})
@@ -196,7 +228,7 @@ def build_training_dashboard_stats(stats):
     dataset_object_count = 0
     for folder in dataset_roots:
         if os.path.isdir(folder):
-            images, label_files, objects, class_counts = _scan_dataset_folder(folder, class_names_by_id)
+            images, label_files, objects, class_counts = _scan_dataset_folder(folder)
             dataset_image_count += images
             dataset_object_count += objects
             dataset_class_counts.update(class_counts)
