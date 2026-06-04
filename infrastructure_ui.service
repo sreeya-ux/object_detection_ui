@@ -1,0 +1,15 @@
+[Unit]
+Description=Asakta Object Detection UI
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/object_detection_ui
+Environment=MAX_VIDEO_WORKERS=2
+ExecStart=/home/ubuntu/object_detection_ui/venv/bin/gunicorn -c /home/ubuntu/object_detection_ui/gunicorn.conf.py app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

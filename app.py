@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 
 from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
+from worker import enqueue_video_job, get_video_job_status, start_video_workers, update_video_job
 
 from flask_cors import CORS
 import cv2
@@ -86,12 +87,16 @@ def log_video(message):
 def set_video_progress(job_id, percent, message, status="processing"):
     if not job_id:
         return
+    progress = max(0, min(100, int(percent)))
     VIDEO_PROGRESS[job_id] = {
+        "progress": progress,
         "percent": max(0, min(100, int(percent))),
         "message": message,
         "status": status,
         "updated_at": time.time(),
     }
+    queue_status = "failed" if status in {"error", "failed"} else status
+    update_video_job(job_id, progress=progress, message=message, status=queue_status)
 
 def validate_model_paths(*keys):
     missing = []
@@ -1537,7 +1542,7 @@ def _video_tracker_backend():
     except Exception:
         return "fallback"
 
-def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=None):
+def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=None, pole_model=None, worker_name=None):
     """
     Process a selected 30-second video segment:
     3 FPS sampling -> pole detection -> ByteTrack -> one track per pole ->
@@ -1547,18 +1552,17 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
     import torch
 
     request_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id or uuid.uuid4())) or str(uuid.uuid4())
-    input_path = os.path.join(UPLOADS_FOLDER, f"video_{request_id}.mp4")
     output_name = f"processed_video_{request_id}.webm"
     output_path = os.path.join(VIDEO_RESULTS_FOLDER, output_name)
+    video_log = lambda message: log_video(f"[{worker_name}] {message}" if worker_name else message)
 
-    log_video(f"[VIDEO:{request_id}] Received upload for video processing")
+    video_log(f"[VIDEO:{request_id}] Received upload for video processing")
     set_video_progress(request_id, 1, "Upload received")
-    pole_model = load_video_component_model()
+    if pole_model is None:
+        pole_model = load_video_component_model()
     set_video_progress(request_id, 4, "Pole model ready")
 
-    with open(input_path, "wb") as f:
-        f.write(file_stream.read())
-    log_video(f"[VIDEO:{request_id}] Saved input video: {input_path}")
+    video_log(f"[VIDEO:{request_id}] Saved input video: {input_path}")
     set_video_progress(request_id, 8, "Input video saved")
 
     cap = cv2.VideoCapture(input_path)
@@ -1589,21 +1593,21 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             for i in range(sampled_frame_limit)
         ]
         sample_index_set = set(sample_indices)
-        log_video(
+        video_log(
             f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
             f"size={width}x{height}, duration={duration:.2f}s"
         )
-        log_video(
+        video_log(
             f"[VIDEO:{request_id}] Extracting 3 FPS from {trim_start:.2f}s to {trim_end:.2f}s "
             f"({sampled_frame_limit} deterministic sampled frames); output remains {fps:.2f} FPS for smooth playback"
         )
         set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
         tracker_backend = _video_tracker_backend()
         if tracker_backend == "bytetrack":
-            log_video(f"[VIDEO:{request_id}] Using ByteTrack tracker")
+            video_log(f"[VIDEO:{request_id}] Using ByteTrack tracker")
             set_video_progress(request_id, 14, "Using ByteTrack tracker")
         else:
-            log_video(f"[VIDEO:{request_id}] lap package missing; using built-in IoU/proximity tracker fallback")
+            video_log(f"[VIDEO:{request_id}] lap package missing; using built-in IoU/proximity tracker fallback")
             set_video_progress(request_id, 14, "Preparing video tracker")
 
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -1625,7 +1629,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         while processed_frames < max_frames:
             ok, frame = cap.read()
             if not ok:
-                log_video(f"[VIDEO:{request_id}] Frame read stopped at frame {processed_frames}")
+                video_log(f"[VIDEO:{request_id}] Frame read stopped at frame {processed_frames}")
                 break
 
             source_frame_index = start_frame + processed_frames
@@ -1729,7 +1733,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                     progress_pct,
                     f"Sampled {sampled_frames}/{sampled_frame_limit} frames; raw fragments={len(tracks)}"
                 )
-                log_video(
+                video_log(
                     f"[VIDEO:{request_id}] Sampled {sampled_frames}/{sampled_frame_limit} frames; "
                     f"pole_tracks={len(tracks)}"
                 )
@@ -1737,7 +1741,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-        log_video(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
+        video_log(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
         fragment_groups = _merge_pole_track_fragments(tracks, width)
         physical_poles = _merge_temporal_pole_events(fragment_groups, width)
@@ -1746,25 +1750,25 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         if persistent_poles:
             removed = len(physical_poles) - len(persistent_poles)
             if removed > 0:
-                log_video(
+                video_log(
                     f"[VIDEO:{request_id}] Filtered {removed} short-lived pole group(s) "
                     f"below {min_pole_appearances} sampled-frame appearances"
                 )
             physical_poles = persistent_poles
-        log_video(
+        video_log(
             f"[VIDEO:{request_id}] Temporal pole-event merge: "
             f"fragment_groups={len(fragment_groups)}, physical_poles={len(physical_poles)}"
         )
         for idx, pole in enumerate(physical_poles, start=1):
             best = pole["best"]
-            log_video(
+            video_log(
                 f"[VIDEO:{request_id}] Physical pole {idx}: label={pole['label']} "
                 f"fragments={pole['fragments']} frames={pole['appearances']} "
                 f"track_ids={pole['track_ids']} time_range={pole.get('first_time', best['frame_time']):.2f}-"
                 f"{pole.get('last_time', best['frame_time']):.2f}s best_time={best['frame_time']:.2f}s"
             )
 
-        log_video(f"[VIDEO:{request_id}] Selecting one best frame per physical pole")
+        video_log(f"[VIDEO:{request_id}] Selecting one best frame per physical pole")
         set_video_progress(request_id, 92, "Selecting one best frame per physical pole")
         detections = []
         for idx, pole in enumerate(physical_poles, start=1):
@@ -1812,17 +1816,17 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             "video_sampling_fps": sample_fps,
             "component_attributes": []
         }
-        log_video(
+        video_log(
             f"[VIDEO:{request_id}] Complete: sampled_frames={sampled_frames}, "
             f"raw_track_fragments={len(tracks)}, physical_poles={len(physical_poles)}, "
             f"detections={len(detections)}, class_counts={detected_classes}"
         )
-        log_video(f"[VIDEO:{request_id}] Output video: {output_path}")
+        video_log(f"[VIDEO:{request_id}] Output video: {output_path}")
         set_video_progress(request_id, 100, "Video analysis complete", status="complete")
 
         return {
-            "video_url": url_for("static", filename=f"results/{output_name}"),
-            "processed_video_url": url_for("static", filename=f"results/{output_name}"),
+            "video_url": f"/static/results/{output_name}",
+            "processed_video_url": f"/static/results/{output_name}",
             "detections": detections,
             "class_counts": detected_classes,
             "frame_detection_counts": dict(class_counts),
@@ -1871,6 +1875,21 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         except Exception:
             pass
 
+def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=None):
+    """Compatibility wrapper for any direct callers; /predict_video now queues saved paths."""
+    request_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id or uuid.uuid4())) or str(uuid.uuid4())
+    input_path = os.path.join(UPLOADS_FOLDER, f"video_{request_id}.mp4")
+    with open(input_path, "wb") as f:
+        f.write(file_stream.read())
+    return process_video_path(input_path, trim_start=trim_start, trim_duration=trim_duration, job_id=request_id)
+
+start_video_workers(
+    process_video_path,
+    MODEL_PATHS["video_component"],
+    log_func=log_video,
+    max_workers=int(os.environ.get("MAX_VIDEO_WORKERS", "2") or 2),
+)
+
 @app.route('/predict_video', methods=['POST'])
 @login_required
 def predict_video():
@@ -1878,27 +1897,58 @@ def predict_video():
         return jsonify({"error": "No video uploaded"}), 400
 
     try:
-        trim_start = request.form.get("trim_start", 0)
-        trim_duration = request.form.get("trim_duration", 30)
-        job_id = request.form.get("job_id") or str(uuid.uuid4())
+        trim_start = float(request.form.get("trim_start", 0) or 0)
+        trim_duration = float(request.form.get("trim_duration", 30) or 30)
+        job_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(request.form.get("job_id") or uuid.uuid4())) or str(uuid.uuid4())
+        input_path = os.path.join(UPLOADS_FOLDER, f"video_{job_id}.mp4")
+        with open(input_path, "wb") as f:
+            f.write(request.files['video'].read())
         log_video(f"[VIDEO] /predict_video called trim_start={trim_start}, trim_duration={trim_duration}, job_id={job_id}")
-        return jsonify(process_video_file(request.files['video'], trim_start=trim_start, trim_duration=trim_duration, job_id=job_id))
+        set_video_progress(job_id, 0, "Queued", status="queued")
+        enqueue_video_job({
+            "job_id": job_id,
+            "input_path": input_path,
+            "trim_start": trim_start,
+            "trim_duration": trim_duration,
+        })
+        return jsonify({"job_id": job_id, "status": "queued"})
     except Exception as e:
         import traceback
         traceback.print_exc()
         if 'job_id' in locals():
-            set_video_progress(job_id, 100, f"Video analysis failed: {str(e)}", status="error")
+            set_video_progress(job_id, 100, f"Video analysis failed: {str(e)}", status="failed")
         return jsonify({"error": f"Video Inference Error: {str(e)}"}), 500
 
 @app.route('/api/video_progress/<job_id>')
 @login_required
 def video_progress(job_id):
     clean_job_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id))
-    return jsonify(VIDEO_PROGRESS.get(clean_job_id, {
-        "percent": 0,
-        "message": "Waiting for video job",
-        "status": "waiting",
-    }))
+    queued_job = get_video_job_status(clean_job_id, mark_fetched=True)
+    progress = VIDEO_PROGRESS.get(clean_job_id, {})
+    if not queued_job:
+        percent = int(progress.get("percent", progress.get("progress", 0)) or 0)
+        return jsonify({
+            "status": progress.get("status", "waiting"),
+            "progress": percent,
+            "percent": percent,
+            "message": progress.get("message", "Waiting for video job"),
+            "queue_position": 0,
+        })
+
+    percent = int(progress.get("percent", queued_job.get("progress", 0)) or 0)
+    response = {
+        "status": queued_job.get("status", "queued"),
+        "progress": percent,
+        "percent": percent,
+        "message": progress.get("message", queued_job.get("message", "")),
+        "queue_position": queued_job.get("queue_position", 0),
+        "worker": queued_job.get("worker"),
+    }
+    if queued_job.get("status") == "complete":
+        response["result"] = queued_job.get("result") or {}
+    if queued_job.get("status") == "failed":
+        response["error"] = queued_job.get("error") or progress.get("message") or "Video processing failed"
+    return jsonify(response)
 
 # =========================
 # API ENDPOINTS

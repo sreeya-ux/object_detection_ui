@@ -1213,24 +1213,6 @@ async function processVideo() {
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 240000);
-        let lastProgressMessage = '';
-        progressTimer = setInterval(async () => {
-            if (!activeVideoJobId) return;
-            try {
-                const progressRes = await fetch(`/api/video_progress/${activeVideoJobId}`, {
-                    headers: { "ngrok-skip-browser-warning": "69420" }
-                });
-                if (!progressRes.ok) return;
-                const progress = await progressRes.json();
-                setVideoProgress(progress.percent || 0, progress.message || 'Processing');
-                if (progress.message && progress.message !== lastProgressMessage) {
-                    appendVideoLog(progress.message, progress.status === 'error' ? 'error' : (progress.status === 'complete' ? 'success' : 'active'));
-                    lastProgressMessage = progress.message;
-                }
-            } catch (pollErr) {
-                console.warn('[VideoProgress] Poll failed', pollErr);
-            }
-        }, 1000);
 
         const response = await fetch("/predict_video", {
             method: "POST",
@@ -1249,10 +1231,44 @@ async function processVideo() {
             return;
         }
 
-        const data = await response.json();
+        const queuedJob = await response.json();
+        activeVideoJobId = queuedJob.job_id || activeVideoJobId;
+        appendVideoLog(`Video job queued: ${activeVideoJobId}`, 'active');
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const deadline = Date.now() + 900000;
+        let data = null;
+        let lastProgressMessage = '';
+        while (Date.now() < deadline) {
+            const progressRes = await fetch(`/api/video_progress/${activeVideoJobId}`, {
+                headers: { "ngrok-skip-browser-warning": "69420" }
+            });
+            if (!progressRes.ok) {
+                await sleep(1000);
+                continue;
+            }
+            const progress = await progressRes.json();
+            setVideoProgress(progress.progress ?? progress.percent ?? 0, progress.message || 'Processing');
+            if (progress.message && progress.message !== lastProgressMessage) {
+                appendVideoLog(progress.message, progress.status === 'failed' ? 'error' : (progress.status === 'complete' ? 'success' : 'active'));
+                lastProgressMessage = progress.message;
+            }
+            if (progress.status === 'complete') {
+                data = progress.result || {};
+                break;
+            }
+            if (progress.status === 'failed') {
+                throw new Error(progress.error || 'Video processing failed');
+            }
+            await sleep(1000);
+        }
+        if (!data) {
+            throw new Error('Video processing timed out');
+        }
+
         setVideoProgress(100, 'Video analysis complete');
         appendVideoLog(`Backend response received: ${data.processed_frames || 0} frames processed`, 'success');
-        const processedUrl = `${data.video_url}?t=${Date.now()}`;
+        const processedUrl = `${data.video_url || data.processed_video_url}?t=${Date.now()}`;
         const video = document.getElementById('videoPreview');
         video.src = processedUrl;
         video.load();

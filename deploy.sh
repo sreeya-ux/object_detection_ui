@@ -9,7 +9,7 @@ sudo apt-get install -y python3-pip python3-venv libgl1-mesa-glx libglib2.0-0
 
 echo "--- 2. Setting Up Virtual Environment ---"
 python3 -m venv venv
-source venv/bin/bin/activate
+source venv/bin/activate
 
 echo "--- 3. Installing Dependencies (this may take a few minutes) ---"
 pip install --upgrade pip
