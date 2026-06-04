@@ -1368,93 +1368,146 @@ def _vertical_overlap_ratio(a, b):
     overlap = max(0, min(ay2, by2) - max(ay1, by1))
     return overlap / max(1, min(ay2 - ay1, by2 - by1))
 
+def _bbox_center(bbox):
+    x1, y1, x2, y2 = bbox
+    return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+def _bbox_height(bbox):
+    return max(1, int(bbox[3]) - int(bbox[1]))
+
+def _video_best_frame_score(confidence, bbox, frame_width, frame_height):
+    cx, _ = _bbox_center(bbox)
+    half_width = max(1.0, frame_width / 2.0)
+    horizontal_centrality = 1.0 - min(1.0, abs(cx - half_width) / half_width)
+    height_ratio = min(1.0, _bbox_height(bbox) / max(1.0, frame_height))
+    return (float(confidence) * 0.5) + (horizontal_centrality * 0.3) + (height_ratio * 0.2)
+
 def _track_best_time(track):
     best = track.get("best") or {}
     return float(best.get("frame_time", 0.0) or 0.0)
 
-def _time_gap_to_group(track, group):
-    t = _track_best_time(track)
-    first = float(group.get("first_time", _track_best_time(group)) or 0.0)
-    last = float(group.get("last_time", first) or first)
-    if first <= t <= last:
-        return 0.0
-    return min(abs(t - first), abs(t - last))
+def _track_frame_indices(track):
+    observations = track.get("observations") or {}
+    return sorted(int(idx) for idx in observations.keys())
 
-def _same_physical_pole(track, group):
+def _track_start_frame(track):
+    frames = _track_frame_indices(track)
+    return frames[0] if frames else int(track.get("start_frame", 0) or 0)
+
+def _track_end_frame(track):
+    frames = _track_frame_indices(track)
+    return frames[-1] if frames else int(track.get("end_frame", 0) or 0)
+
+def _track_observation_at(track, frame_index):
+    observations = track.get("observations") or {}
+    return observations.get(frame_index) or observations.get(str(frame_index))
+
+def _track_edge_bbox(track, which="end"):
+    frames = _track_frame_indices(track)
+    if not frames:
+        return (track.get("best") or {}).get("bbox", [0, 0, 0, 0])
+    frame_index = frames[-1] if which == "end" else frames[0]
+    obs = _track_observation_at(track, frame_index) or {}
+    return obs.get("bbox", (track.get("best") or {}).get("bbox", [0, 0, 0, 0]))
+
+def _track_centroid_distance_px(a, b):
+    acx, acy = _bbox_center(a)
+    bcx, bcy = _bbox_center(b)
+    return ((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5
+
+def _refresh_track_summary(track):
+    observations = track.get("observations") or {}
+    if not observations:
+        return track
+    best = max(observations.values(), key=lambda obs: float(obs.get("score", 0.0)))
+    frames = sorted(int(idx) for idx in observations.keys())
+    track["appearances"] = len(frames)
+    track["start_frame"] = frames[0]
+    track["end_frame"] = frames[-1]
+    track["first_time"] = float(observations[frames[0]].get("frame_time", 0.0))
+    track["last_time"] = float(observations[frames[-1]].get("frame_time", 0.0))
+    track["best_score"] = float(best.get("score", 0.0))
+    track["best"] = best
+    return track
+
+def _add_track_observation(track, frame_index, observation):
+    observations = track.setdefault("observations", {})
+    existing = observations.get(frame_index)
+    if existing is None or float(observation.get("confidence", 0.0)) > float(existing.get("confidence", 0.0)):
+        observations[frame_index] = observation
+    return _refresh_track_summary(track)
+
+def _time_gap_to_group(track, group):
+    gap = _track_start_frame(track) - _track_end_frame(group)
+    return max(0, gap)
+
+def _same_physical_pole(track, group, frame_width=None):
     if track["label"] != group["label"]:
         return False
     track_id = track.get("track_id")
     if track_id is not None and track_id in group.get("track_ids", []):
         return True
-    a = track["best"]["bbox"]
-    b = group["best"]["bbox"]
-    iou = _bbox_iou(a, b)
-    center_ratio = _center_distance_ratio(a, b)
-    vertical_overlap = _vertical_overlap_ratio(a, b)
-    time_gap = _time_gap_to_group(track, group)
-    # Fallback detections are per sampled frame. Keep grouping local in time so
-    # different poles that pass through a similar screen position do not collapse.
-    if time_gap > 2.0 and iou < 0.45:
+    temporal_gap = _time_gap_to_group(track, group)
+    if temporal_gap >= 15:
         return False
-    return (
-        iou >= 0.35
-        or (iou >= 0.12 and center_ratio <= 0.40 and vertical_overlap >= 0.50)
-        or (center_ratio <= 0.24 and vertical_overlap >= 0.70)
-    )
+    a = _track_edge_bbox(group, "end")
+    b = _track_edge_bbox(track, "start")
+    width_threshold = max(1.0, (frame_width or max(a[2], b[2], 1)) * 0.15)
+    return _track_centroid_distance_px(a, b) < width_threshold
 
-def _merge_pole_track_fragments(tracks):
+def _merge_pole_track_fragments(tracks, frame_width):
     groups = []
     fragments = [t for t in tracks.values() if t.get("best")]
-    fragments.sort(key=lambda t: (t["label"], -t["appearances"], -t["best_score"]))
+    fragments.sort(key=lambda t: (t["label"], _track_start_frame(t), _track_end_frame(t), -t["best_score"]))
 
     for track in fragments:
         matched = None
         for group in groups:
-            if _same_physical_pole(track, group):
+            if _same_physical_pole(track, group, frame_width):
                 matched = group
                 break
 
         if matched is None:
             groups.append({
                 "label": track["label"],
-                "track_ids": [track["track_id"]],
-                "appearances": track["appearances"],
-                "best_score": track["best_score"],
-                "best": track["best"],
+                "track_ids": [track["track_id"]] if track.get("track_id") is not None else [],
+                "observations": dict(track.get("observations") or {}),
+                "appearances": int(track.get("appearances", 0)),
+                "best_score": float(track.get("best_score", 0.0)),
+                "best": track.get("best"),
                 "fragments": 1,
-                "first_time": _track_best_time(track),
-                "last_time": _track_best_time(track),
+                "first_time": float(track.get("first_time", _track_best_time(track))),
+                "last_time": float(track.get("last_time", _track_best_time(track))),
+                "start_frame": _track_start_frame(track),
+                "end_frame": _track_end_frame(track),
             })
+            _refresh_track_summary(groups[-1])
             continue
 
-        matched["track_ids"].append(track["track_id"])
-        matched["appearances"] += track["appearances"]
-        matched["fragments"] += 1
-        t = _track_best_time(track)
-        matched["first_time"] = min(float(matched.get("first_time", t)), t)
-        matched["last_time"] = max(float(matched.get("last_time", t)), t)
-        if track["best_score"] > matched["best_score"]:
-            matched["best_score"] = track["best_score"]
-            matched["best"] = track["best"]
+        _merge_group_into(matched, track)
 
     return groups
 
 def _merge_group_into(target, source):
-    target["track_ids"].extend(source.get("track_ids", []))
-    target["appearances"] += source.get("appearances", 0)
+    for track_id in source.get("track_ids", []):
+        if track_id is not None and track_id not in target["track_ids"]:
+            target["track_ids"].append(track_id)
+    if source.get("track_id") is not None and source.get("track_id") not in target["track_ids"]:
+        target["track_ids"].append(source["track_id"])
+    target_observations = target.setdefault("observations", {})
+    for frame_index, observation in (source.get("observations") or {}).items():
+        existing = target_observations.get(frame_index)
+        if existing is None or float(observation.get("confidence", 0.0)) > float(existing.get("confidence", 0.0)):
+            target_observations[frame_index] = observation
     target["fragments"] += source.get("fragments", 1)
-    target["first_time"] = min(float(target.get("first_time", 0.0)), float(source.get("first_time", _track_best_time(source))))
-    target["last_time"] = max(float(target.get("last_time", 0.0)), float(source.get("last_time", _track_best_time(source))))
-    if source.get("best_score", -1.0) > target.get("best_score", -1.0):
-        target["best_score"] = source["best_score"]
-        target["best"] = source["best"]
+    return _refresh_track_summary(target)
 
-def _merge_temporal_pole_events(groups, max_gap_seconds=4.0):
+def _merge_temporal_pole_events(groups, frame_width, max_gap_frames=15):
     """Join fallback tracker splits that are the same pole across adjacent time windows."""
     merged = []
     ordered = sorted(
         groups,
-        key=lambda g: (g["label"], float(g.get("first_time", _track_best_time(g))), float(g.get("last_time", _track_best_time(g))))
+        key=lambda g: (g["label"], _track_start_frame(g), _track_end_frame(g))
     )
 
     for group in ordered:
@@ -1467,11 +1520,8 @@ def _merge_temporal_pole_events(groups, max_gap_seconds=4.0):
             merged.append(group)
             continue
 
-        group_first = float(group.get("first_time", _track_best_time(group)))
-        current_last = float(current.get("last_time", _track_best_time(current)))
-        gap = group_first - current_last
-        overlaps_in_time = gap <= 0
-        should_merge = gap <= max_gap_seconds and (not overlaps_in_time or _same_physical_pole(group, current))
+        gap = _track_start_frame(group) - _track_end_frame(current)
+        should_merge = 0 <= gap < max_gap_frames and _same_physical_pole(group, current, frame_width)
 
         if should_merge:
             _merge_group_into(current, group)
@@ -1528,17 +1578,24 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         if duration > 0:
             trim_start = min(trim_start, max(0.0, duration - 0.1))
         trim_end = min(trim_start + trim_duration, duration) if duration > 0 else trim_start + trim_duration
-        max_frames = int(max(1, round((trim_end - trim_start) * fps)))
+        effective_trim_duration = max(0.0, trim_end - trim_start)
+        start_frame = int(round(trim_start * fps))
+        max_frames = int(max(1, round(effective_trim_duration * fps)))
         sample_fps = 3.0
-        sample_interval = max(1, int(round(fps / sample_fps)))
-        sampled_frame_limit = int(max(1, round((trim_end - trim_start) * sample_fps)))
+        sample_step = fps / sample_fps
+        sampled_frame_limit = int(max(1, math.floor(effective_trim_duration * sample_fps)))
+        sample_indices = [
+            int(round(start_frame + (i * sample_step)))
+            for i in range(sampled_frame_limit)
+        ]
+        sample_index_set = set(sample_indices)
         log_video(
             f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
             f"size={width}x{height}, duration={duration:.2f}s"
         )
         log_video(
             f"[VIDEO:{request_id}] Extracting 3 FPS from {trim_start:.2f}s to {trim_end:.2f}s "
-            f"({sampled_frame_limit} sampled frames max); output remains {fps:.2f} FPS for smooth playback"
+            f"({sampled_frame_limit} deterministic sampled frames); output remains {fps:.2f} FPS for smooth playback"
         )
         set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
         tracker_backend = _video_tracker_backend()
@@ -1549,7 +1606,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             log_video(f"[VIDEO:{request_id}] lap package missing; using built-in IoU/proximity tracker fallback")
             set_video_progress(request_id, 14, "Preparing video tracker")
 
-        cap.set(cv2.CAP_PROP_POS_MSEC, trim_start * 1000.0)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
         # VP8/WebM is browser-playable; OpenCV mp4v MP4 often shows
         # "No video with supported format" in Chrome/Edge.
@@ -1562,6 +1619,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
         class_counts = defaultdict(int)
         processed_frames = 0
         sampled_frames = 0
+        last_progress_sample = 0
         last_frame_detections = []
 
         while processed_frames < max_frames:
@@ -1570,8 +1628,9 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                 log_video(f"[VIDEO:{request_id}] Frame read stopped at frame {processed_frames}")
                 break
 
-            frame_time = trim_start + (processed_frames / fps)
-            should_sample = processed_frames % sample_interval == 0
+            source_frame_index = start_frame + processed_frames
+            frame_time = source_frame_index / fps if fps > 0 else trim_start
+            should_sample = source_frame_index in sample_index_set
             annotated = frame.copy()
 
             if should_sample:
@@ -1620,7 +1679,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                         else:
                             # Fallback mode: create short fragments, then merge them
                             # into physical poles after all sampled frames.
-                            track_key = f"{label}:sample-{sampled_frames}:det-{len(tracks)}"
+                            track_key = f"{label}:frame-{source_frame_index}:det-{len(tracks)}"
 
                         class_counts[label] += 1
                         current = tracks.get(track_key)
@@ -1630,27 +1689,29 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                                 "track_id": track_id,
                                 "appearances": 0,
                                 "best_score": -1.0,
-                                "best": None
+                                "best": None,
+                                "observations": {},
+                                "start_frame": source_frame_index,
+                                "end_frame": source_frame_index,
                             }
                             tracks[track_key] = current
 
-                        current["appearances"] += 1
-                        # Best frame priority: confidence, pole size, then sharpness.
-                        best_score = (conf * 0.55) + (min(norm_area * 10, 1.0) * 0.30) + (min(sharpness / 1000.0, 1.0) * 0.15)
-                        if best_score > current["best_score"]:
-                            crop_bbox = _clip_bbox(bbox, width, height, padding=24)
-                            cx1, cy1, cx2, cy2 = crop_bbox
-                            current["best_score"] = best_score
-                            current["best"] = {
-                                "confidence": conf,
-                                "bbox": [x1, y1, x2, y2],
-                                "crop_bbox": crop_bbox,
-                                "frame_time": frame_time,
-                                "sharpness": sharpness,
-                                "area": area,
-                                "frame": frame.copy(),
-                                "crop": frame[cy1:cy2, cx1:cx2].copy()
-                            }
+                        scored_bbox = [x1, y1, x2, y2]
+                        best_score = _video_best_frame_score(conf, scored_bbox, width, height)
+                        crop_bbox = _clip_bbox(bbox, width, height, padding=24)
+                        cx1, cy1, cx2, cy2 = crop_bbox
+                        _add_track_observation(current, source_frame_index, {
+                            "confidence": conf,
+                            "bbox": scored_bbox,
+                            "crop_bbox": crop_bbox,
+                            "frame_time": frame_time,
+                            "frame_index": source_frame_index,
+                            "sharpness": sharpness,
+                            "area": area,
+                            "score": best_score,
+                            "frame": frame.copy(),
+                            "crop": frame[cy1:cy2, cx1:cx2].copy()
+                        })
 
                         last_frame_detections.append(([x1, y1, x2, y2], label, conf, track_id))
 
@@ -1660,7 +1721,8 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
             writer.write(annotated)
             processed_frames += 1
 
-            if sampled_frames % 15 == 0:
+            if sampled_frames and sampled_frames % 15 == 0 and sampled_frames != last_progress_sample:
+                last_progress_sample = sampled_frames
                 progress_pct = 15 + int((sampled_frames / max(1, sampled_frame_limit)) * 70)
                 set_video_progress(
                     request_id,
@@ -1677,9 +1739,9 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
 
         log_video(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
-        fragment_groups = _merge_pole_track_fragments(tracks)
-        physical_poles = _merge_temporal_pole_events(fragment_groups)
-        min_pole_appearances = max(2, int(math.ceil(sampled_frame_limit * 0.05)))
+        fragment_groups = _merge_pole_track_fragments(tracks, width)
+        physical_poles = _merge_temporal_pole_events(fragment_groups, width)
+        min_pole_appearances = 5
         persistent_poles = [pole for pole in physical_poles if int(pole.get("appearances", 0)) >= min_pole_appearances]
         if persistent_poles:
             removed = len(physical_poles) - len(persistent_poles)
@@ -1717,7 +1779,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
                 "source": MODEL_PATHS["video_component"],
                 "details": {
                     "type": "strut_pole" if pole["label"] == "STRUT_POLE" else "main_pole",
-                    "track_id": pole["track_ids"][0],
+                    "track_id": pole["track_ids"][0] if pole.get("track_ids") else None,
                     "track_ids": [tid for tid in pole["track_ids"] if tid is not None],
                     "track_fragments": pole["fragments"],
                     "appearances": pole["appearances"],
@@ -1760,6 +1822,7 @@ def process_video_file(file_stream, trim_start=0.0, trim_duration=30.0, job_id=N
 
         return {
             "video_url": url_for("static", filename=f"results/{output_name}"),
+            "processed_video_url": url_for("static", filename=f"results/{output_name}"),
             "detections": detections,
             "class_counts": detected_classes,
             "frame_detection_counts": dict(class_counts),

@@ -3,6 +3,7 @@ flask
 flask-login
 werkzeug
 ultralytics>=8.4.50
+lapx
 torch
 torchvision
 torchaudio
