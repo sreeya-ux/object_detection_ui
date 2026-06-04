@@ -131,99 +131,28 @@ def image_display_threshold(label):
         else IMAGE_DEFAULT_DISPLAY_THRESHOLD
     )
 
-def _parse_dataset_class_names(folder):
-    folder_key = os.path.basename(os.path.normpath(folder)).lower()
-    if folder_key == "training_data_component":
-        return {
-            0: "INSULATOR",
-            1: "POLE",
-            2: "STRUT_POLE",
-            3: "CROSSARM",
-            4: "CONDUCTOR",
-            5: "STREET_LIGHT",
-        }
-
-    yaml_path = os.path.join(folder, "data.yaml")
-    if not os.path.exists(yaml_path) and folder_key in {"dataset_channels", "dataset_combined"}:
-        yaml_path = "channels.yaml"
-    if not os.path.exists(yaml_path):
-        return {}
-    try:
-        with open(yaml_path, "r", encoding="utf-8", errors="ignore") as handle:
-            lines = handle.readlines()
-        names = {}
-        in_names_block = False
-        for raw_line in lines:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("names:"):
-                value = line.split(":", 1)[1].strip()
-                if value.startswith("[") and value.endswith("]"):
-                    for idx, item in enumerate(value.strip("[]").split(",")):
-                        name = item.strip().strip("'\"")
-                        if name:
-                            names[idx] = name
-                    return names
-                in_names_block = True
-                continue
-            if in_names_block:
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                try:
-                    class_id = int(key.strip())
-                except ValueError:
-                    continue
-                names[class_id] = value.strip().strip("'\"")
-        return names
-    except Exception as exc:
-        print(f"[TRAINING-STATS] Unable to parse dataset classes for {folder}: {exc}", flush=True)
-        return {}
-
-def _scan_dataset_folder(folder):
+def _count_dataset_files(folder):
     image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
     label_exts = {".txt", ".json"}
     image_count = 0
-    label_file_count = 0
-    object_count = 0
-    by_class = Counter()
-    class_names_by_id = _parse_dataset_class_names(folder)
+    annotation_count = 0
     if not os.path.isdir(folder):
-        return image_count, label_file_count, object_count, by_class
+        return image_count, annotation_count
     for root, _, files in os.walk(folder):
         for filename in files:
             ext = os.path.splitext(filename)[1].lower()
-            path = os.path.join(root, filename)
             if ext in image_exts:
                 image_count += 1
             elif ext in label_exts:
-                label_file_count += 1
-                if ext == ".txt":
-                    try:
-                        with open(path, "r", encoding="utf-8", errors="ignore") as label_file:
-                            for line in label_file:
-                                parts = line.strip().split()
-                                if not parts:
-                                    continue
-                                class_token = parts[0]
-                                try:
-                                    class_id = int(float(class_token))
-                                    class_name = class_names_by_id.get(class_id, f"CLASS_{class_id}")
-                                except ValueError:
-                                    class_name = class_token.upper()
-                                by_class[str(class_name).upper()] += 1
-                                object_count += 1
-                    except Exception as exc:
-                        print(f"[TRAINING-STATS] Unable to read label file {path}: {exc}", flush=True)
-                elif ext == ".json":
-                    object_count += 1
-                    by_class["OBJECT"] += 1
-    return image_count, label_file_count, object_count, by_class
+                annotation_count += 1
+    return image_count, annotation_count
 
 def build_training_dashboard_stats(stats):
     stats = dict(stats or {})
     by_class = stats.get("by_class") or {}
+    total_annotations = int(sum(int(v or 0) for v in by_class.values()))
+    stats["total_classes"] = stats.get("total_classes") or len(by_class)
+    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
     stats["avg_confidence"] = stats.get("avg_confidence", 0)
     stats.setdefault("class_confidence", {})
     stats.setdefault("images_per_class", {})
@@ -236,31 +165,17 @@ def build_training_dashboard_stats(stats):
         "dataset_combined",
     ]
     datasets = []
-    dataset_class_counts = Counter()
-    dataset_image_count = 0
-    dataset_object_count = 0
     for folder in dataset_roots:
         if os.path.isdir(folder):
-            images, label_files, objects, class_counts = _scan_dataset_folder(folder)
-            dataset_image_count += images
-            dataset_object_count += objects
-            dataset_class_counts.update(class_counts)
+            images, annotations = _count_dataset_files(folder)
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
                 "count": images,
                 "images": images,
-                "annotations": objects or label_files,
+                "annotations": annotations,
             })
     stats["datasets"] = stats.get("datasets") or datasets
-
-    if not by_class and dataset_class_counts:
-        by_class = dict(dataset_class_counts)
-        stats["by_class"] = by_class
-    total_annotations = int(sum(int(v or 0) for v in by_class.values())) or dataset_object_count
-    stats["total_samples"] = stats.get("total_samples") or dataset_image_count
-    stats["total_classes"] = stats.get("total_classes") or len(by_class)
-    stats["total_annotations"] = stats.get("total_annotations") or total_annotations
 
     model_descriptions = {
         "pole": "Pole and strut pole detector",
