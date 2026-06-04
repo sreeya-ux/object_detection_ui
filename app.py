@@ -132,7 +132,20 @@ def image_display_threshold(label):
     )
 
 def _parse_dataset_class_names(folder):
+    folder_key = os.path.basename(os.path.normpath(folder)).lower()
+    if folder_key == "training_data_component":
+        return {
+            0: "INSULATOR",
+            1: "POLE",
+            2: "STRUT_POLE",
+            3: "CROSSARM",
+            4: "CONDUCTOR",
+            5: "STREET_LIGHT",
+        }
+
     yaml_path = os.path.join(folder, "data.yaml")
+    if not os.path.exists(yaml_path) and folder_key in {"dataset_channels", "dataset_combined"}:
+        yaml_path = "channels.yaml"
     if not os.path.exists(yaml_path):
         return {}
     try:
