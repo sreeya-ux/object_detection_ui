@@ -432,34 +432,63 @@ class InfrastructurePipeline:
         return name.strip().lower().replace(" ", "_")
 
     def _categorise_12class(self, cls_id, box, conf, ins_b, arm_b, other_b, poly, pole_b=None, cond_b=None):
-        name = self._normalise_model_name(self.hardware_model.names[cls_id])
+        raw_name = self._normalise_model_name(self.hardware_model.names[cls_id])
+        name = raw_name
         # The channel_12class_v2 checkpoint has these two semantic labels reversed
         # in practice: clamp hardware is emitted as street_light and vice versa.
         if name == "street_light":
             name = "special_clamp"
         elif name == "special_clamp":
             name = "street_light"
+        threshold = None
+        bucket = "drop"
+        kept = False
         if "pole" in name and pole_b is not None:
+            threshold = THRESHOLD_POLE
             if conf > THRESHOLD_POLE:
                 pole_b.append((box, conf, None, poly, "strut" in name))
+                bucket = "pole_b"
+                kept = True
         elif ("conductor" in name or "wire" in name or "cable" in name) and cond_b is not None:
+            threshold = THRESHOLD_CONDUCTOR
             if conf > THRESHOLD_CONDUCTOR:
                 cond_b.append((box, conf))
+                bucket = "cond_b"
+                kept = True
         elif "insulator" in name or name in {"ins_pin", "ins_disc"}:
-            if conf > THRESHOLD_INSULATOR: ins_b.append((box, conf, None, poly, False))
+            threshold = THRESHOLD_INSULATOR
+            if conf > THRESHOLD_INSULATOR:
+                ins_b.append((box, conf, None, poly, False))
+                bucket = "ins_b"
+                kept = True
         elif name in {"v_cross_arm", "tapping_arm", "top_cleat", "side_arm", "t_rising", "box_arm"}:
             # Lower threshold specifically for side arms and tapping arms to ensure detection
             thresh = THRESHOLD_CROSSARM
             if name in ["side_arm", "side_arm_channel", "tapping_arm", "tapping_channel"]:
                 thresh = 0.35
-            if conf > thresh: arm_b.append((box, conf, name, poly, False))
+            threshold = thresh
+            if conf > thresh:
+                arm_b.append((box, conf, name, poly, False))
+                bucket = "arm_b"
+                kept = True
         else:
             # Use lower threshold specifically for stay_set
             thresh = 0.15
             if name == "stay_set":
                 thresh = 0.05
+            threshold = thresh
             if conf > thresh:
                 other_b.append((name, box, conf, poly))
+                bucket = "other_b"
+                kept = True
+        if raw_name in {"street_light", "special_clamp"} or name in {"street_light", "special_clamp"}:
+            print(
+                "[IMAGE-HARDWARE] "
+                f"cls_id={cls_id} raw={raw_name} mapped={name} conf={float(conf):.3f} "
+                f"threshold={float(threshold or 0):.2f} kept={kept} bucket={bucket} "
+                f"bbox={[int(v) for v in box]}",
+                flush=True
+            )
 
     def _nms(self, items, thresh):
         if not items: return []

@@ -15,7 +15,7 @@ import json
 import os
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
 from worker import enqueue_video_job, get_video_job_status, start_video_workers, update_video_job
@@ -1100,6 +1100,17 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
         import base64 as _base64
         _, buffer = cv2.imencode('.jpg', img)
         img_b64 = _base64.b64encode(buffer).decode('utf-8')
+        final_counts = Counter(str(d.get("label", "")).upper() for d in final_detections)
+        print(f"[IMAGE-RESULT] Final UI detections count={len(final_detections)} classes={dict(final_counts)}", flush=True)
+        for det in final_detections:
+            label = str(det.get("label", "")).upper()
+            if label in {"SPECIAL_CLAMP", "STREET_LIGHT"}:
+                print(
+                    "[IMAGE-RESULT] "
+                    f"ui_label={label} conf={float(det.get('confidence', 0.0)):.3f} "
+                    f"bbox={det.get('bbox')} source={det.get('source')}",
+                    flush=True
+                )
 
         return {
             "detections": final_detections,
