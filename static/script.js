@@ -10,6 +10,12 @@ let activeBatchIndex = -1;
 let masterResult = null;
 let surveyResult = {};
 let imageDimensions = { width: 0, height: 0 };
+let currentInputMode = "image";
+let selectedVideoFile = null;
+let selectedVideoObjectUrl = null;
+let selectedVideoDuration = 0;
+let selectedVideoStart = 0;
+const VIDEO_CLIP_SECONDS = 30;
 
 function normalizePoleIdText(text) {
     if (!text) return "Not Found";
@@ -105,6 +111,155 @@ let expandedGroups = new Set();
 
 function getFakeConfidenceValue(rawConf) {
     return Math.round(rawConf * 100) + '%';
+}
+
+function formatSeconds(seconds) {
+    const safe = Math.max(0, Math.round(Number(seconds) || 0));
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function openVideoPicker(event) {
+    if (event) event.stopPropagation();
+    const input = document.getElementById('videoUpload');
+    if (input) input.click();
+}
+
+function selectFirst30s() {
+    const range = document.getElementById('videoStartRange');
+    if (range) {
+        range.value = "0";
+        selectedVideoStart = 0;
+        const video = document.getElementById('videoPreview');
+        if (video) {
+            video.currentTime = 0;
+        }
+        updateVideoRangeLabels();
+        showToast("Selected first 30 seconds of video", "info");
+    }
+}
+
+function openVideoUpload(event) {
+    openVideoPicker(event);
+}
+
+function updateVideoRangeLabels() {
+    const startLabel = document.getElementById('videoStartLabel');
+    const endLabel = document.getElementById('videoEndLabel');
+    const durationLabel = document.getElementById('videoDurationLabel');
+    const end = Math.min(selectedVideoDuration || VIDEO_CLIP_SECONDS, selectedVideoStart + VIDEO_CLIP_SECONDS);
+    if (startLabel) startLabel.textContent = `Start: ${formatSeconds(selectedVideoStart)}`;
+    if (endLabel) endLabel.textContent = `End: ${formatSeconds(end)}`;
+    if (durationLabel) durationLabel.textContent = `Analyzing ${formatSeconds(end - selectedVideoStart)} from ${formatSeconds(selectedVideoDuration)}`;
+}
+
+function canvasToJpegBlob(canvas, quality = 0.86) {
+    return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', quality));
+}
+
+async function seekVideo(video, time) {
+    return new Promise((resolve, reject) => {
+        const done = () => {
+            video.removeEventListener('seeked', done);
+            video.removeEventListener('error', fail);
+            resolve();
+        };
+        const fail = () => {
+            video.removeEventListener('seeked', done);
+            video.removeEventListener('error', fail);
+            reject(new Error('Could not seek video'));
+        };
+        video.addEventListener('seeked', done, { once: true });
+        video.addEventListener('error', fail, { once: true });
+        video.currentTime = Math.max(0, time);
+    });
+}
+
+async function extractSelectedVideoFrames(frameCount = 3) {
+    if (!selectedVideoFile) throw new Error("Please select a video first");
+    const url = URL.createObjectURL(selectedVideoFile);
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+
+    try {
+        await new Promise((resolve, reject) => {
+            video.onloadedmetadata = resolve;
+            video.onerror = () => reject(new Error('Unable to read selected video'));
+        });
+
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : selectedVideoDuration || VIDEO_CLIP_SECONDS;
+        const clipEnd = Math.min(duration, selectedVideoStart + VIDEO_CLIP_SECONDS);
+        const span = Math.max(1, clipEnd - selectedVideoStart);
+        const times = Array.from({ length: frameCount }, (_, i) => selectedVideoStart + span * ((i + 1) / (frameCount + 1)));
+        const frames = [];
+
+        for (let i = 0; i < times.length; i++) {
+            await seekVideo(video, Math.min(times[i], Math.max(0, duration - 0.1)));
+            const scale = Math.min(1, 1280 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round((video.videoWidth || 1) * scale));
+            canvas.height = Math.max(1, Math.round((video.videoHeight || 1) * scale));
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            const blob = await canvasToJpegBlob(canvas);
+            const nameBase = selectedVideoFile.name.replace(/\.[^.]+$/, '');
+            frames.push({
+                file: new File([blob], `${nameBase}_frame_${i + 1}.jpg`, { type: 'image/jpeg' }),
+                src: URL.createObjectURL(blob),
+                detections: [],
+                master: null,
+                dims: { width: canvas.width, height: canvas.height },
+                processed: false,
+                mediaType: 'video_frame',
+                frameTime: times[i]
+            });
+        }
+        return frames;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+function handleVideoUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    resetSession(true);
+    currentInputMode = "video";
+    selectedVideoFile = file;
+    if (selectedVideoObjectUrl) URL.revokeObjectURL(selectedVideoObjectUrl);
+    selectedVideoObjectUrl = URL.createObjectURL(file);
+
+    const controls = document.getElementById('videoControls');
+    const video = document.getElementById('videoPreview');
+    const nameEl = document.getElementById('videoFileName');
+    const range = document.getElementById('videoStartRange');
+
+    if (nameEl) nameEl.textContent = file.name;
+    if (controls) controls.classList.remove('hidden');
+    document.getElementById('uploadPrompt').classList.add('hidden');
+    document.getElementById('batchStripWrapper').classList.add('hidden');
+    document.getElementById('imageContainer').classList.add('hidden');
+
+    if (video) {
+        video.src = selectedVideoObjectUrl;
+        video.onloadedmetadata = () => {
+            selectedVideoDuration = Number.isFinite(video.duration) ? video.duration : 0;
+            selectedVideoStart = 0;
+            if (range) {
+                range.max = Math.max(0, Math.floor(selectedVideoDuration - VIDEO_CLIP_SECONDS));
+                range.value = "0";
+            }
+            updateVideoRangeLabels();
+        };
+    }
+
+    const btnText = document.querySelector('#btnRun .btn-text');
+    if (btnText) btnText.textContent = "Run Video Interface";
+    showToast("Video selected. Choose the 30 second window, then run.", "success");
 }
 
 // Drawing State
@@ -416,6 +571,8 @@ async function loadUserTrainingStats() {
 
 document.addEventListener('DOMContentLoaded', () => {
     const uploadInput = document.getElementById('upload');
+    const videoInput = document.getElementById('videoUpload');
+    const videoStartRange = document.getElementById('videoStartRange');
     const previewImg = document.getElementById('preview');
     const dropZone = document.getElementById('dropZone');
 
@@ -445,6 +602,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (uploadInput) {
         uploadInput.addEventListener('change', handleUpload);
+    }
+
+    if (videoInput) {
+        videoInput.addEventListener('change', handleVideoUpload);
+    }
+
+    if (videoStartRange) {
+        videoStartRange.addEventListener('input', (e) => {
+            selectedVideoStart = Number(e.target.value) || 0;
+            const video = document.getElementById('videoPreview');
+            if (video && Number.isFinite(video.duration)) {
+                video.currentTime = selectedVideoStart;
+            }
+            updateVideoRangeLabels();
+        });
     }
 
     if (dropZone) {
@@ -480,6 +652,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function handleUpload(e) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
+    currentInputMode = "image";
+    selectedVideoFile = null;
+    if (selectedVideoObjectUrl) {
+        URL.revokeObjectURL(selectedVideoObjectUrl);
+        selectedVideoObjectUrl = null;
+    }
+    const videoControls = document.getElementById('videoControls');
+    if (videoControls) videoControls.classList.add('hidden');
+    const btnText = document.querySelector('#btnRun .btn-text');
+    if (btnText) btnText.textContent = "Run Interface";
 
     // Add to batch
     files.forEach(file => {
@@ -623,17 +805,36 @@ function resetSession(force = false) {
     detections = [];
     uploadedFile = null;
     masterResult = null;
+    currentInputMode = "image";
+    selectedVideoFile = null;
+    selectedVideoDuration = 0;
+    selectedVideoStart = 0;
+    if (selectedVideoObjectUrl) {
+        URL.revokeObjectURL(selectedVideoObjectUrl);
+        selectedVideoObjectUrl = null;
+    }
 
     // UI Reset
     document.getElementById('uploadPrompt').classList.remove('hidden');
     document.getElementById('batchStripWrapper').classList.add('hidden');
     document.getElementById('imageContainer').classList.add('hidden');
+    const videoControls = document.getElementById('videoControls');
+    if (videoControls) videoControls.classList.add('hidden');
+    const videoPreview = document.getElementById('videoPreview');
+    if (videoPreview) {
+        videoPreview.pause();
+        videoPreview.removeAttribute('src');
+        videoPreview.load();
+    }
     document.getElementById('resultBox').innerHTML = '';
     document.getElementById('masterIdentityCard').classList.add('hidden');
     const dz = document.getElementById('dropZone');
     dz.classList.remove('py-4', 'border-transparent');
     dz.classList.add('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30', 'cursor-pointer');
-    document.getElementById('upload').value = ''; // Clear file input
+    const uploadEl = document.getElementById('upload');
+    if (uploadEl) uploadEl.value = ''; // Clear file input
+    const videoUploadEl = document.getElementById('videoUpload');
+    if (videoUploadEl) videoUploadEl.value = '';
 
     // Hide and reset Submit Section
     const submitSection = document.getElementById('submitSection');
@@ -644,6 +845,8 @@ function resetSession(force = false) {
         finalSubmitBtn.disabled = true;
         finalSubmitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> SUBMIT RESULTS';
     }
+    const runBtnText = document.querySelector('#btnRun .btn-text');
+    if (runBtnText) runBtnText.textContent = "Run Interface";
 
     showToast("Session reset", "info");
 }
@@ -686,6 +889,11 @@ async function resizeImage(file, maxWidth, maxHeight) {
 }
 
 async function processImage() {
+    if (currentInputMode === "video" && selectedVideoFile) {
+        processVideo();
+        return;
+    }
+
     if (batchImages.length === 0) {
         showToast("Please upload at least one image", "warning");
         return;
@@ -712,7 +920,9 @@ async function processImage() {
             }
             formData.append("image", imageToUpload, "image.jpg");
         } else {
-            btnText.textContent = `Merging ${batchImages.length} Views...`;
+            btnText.textContent = currentInputMode === "video"
+                ? `Analyzing ${batchImages.length} Video Frames...`
+                : `Merging ${batchImages.length} Views...`;
             for (let i = 0; i < Math.min(batchImages.length, 3); i++) {
                 let file = batchImages[i].file;
                 let imageToUpload = file;
@@ -724,15 +934,11 @@ async function processImage() {
             }
         }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000); // Higher timeout for multi-image
-
         const response = await fetch("/predict", {
             method: "POST",
             headers: { "ngrok-skip-browser-warning": "69420" },
-            body: formData,
-            signal: controller.signal
-        }).finally(() => clearTimeout(timeoutId));
+            body: formData
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -810,13 +1016,153 @@ async function processImage() {
         
         renderBatchStrip();
         saveDraft();
-        showToast(batchImages.length > 1 ? "Multi-view merge complete" : "Analysis complete", "success");
+        showToast(
+            currentInputMode === "video"
+                ? "Video analysis complete"
+                : (batchImages.length > 1 ? "Multi-view merge complete" : "Analysis complete"),
+            "success"
+        );
 
     } catch (err) {
         showToast(err.message || "Processing error", "danger");
     } finally {
         btn.disabled = false;
-        btnText.textContent = "Run Interface";
+        btnText.textContent = currentInputMode === "video" ? "Run Video Interface" : "Run Interface";
+        loader.classList.add('hidden');
+    }
+}
+
+async function processVideo() {
+    if (!selectedVideoFile) {
+        showToast("Please upload a video first", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnRun');
+    const btnText = btn.querySelector('.btn-text');
+    const loader = btn.querySelector('.loader');
+
+    btn.disabled = true;
+    loader.classList.remove('hidden');
+    btnText.textContent = "Queuing Video Job...";
+
+    const jobId = `video-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let progressTimer = null;
+
+    try {
+        const formData = new FormData();
+        formData.append("video", selectedVideoFile, selectedVideoFile.name || "inspection-video.mp4");
+        formData.append("trim_start", String(selectedVideoStart || 0));
+        formData.append("trim_duration", String(30)); // Max 30 seconds
+        formData.append("job_id", jobId);
+
+        const response = await fetch("/predict_video", {
+            method: "POST",
+            headers: { "ngrok-skip-browser-warning": "69420" },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            showToast(`Video analysis failed: ${errorData.error || response.status}`, "danger");
+            btn.disabled = false;
+            btnText.textContent = "Run Video Interface";
+            loader.classList.add('hidden');
+            return;
+        }
+
+        const data = await response.json();
+        
+        // Start progress polling
+        let lastProgressMessage = '';
+        progressTimer = setInterval(async () => {
+            try {
+                const progressRes = await fetch(`/api/video_progress/${jobId}`, {
+                    headers: { "ngrok-skip-browser-warning": "69420" }
+                });
+                if (!progressRes.ok) return;
+                const progress = await progressRes.json();
+                
+                const percent = progress.percent || 0;
+                btnText.textContent = `Analyzing: ${percent}%`;
+                
+                if (progress.status === 'complete') {
+                    clearInterval(progressTimer);
+                    
+                    const resultData = progress.result;
+                    if (!resultData) {
+                        showToast("Video analysis complete but no result payload received", "danger");
+                        btn.disabled = false;
+                        btnText.textContent = "Run Video Interface";
+                        loader.classList.add('hidden');
+                        return;
+                    }
+                    
+                    showToast("Video analysis complete", "success");
+                    
+                    // Update video preview player with processed video
+                    const video = document.getElementById('videoPreview');
+                    const processedUrl = `${resultData.processed_video_url || resultData.video_url}?t=${Date.now()}`;
+                    if (video) {
+                        video.src = processedUrl;
+                        video.load();
+                    }
+                    
+                    const videoDetections = (resultData.detections || []).map(d => ({
+                        ...d,
+                        label: String(d.label || '').toUpperCase(),
+                        confirmed: false
+                    }));
+                    
+                    batchImages = [{
+                        file: selectedVideoFile,
+                        name: selectedVideoFile.name,
+                        src: processedUrl,
+                        detections: videoDetections,
+                        master: sanitizeMasterResult(resultData.master),
+                        dims: { width: resultData.width, height: resultData.height },
+                        processed: true,
+                        mediaType: 'video',
+                        classCounts: resultData.class_counts || {},
+                        frameDetectionCounts: resultData.frame_detection_counts || {},
+                        trimStart: resultData.trim_start,
+                        trimDuration: resultData.trim_duration || 30
+                    }];
+                    
+                    activeBatchIndex = 0;
+                    detections = [...videoDetections];
+                    masterResult = batchImages[0].master;
+                    imageDimensions = { ...batchImages[0].dims };
+                    
+                    // Refresh UI
+                    renderResults();
+                    renderBoxes();
+                    
+                    document.getElementById("imageContainer").classList.add("hidden");
+                    document.getElementById("submitSection").classList.remove("hidden");
+                    
+                    btn.disabled = false;
+                    btnText.textContent = "Run Video Interface";
+                    loader.classList.add('hidden');
+                    
+                    saveDraft();
+                } else if (progress.status === 'error') {
+                    clearInterval(progressTimer);
+                    showToast(progress.message || "Video analysis failed", "danger");
+                    btn.disabled = false;
+                    btnText.textContent = "Run Video Interface";
+                    loader.classList.add('hidden');
+                }
+            } catch (pollErr) {
+                console.warn('[VideoProgress] Poll failed', pollErr);
+            }
+        }, 1000);
+
+    } catch (err) {
+        if (progressTimer) clearInterval(progressTimer);
+        showToast(err.message || "Video processing error", "danger");
+        btn.disabled = false;
+        btnText.textContent = "Run Video Interface";
         loader.classList.add('hidden');
     }
 }
@@ -1000,6 +1346,34 @@ function renderResults() {
             </div>
         `;
         return;
+    }
+
+    const activeMedia = batchImages[0]?.mediaType || 'image';
+    if (activeMedia === 'video') {
+        const counts = batchImages[0].classCounts || {};
+        const countEntries = Object.entries(counts).sort(([, a], [, b]) => b - a);
+        const trimStart = Number(batchImages[0].trimStart || 0);
+        const trimDuration = Number(batchImages[0].trimDuration || 0);
+        const summary = document.createElement("div");
+        summary.className = "mb-3 p-4 rounded-2xl border border-blue-500/20 bg-blue-500/5";
+        summary.innerHTML = `
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-film text-blue-400"></i>
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-blue-200">Whole Video Classes</span>
+                </div>
+                <span class="text-[8px] font-mono text-gray-500">\${formatSeconds(trimStart)} - \${formatSeconds(trimStart + trimDuration)}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                \${(countEntries.length ? countEntries : [['MAIN_POLE', 0], ['STRUT_POLE', 0]]).map(([label, count]) => `
+                    <div class="p-3 rounded-xl bg-black/25 border border-white/5">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-widest font-bold">\${label.replace(/_/g, ' ')}</div>
+                        <div class="text-2xl font-black mt-1" style="color:\${CLASS_COLORS[label] || '#94a3b8'}">\${count || 0}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        container.appendChild(summary);
     }
 
     // 2. Aggregate all detections across all batch images

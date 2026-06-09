@@ -99,7 +99,7 @@ POLE_CLASSES = {
 }
 
 # ── OCR Configuration ─────────────────────────────────────────
-USE_LLM_OCR = True
+USE_LLM_OCR = False
 
 # ── Insulator Classifier Variables (failing imports fix) ──────
 INSULATOR_PIN_RATIO_MIN = 1.1

@@ -403,8 +403,8 @@ class InfrastructurePipeline:
                     best_ocr_score = score
                     pole_id_str = cand_id
 
-        # If no valid pole ID with digits was found on any pole, try the full image fallback
-        if pole_id_str == "Not Found" or not any(ch.isdigit() for ch in pole_id_str):
+        # If no poles were detected at all, try the full image fallback
+        if not all_poles_res and (pole_id_str == "Not Found" or not any(ch.isdigit() for ch in pole_id_str)):
             full_img_id = self.ocr.process_pole_tag(img_original, [0, 0, w_full, h_full])
             if full_img_id != "Not Found":
                 score = self.ocr._pole_score(full_img_id)

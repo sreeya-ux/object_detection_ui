@@ -10,6 +10,7 @@ Write-Host "--- Syncing Optimized Code to Instance ($SERVER_HOST) ---" -Foregrou
 # List of all essential files for the new pipeline
 $Files = @(
     "app.py",
+    "worker.py",
     "pipeline.py",
     "config.py",
     "training_pipeline.py",
@@ -38,6 +39,6 @@ scp -i C:\Users\ASK037-PC\.ssh\id_ed25519_temp -r backup_models ${SERVER_USER}@$
 
 Write-Host "--- Updating Remote Environment ---" -ForegroundColor Cyan
 # This will install requirements, sync DB, and restart the server manually (since systemd is missing)
-ssh -i C:\Users\ASK037-PC\.ssh\id_ed25519_temp ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_PATH} && ./venv/bin/pip install -r requirements.txt && ./venv/bin/python init_pg_db.py && pkill -9 -f 'python app.py'; sleep 2; nohup ./venv/bin/python app.py > output.log 2>&1 &"
+ssh -i C:\Users\ASK037-PC\.ssh\id_ed25519_temp ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_PATH} && ./venv/bin/pip install -r requirements.txt && ./venv/bin/python init_pg_db.py && sudo systemctl restart infrastructure_ui"
 
 Write-Host "--- Deployment & Database Sync Complete! Check your browser. ---" -ForegroundColor Green

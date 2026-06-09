@@ -14,8 +14,8 @@ class PoleOCR:
 
     def __init__(self):
         self.active = True
-        self.easyocr_reader = None
-        print("[OCR] PoleOCR ready (Azure Mistral).")
+        self.rapidocr_reader = None
+        print("[OCR] PoleOCR ready (Azure Mistral + RapidOCR).")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -148,19 +148,22 @@ class PoleOCR:
             print(f"[OCR] _tight_crop_to_bright error: {e}")
             return crop_bgr
 
-    def _get_easyocr_reader(self):
-        if self.easyocr_reader is not None:
-            return self.easyocr_reader
+    def _get_rapidocr_reader(self):
+        if hasattr(self, 'rapidocr_reader') and self.rapidocr_reader is not None:
+            return self.rapidocr_reader
         try:
-            import easyocr
-            self.easyocr_reader = easyocr.Reader(["en"], gpu=False)
+            try:
+                from rapidocr import RapidOCR
+            except ImportError:
+                from rapidocr_onnxruntime import RapidOCR
+            self.rapidocr_reader = RapidOCR()
         except Exception as e:
-            print(f"[OCR] EasyOCR unavailable: {e}")
-            self.easyocr_reader = False
-        return self.easyocr_reader
+            print(f"[OCR] RapidOCR unavailable: {e}")
+            self.rapidocr_reader = False
+        return self.rapidocr_reader
 
-    def _read_with_easyocr(self, crop_bgr, use_tight=True):
-        reader = self._get_easyocr_reader()
+    def _read_with_rapidocr(self, crop_bgr, use_tight=True):
+        reader = self._get_rapidocr_reader()
         if not reader or crop_bgr is None or crop_bgr.size == 0:
             return ""
         try:
@@ -168,18 +171,29 @@ class PoleOCR:
             if use_tight:
                 working_crop = self._tight_crop_to_bright(crop_bgr)
             h, w = working_crop.shape[:2]
-            if max(h, w) < 220:
-                scale = max(2, int(320 / max(h, w)))
+            longest = max(h, w)
+            if longest > 384:
+                scale = 384.0 / float(longest)
+                working_crop = cv2.resize(working_crop, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+            elif longest < 220:
+                scale = max(2, int(320 / longest))
                 working_crop = cv2.resize(working_crop, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
             
-            # Use paragraph=False to obtain individual line lists, e.g. ['rcss', '4}']
-            texts = reader.readtext(working_crop, detail=0, paragraph=False)
-            clean = " ".join(t.strip() for t in texts if t and t.strip()).strip()
+            result, _ = reader(working_crop)
+            pieces = []
+            if result:
+                for line in result:
+                    if not line or len(line) < 2:
+                        continue
+                    text = str(line[1]).strip()
+                    if text:
+                        pieces.append(text)
+            clean = " ".join(pieces).strip()
             if clean:
-                print(f"[OCR] EasyOCR text (tight={use_tight}): '{clean}'")
+                print(f"[OCR] RapidOCR text (tight={use_tight}): '{clean}'")
             return clean
         except Exception as e:
-            print(f"[OCR] EasyOCR error: {e}")
+            print(f"[OCR] RapidOCR error: {e}")
             return ""
 
     @staticmethod
@@ -404,6 +418,52 @@ class PoleOCR:
         except Exception:
             return None
 
+    def _read_with_gemini(self, crop_bgr):
+        """Use Gemini 2.5 Flash to read the hand-painted pole tag from the crop."""
+        from config import GEMINI_API_KEY, USE_LLM_OCR
+        if not USE_LLM_OCR or not GEMINI_API_KEY or crop_bgr is None or crop_bgr.size == 0:
+            return ""
+
+        try:
+            # Resize image if too large to save bandwidth
+            working_crop = self._resize_for_ocr(crop_bgr, max_side=512)
+            # Encode BGR image to JPEG bytes
+            success, encoded_img = cv2.imencode('.jpg', working_crop)
+            if not success:
+                return ""
+            img_bytes = encoded_img.tobytes()
+
+            # Initialize Gemini client
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=GEMINI_API_KEY)
+
+            prompt = (
+                "You are an expert OCR engine. Read the hand-painted pole identification number/tag from this image. "
+                "The tag usually starts with 'RDSS' (or similar misreadings like ROSS, RCSS, RDSS HT, RDSS LT) followed by a number (e.g., RDSS 84, RDSS 5, etc.). "
+                "Only return the raw text representing the pole ID (e.g., 'RDSS 84'). If no pole ID is visible, return 'Not Found'."
+            )
+
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[
+                    types.Part.from_bytes(
+                        data=img_bytes,
+                        mime_type='image/jpeg',
+                    ),
+                    prompt
+                ]
+            )
+
+            text = response.text.strip()
+            print(f"[OCR] Gemini raw output: '{text}'")
+            return text
+
+        except Exception as e:
+            print(f"[OCR] Gemini API error: {e}")
+            return ""
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -482,58 +542,44 @@ class PoleOCR:
                 candidate_crops.append(fallback_band if fallback_band is not None and fallback_band.size > 0 else pole_crop)
 
             unique_candidates = self._dedupe_crops(candidate_crops)
-            unique_lines = self._dedupe_crops(line_candidates)
 
             best_result = "Not Found"
             best_score = -9999
-            top_text = ""
-            bottom_text = ""
 
-            # 1. Try EasyOCR on unique lines (split lines)
-            for crop in unique_lines[:4]:
-                for use_tight in (True, False):
-                    local_text = self._read_with_easyocr(crop, use_tight=use_tight)
-                    if local_text:
-                        if not top_text and self._looks_like_rdss(local_text):
-                            top_text = local_text
-                        if not bottom_text and self._extract_digits(local_text):
-                            bottom_text = local_text
-                        normalized = self._normalize_pole_id(local_text)
-                        if normalized != "Not Found":
-                            score = self._pole_score(normalized) + 40
-                            if score > best_score:
-                                best_score = score
-                                best_result = normalized
-
-            # 2. Combine top and bottom lines if we found them
-            if self._looks_like_rdss(top_text):
-                digits = self._extract_digits(bottom_text)
-                if len(digits) >= 2:
-                    combined = f"RDSS {digits}"
-                    score = self._pole_score(combined) + 150
-                    print(f"[OCR] Combined split-line ID: '{combined}' from top='{top_text}' bottom='{bottom_text}'")
-                    if score > best_score:
-                        best_score = score
-                        best_result = combined
-                    # Since we got a strong combination, return immediately if it looks good.
-                    if digits not in ("11", "17") or "4" in digits:
-                        print(f"[OCR] Returning local split-line ID without large-crop fallback: '{combined}'")
-                        return combined
-
-            # 3. Try EasyOCR on the larger crops (candidates)
+            # 1. Try RapidOCR on unique candidates, with use_tight=False
             for crop in unique_candidates:
-                for use_tight in (True, False):
-                    local_text = self._read_with_easyocr(crop, use_tight=use_tight)
-                    if local_text:
-                        normalized = self._normalize_pole_id(local_text)
+                local_text = self._read_with_rapidocr(crop, use_tight=False)
+                if local_text:
+                    normalized = self._normalize_pole_id(local_text)
+                    if normalized != "Not Found":
+                        score = self._pole_score(normalized)
+                        if score > best_score:
+                            best_score = score
+                            best_result = normalized
+                        
+                        # Early exit if we find a high-confidence match (starts with RDSS and has 2+ digits)
+                        if normalized.startswith("RDSS"):
+                            digit_groups = re.findall(r"\d+", normalized)
+                            if digit_groups and len(digit_groups[0]) >= 2:
+                                print(f"[OCR] Early exit on candidate crop with high-confidence ID: '{normalized}'")
+                                return normalized
+
+            # 2. Fallback: try Gemini OCR on unique candidates if RapidOCR results are weak or Not Found
+            if best_result == "Not Found" or best_score < 1500:
+                print(f"[OCR] RapidOCR score is low ({best_score}) or Not Found. Trying Gemini OCR fallback...")
+                for crop in unique_candidates[:2]:
+                    gemini_text = self._read_with_gemini(crop)
+                    if gemini_text:
+                        normalized = self._normalize_pole_id(gemini_text)
                         if normalized != "Not Found":
-                            score = self._pole_score(normalized)
+                            score = self._pole_score(normalized) + 500  # Extra weight for Gemini
                             if score > best_score:
                                 best_score = score
                                 best_result = normalized
+                                print(f"[OCR] Gemini found high-confidence ID: '{best_result}' (score={best_score})")
 
             if best_result != "Not Found":
-                print(f"[OCR] Selected best EasyOCR ID: '{best_result}' (score={best_score})")
+                print(f"[OCR] Selected best OCR ID: '{best_result}' (score={best_score})")
                 return best_result
 
             return "Not Found"

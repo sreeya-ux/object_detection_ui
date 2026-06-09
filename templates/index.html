@@ -142,6 +142,7 @@
                     <div id="dropZone"
                         class="card p-10 border-2 border-dashed border-white/5 hover:border-blue-500/30 bg-gray-900/40 cursor-pointer transition-all flex flex-col items-center justify-center gap-6 group relative overflow-hidden">
                         <input type="file" id="upload" class="hidden" accept="image/*" multiple />
+                        <input type="file" id="videoUpload" class="hidden" accept="video/mp4,video/webm,video/quicktime" />
                         
                         <div id="uploadPrompt" class="space-y-4 text-center">
                             <div class="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
@@ -150,6 +151,10 @@
                             <div>
                                 <p class="text-gray-300 font-bold uppercase tracking-tight text-xs">Select inspection image(s)</p>
                                 <p class="text-[9px] text-gray-500 mt-1 uppercase font-bold tracking-widest">DRAG AND DROP OR CLICK</p>
+                                <button type="button" onclick="openVideoPicker(event)"
+                                    class="mt-4 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded-lg border border-emerald-500/20 text-[9px] font-bold uppercase tracking-widest transition-all">
+                                    <i class="fa-solid fa-video mr-1"></i> Video Analysis
+                                </button>
                             </div>
                         </div>
 
@@ -159,6 +164,28 @@
                             <svg id="detectionOverlay" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
                             <div id="manualPointHud" class="absolute inset-0 pointer-events-none"></div>
                         </div>
+                    </div>
+
+                    <div id="videoControls" class="hidden mt-4 p-4 rounded-xl border border-emerald-500/10 bg-emerald-500/5 space-y-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p id="videoFileName" class="text-[10px] text-emerald-200 font-bold uppercase tracking-widest truncate">Video selected</p>
+                                <p id="videoDurationLabel" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1">Choose a 30 second window</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="btnSelectFirst30s" onclick="selectFirst30s()"
+                                    class="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/20 text-[8px] font-bold uppercase tracking-widest transition-all">
+                                    First 30s
+                                </button>
+                                <span class="text-[9px] text-emerald-300 font-mono font-bold">30s clip</span>
+                            </div>
+                        </div>
+                        <input id="videoStartRange" type="range" min="0" max="0" value="0" step="1" class="w-full accent-emerald-400" />
+                        <div class="flex items-center justify-between text-[8px] text-gray-500 font-mono">
+                            <span id="videoStartLabel">Start: 0s</span>
+                            <span id="videoEndLabel">End: 30s</span>
+                        </div>
+                        <video id="videoPreview" class="w-full max-h-[260px] rounded-lg bg-black border border-white/10" controls muted></video>
                     </div>
 
                     <!-- 2. RUN INTERFACE (Below Image) -->
@@ -324,7 +351,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}?v=3.0"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=3.2"></script>
     <script>
         let userStatsInFlight = false;
         let userStatsRetryDelay = 30000;
