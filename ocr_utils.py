@@ -542,27 +542,77 @@ class PoleOCR:
                 candidate_crops.append(fallback_band if fallback_band is not None and fallback_band.size > 0 else pole_crop)
 
             unique_candidates = self._dedupe_crops(candidate_crops)
+            # Also dedupe line-level crops (were built but previously never used)
+            unique_line_candidates = self._dedupe_crops(line_candidates)
 
             best_result = "Not Found"
             best_score = -9999
+            raw_texts_seen = []  # track all raw OCR texts for multi-line combination
 
-            # 1. Try RapidOCR on unique candidates, with use_tight=False
+            # 1. Try RapidOCR on full-patch candidates first
             for crop in unique_candidates:
                 local_text = self._read_with_rapidocr(crop, use_tight=False)
                 if local_text:
+                    raw_texts_seen.append(local_text)
                     normalized = self._normalize_pole_id(local_text)
                     if normalized != "Not Found":
                         score = self._pole_score(normalized)
                         if score > best_score:
                             best_score = score
                             best_result = normalized
-                        
+
                         # Early exit if we find a high-confidence match (starts with RDSS and has 2+ digits)
                         if normalized.startswith("RDSS"):
                             digit_groups = re.findall(r"\d+", normalized)
                             if digit_groups and len(digit_groups[0]) >= 2:
                                 print(f"[OCR] Early exit on candidate crop with high-confidence ID: '{normalized}'")
                                 return normalized
+
+            # 1b. Try line-level crops (top/bottom splits) — fixes two-line "RDSS\n84" tags
+            # These were computed earlier but never used — now we iterate them.
+            for crop in unique_line_candidates:
+                local_text = self._read_with_rapidocr(crop, use_tight=True)
+                if local_text:
+                    raw_texts_seen.append(local_text)
+                    normalized = self._normalize_pole_id(local_text)
+                    if normalized != "Not Found":
+                        score = self._pole_score(normalized)
+                        if score > best_score:
+                            best_score = score
+                            best_result = normalized
+
+                        if normalized.startswith("RDSS"):
+                            digit_groups = re.findall(r"\d+", normalized)
+                            if digit_groups and len(digit_groups[0]) >= 2:
+                                print(f"[OCR] Early exit on line crop: '{normalized}'")
+                                return normalized
+
+            # 1c. Multi-line combination: if we have "RDSS" but no digits yet,
+            # hunt for a standalone digit in ALL raw OCR texts seen so far.
+            # This handles the common case: line-1 = "RDSS", line-2 = "84".
+            if best_result == "RDSS" or (best_result.startswith("RDSS") and not re.search(r"\d", best_result)):
+                print("[OCR] RDSS prefix found without digits — scanning line crops for number...")
+                for raw in raw_texts_seen:
+                    m = re.search(r"\b(\d{1,4})\b", raw)
+                    if m:
+                        candidate = f"RDSS {m.group(1)}"
+                        score = self._pole_score(candidate)
+                        if score > best_score:
+                            best_score = score
+                            best_result = candidate
+                            print(f"[OCR] Multi-line combination: '{candidate}' (score={score})")
+                # Also try reading each line crop for pure digits
+                for crop in unique_line_candidates:
+                    line_text = self._read_with_rapidocr(crop, use_tight=False)
+                    if line_text:
+                        m = re.search(r"\b(\d{1,4})\b", line_text)
+                        if m:
+                            candidate = f"RDSS {m.group(1)}"
+                            score = self._pole_score(candidate)
+                            if score > best_score:
+                                best_score = score
+                                best_result = candidate
+                                print(f"[OCR] Line crop digit hunt: '{candidate}' (score={score})")
 
             # 2. Fallback: try Gemini OCR on unique candidates if RapidOCR results are weak or Not Found
             if best_result == "Not Found" or best_score < 1500:
