@@ -724,7 +724,13 @@ function toggleVideoPreviewMute(event) {
     if (event) event.stopPropagation();
     const video = document.getElementById('videoPreview');
     if (!video) return;
-    video.muted = !video.muted;
+    const isEffectivelyMuted = video.muted || video.volume === 0;
+    if (isEffectivelyMuted) {
+        if (video.volume === 0) video.volume = 1;
+        video.muted = false;
+    } else {
+        video.muted = true;
+    }
     updateVideoPreviewControls();
 }
 
@@ -795,6 +801,8 @@ function handleVideoUpload(e) {
     imageDimensions = { width: 0, height: 0 };
 
     const video = document.getElementById('videoPreview');
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
     video.src = videoObjectUrl;
     video.load();
     video.ontimeupdate = () => {

@@ -14,6 +14,8 @@ import sqlite3
 import json
 import os
 import ast
+import shutil
+import subprocess
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter, defaultdict
@@ -1841,6 +1843,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
     request_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(job_id or uuid.uuid4())) or str(uuid.uuid4())
     output_name = f"processed_video_{request_id}.webm"
     output_path = os.path.join(VIDEO_RESULTS_FOLDER, output_name)
+    video_only_path = os.path.join(VIDEO_RESULTS_FOLDER, f".video_only_{request_id}.webm")
     video_log = lambda message: log_video(f"[{worker_name}] {message}" if worker_name else message)
 
     video_log(f"[VIDEO:{request_id}] Received upload for video processing")
@@ -1915,7 +1918,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         # VP8/WebM is browser-playable; OpenCV mp4v MP4 often shows
         # "No video with supported format" in Chrome/Edge.
         fourcc = cv2.VideoWriter_fourcc(*"VP80")
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
+        writer = cv2.VideoWriter(video_only_path, fourcc, fps, (output_width, output_height))
         if not writer.isOpened():
             raise ValueError("Unable to create processed video")
 
@@ -2104,6 +2107,49 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         }
         detected_classes = {k: v for k, v in detected_classes.items() if v > 0}
         processed_duration = processed_frames / fps if fps > 0 else (trim_end - trim_start)
+        writer.release()
+        writer = None
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            mux_command = [
+                ffmpeg_path,
+                "-y",
+                "-ss", f"{trim_start:.3f}",
+                "-t", f"{processed_duration:.3f}",
+                "-i", input_path,
+                "-i", video_only_path,
+                "-map", "1:v:0",
+                "-map", "0:a:0?",
+                "-c:v", "copy",
+                "-c:a", "libopus",
+                "-shortest",
+                output_path,
+            ]
+            try:
+                mux_result = subprocess.run(
+                    mux_command,
+                    capture_output=True,
+                    text=True,
+                    timeout=max(30, int(processed_duration * 3)),
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                mux_result = None
+                video_log(f"[VIDEO:{request_id}] Audio mux failed to start: {exc}")
+            if mux_result is not None and mux_result.returncode == 0 and os.path.exists(output_path):
+                video_log(f"[VIDEO:{request_id}] Preserved source audio in processed WebM")
+                safe_remove_file(video_only_path, "video-only output")
+            else:
+                mux_exit = mux_result.returncode if mux_result is not None else "unavailable"
+                video_log(
+                    f"[VIDEO:{request_id}] Audio mux unavailable; keeping silent processed video "
+                    f"(ffmpeg exit={mux_exit})"
+                )
+                safe_remove_file(output_path, "failed audio mux output")
+                os.replace(video_only_path, output_path)
+        else:
+            video_log(f"[VIDEO:{request_id}] FFmpeg not installed; keeping silent processed video")
+            os.replace(video_only_path, output_path)
         has_strut = any(d["label"] == "STRUT_POLE" for d in detections)
         survey_q = {
             "strut_pole": "Yes" if has_strut else "No",
@@ -2164,7 +2210,9 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
     finally:
         cap.release()
         if "writer" in locals():
-            writer.release()
+            if writer is not None:
+                writer.release()
+        safe_remove_file(video_only_path, "video-only output")
         safe_remove_file(input_path, "video input")
         gc.collect()
         try:
