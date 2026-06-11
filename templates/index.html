@@ -188,6 +188,9 @@
                                     </button>
                                     <input id="videoPreviewScrubber" type="range" min="0" max="100" value="0" step="0.1" class="video-preview-scrubber" oninput="seekVideoPreviewClip(this.value)" />
                                     <span id="videoPreviewTimeLabel" class="video-preview-time">0.0s / 0.0s</span>
+                                    <button id="videoPreviewMuteBtn" type="button" class="video-preview-download" onclick="toggleVideoPreviewMute(event)" title="Mute video" aria-label="Mute video">
+                                        <i class="fa-solid fa-volume-high"></i>
+                                    </button>
                                     <button id="videoDownloadBtn" type="button" class="video-preview-download hidden" onclick="downloadProcessedVideo(event)" title="Download processed video" aria-label="Download processed video">
                                         <i class="fa-solid fa-download"></i>
                                     </button>
@@ -381,7 +384,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}?v=3.1"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=4.0"></script>
     <script>
         let userStatsInFlight = false;
         let userStatsRetryDelay = 30000;

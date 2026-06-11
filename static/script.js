@@ -694,6 +694,7 @@ function updateVideoPreviewControls() {
     const scrubber = document.getElementById('videoPreviewScrubber');
     const timeLabel = document.getElementById('videoPreviewTimeLabel');
     const playBtn = document.getElementById('videoPreviewPlayBtn');
+    const muteBtn = document.getElementById('videoPreviewMuteBtn');
     const downloadBtn = document.getElementById('videoDownloadBtn');
     const duration = getVideoPreviewClipDuration();
     const elapsed = getVideoPreviewClipElapsed();
@@ -708,9 +709,23 @@ function updateVideoPreviewControls() {
     if (playBtn) {
         playBtn.innerHTML = `<i class="fa-solid ${video && !video.paused ? 'fa-pause' : 'fa-play'}"></i>`;
     }
+    if (muteBtn) {
+        const isMuted = !video || video.muted || video.volume === 0;
+        muteBtn.innerHTML = `<i class="fa-solid ${isMuted ? 'fa-volume-xmark' : 'fa-volume-high'}"></i>`;
+        muteBtn.title = isMuted ? 'Unmute video' : 'Mute video';
+        muteBtn.setAttribute('aria-label', muteBtn.title);
+    }
     if (downloadBtn) {
         downloadBtn.classList.toggle('hidden', !processedVideoDownloadUrl || !isShowingProcessedVideo());
     }
+}
+
+function toggleVideoPreviewMute(event) {
+    if (event) event.stopPropagation();
+    const video = document.getElementById('videoPreview');
+    if (!video) return;
+    video.muted = !video.muted;
+    updateVideoPreviewControls();
 }
 
 function downloadProcessedVideo(event) {
@@ -795,6 +810,7 @@ function handleVideoUpload(e) {
     };
     video.onplay = updateVideoPreviewControls;
     video.onpause = updateVideoPreviewControls;
+    video.onvolumechange = updateVideoPreviewControls;
     video.onloadeddata = updateVideoPreviewControls;
     video.onloadedmetadata = () => {
         videoDuration = Number.isFinite(video.duration) ? video.duration : 0;
@@ -1000,6 +1016,7 @@ function resetSession(force = false) {
         video.ontimeupdate = null;
         video.onplay = null;
         video.onpause = null;
+        video.onvolumechange = null;
         video.onloadeddata = null;
         video.onloadedmetadata = null;
         video.removeAttribute('src');
@@ -1299,6 +1316,7 @@ async function processVideo() {
         video.ontimeupdate = updateVideoPreviewControls;
         video.onplay = updateVideoPreviewControls;
         video.onpause = updateVideoPreviewControls;
+        video.onvolumechange = updateVideoPreviewControls;
         appendVideoLog('Processed video loaded into preview player.', 'success');
 
         const videoDetections = (data.detections || []).map(d => ({
@@ -1317,6 +1335,7 @@ async function processVideo() {
             processed: true,
             mediaType: 'video',
             classCounts: data.class_counts || {},
+            detectedClasses: data.detected_classes || Object.keys(data.frame_detection_counts || {}),
             frameDetectionCounts: data.frame_detection_counts || {},
             trimStart: data.trim_start,
             trimDuration: data.trim_duration || videoTrimDuration
@@ -1549,6 +1568,12 @@ function renderResults() {
     if (activeMedia === 'video') {
         const counts = batchImages[0].classCounts || {};
         const countEntries = Object.entries(counts).sort(([, a], [, b]) => b - a);
+        const detectedClasses = (batchImages[0].detectedClasses || [])
+            .map(label => String(label || '').toUpperCase())
+            .filter(Boolean);
+        const classEntries = countEntries.length
+            ? countEntries.map(([label, count]) => ({ label, count, persistent: true }))
+            : detectedClasses.map(label => ({ label, count: null, persistent: false }));
         const trimStart = Number(batchImages[0].trimStart || 0);
         const trimDuration = Number(batchImages[0].trimDuration || 0);
         const summary = document.createElement("div");
@@ -1562,10 +1587,13 @@ function renderResults() {
                 <span class="text-[8px] font-mono text-gray-500">${formatSeconds(trimStart)} - ${formatSeconds(trimStart + trimDuration)}</span>
             </div>
             <div class="grid grid-cols-2 gap-2">
-                ${(countEntries.length ? countEntries : [['MAIN_POLE', 0], ['STRUT_POLE', 0]]).map(([label, count]) => `
+                ${(classEntries.length ? classEntries : [
+                    { label: 'MAIN_POLE', count: 0, persistent: true },
+                    { label: 'STRUT_POLE', count: 0, persistent: true }
+                ]).map(({ label, count, persistent }) => `
                     <div class="p-3 rounded-xl bg-black/25 border border-white/5">
                         <div class="text-[8px] text-gray-500 uppercase tracking-widest font-bold">${label.replace(/_/g, ' ')}</div>
-                        <div class="text-2xl font-black mt-1" style="color:${CLASS_COLORS[label] || '#94a3b8'}">${count || 0}</div>
+                        <div class="text-2xl font-black mt-1" style="color:${CLASS_COLORS[label] || '#94a3b8'}">${persistent ? (count || 0) : 'DETECTED'}</div>
                     </div>
                 `).join('')}
             </div>
@@ -1584,12 +1612,21 @@ function renderResults() {
     });
 
     if (allDetectionsList.length === 0) {
-        container.innerHTML = `
+        const detectedVideoClasses = activeMedia === 'video'
+            ? (batchImages[0]?.detectedClasses || [])
+            : [];
+        const emptyState = document.createElement("div");
+        emptyState.innerHTML = `
             <div class="text-center py-20 bg-black/30 rounded-2xl border border-dashed border-gray-800">
                 <i class="fa-solid fa-circle-info text-4xl text-gray-700 mb-4 block"></i>
-                <p class="text-gray-600 text-sm italic font-bold uppercase tracking-wider">No objects detected.</p>
+                <p class="text-gray-600 text-sm italic font-bold uppercase tracking-wider">
+                    ${detectedVideoClasses.length
+                        ? 'Classes detected, but no persistent physical pole track was confirmed.'
+                        : 'No objects detected.'}
+                </p>
             </div>
         `;
+        container.appendChild(emptyState);
         const submitBtn = document.getElementById('finalSubmitBtn');
         if (submitBtn) {
             submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
