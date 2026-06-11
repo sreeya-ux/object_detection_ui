@@ -11,6 +11,7 @@ from collections import defaultdict, Counter
 # Internal imports
 from rule_engine import classify_pole, ComponentSignals, PoleResult, InsulatorResult, PipelineResult
 from insulator_classifier import InsulatorClassifier
+from runtime_device import inference_device
 
 from config import (
     POLE_CLASSES,
@@ -96,19 +97,20 @@ class InfrastructurePipeline:
         img = self._enhance_image(img_original)
         img_h, img_w = img.shape[:2]
         import gc, torch
+        active_device = inference_device()
 
         # 1. Structural Detect (Poles)
         raw_structural = []
         structural_imgsz = 512 if fast_mode else 800
         if self.component_model:
-            raw_structural = list(self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=structural_imgsz))
+            raw_structural = list(self.component_model(image_path, conf=self.conf, iou=self.iou, verbose=False, imgsz=structural_imgsz, device=active_device))
         
         # 2. Hardware Detect (arms, cleats, switches, lights, DTR)
         raw_hardware = []
         try:
             tile_size = 640 if fast_mode else 1024
             overlap = 0.50
-            hw_res = self.hardware_model(image_path, conf=0.05, imgsz=tile_size, verbose=False)
+            hw_res = self.hardware_model(image_path, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
             raw_hardware.extend(list(hw_res))
             
             if not fast_mode and (img_w > 1500 or img_h > 1500):
@@ -118,7 +120,7 @@ class InfrastructurePipeline:
                         x2, y2 = min(x + tile_size, img_w), min(y + tile_size, img_h)
                         x1, y1 = max(0, x2 - tile_size), max(0, y2 - tile_size)
                         tile_crop = img[y1:y2, x1:x2]
-                        tile_res = self.hardware_model(tile_crop, conf=0.05, imgsz=tile_size, verbose=False)
+                        tile_res = self.hardware_model(tile_crop, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
                         for r in tile_res:
                             if r.boxes:
                                 for b_obj in r.boxes:
@@ -137,7 +139,7 @@ class InfrastructurePipeline:
         raw_insulators = []
         if self.insulator_model:
             try:
-                ins_res = self.insulator_model(image_path, conf=0.05, imgsz=(640 if fast_mode else 1024), verbose=False)
+                ins_res = self.insulator_model(image_path, conf=0.05, imgsz=(640 if fast_mode else 1024), verbose=False, device=active_device)
                 raw_insulators.extend(list(ins_res))
             except Exception as e:
                 print(f"Insulator detection error: {e}")

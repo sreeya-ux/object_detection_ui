@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from ultralytics import YOLO
 import torch.nn as nn
+from runtime_device import inference_device
 
 def _safe_yolo_load(path: str) -> YOLO:
     """Load YOLO and patch away the 'Conv has no attribute bn' error on Ultralytics 8.3+."""
@@ -143,7 +144,7 @@ class InsulatorCropClassifier:
         return img[y1:y2, x1:x2]
 
     def _model_classify(self, crop):
-        results = self.model(crop, verbose=False)
+        results = self.model(crop, verbose=False, device=inference_device())
         for r in results:
             if r.probs is not None:
                 cls  = self.model.names[r.probs.top1].lower()
@@ -210,7 +211,7 @@ class ShedCounter:
         from config import SHED_MODEL_CONF
         # iou=0.6 is crucial here: Sheds sit tightly stacked! 
         # Standard NMS (0.45) will delete overlapping sheds thinking they are duplicates.
-        results = self.model(crop_enhanced, conf=SHED_MODEL_CONF, iou=0.6, verbose=False)
+        results = self.model(crop_enhanced, conf=SHED_MODEL_CONF, iou=0.6, verbose=False, device=inference_device())
         count = 0
         for r in results:
             if r.boxes is not None:

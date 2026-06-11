@@ -427,10 +427,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('dropZone');
     const trimSlider = document.getElementById('videoTrimSlider');
     const trimTrack = document.getElementById('videoTrimTrack');
+    const profileMenuButton = document.getElementById('profileMenuButton');
+    const profileMenu = document.getElementById('profileMenu');
+    const gpuToggle = document.getElementById('gpuToggle');
 
     // Check for saved draft on page load
     checkAndRestoreDraft();
     loadUserTrainingStats();
+    loadRuntimeDeviceStatus();
+
+    profileMenuButton?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const opening = profileMenu?.classList.contains('hidden');
+        profileMenu?.classList.toggle('hidden', !opening);
+        profileMenuButton.setAttribute('aria-expanded', String(Boolean(opening)));
+    });
+    profileMenu?.addEventListener('click', event => event.stopPropagation());
+    document.addEventListener('click', () => {
+        profileMenu?.classList.add('hidden');
+        profileMenuButton?.setAttribute('aria-expanded', 'false');
+    });
+    gpuToggle?.addEventListener('click', toggleGpuAcceleration);
 
     // Auto-save to localStorage every 10 seconds if work is in progress
     setInterval(() => {
@@ -563,6 +580,51 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.addEventListener('touchstart', handleDragStart, { passive: false });
     }
 });
+
+function renderRuntimeDeviceStatus(status) {
+    const toggle = document.getElementById('gpuToggle');
+    const statusText = document.getElementById('gpuStatusText');
+    if (!toggle || !statusText) return;
+    const available = Boolean(status?.available);
+    const enabled = Boolean(status?.enabled && available);
+    toggle.disabled = !available;
+    toggle.classList.toggle('is-active', enabled);
+    toggle.setAttribute('aria-checked', String(enabled));
+    statusText.textContent = !available ? 'GPU unavailable - CPU mode' : (enabled ? 'GPU active' : 'CPU mode');
+    statusText.className = `text-[8px] uppercase tracking-widest mt-1 ${enabled ? 'text-emerald-400' : 'text-gray-500'}`;
+}
+
+async function loadRuntimeDeviceStatus() {
+    try {
+        const response = await fetch('/api/runtime_device', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Unable to read GPU status');
+        renderRuntimeDeviceStatus(await response.json());
+    } catch (error) {
+        const statusText = document.getElementById('gpuStatusText');
+        if (statusText) statusText.textContent = 'GPU status unavailable';
+    }
+}
+
+async function toggleGpuAcceleration() {
+    const toggle = document.getElementById('gpuToggle');
+    if (!toggle || toggle.disabled) return;
+    const nextEnabled = toggle.getAttribute('aria-checked') !== 'true';
+    toggle.disabled = true;
+    try {
+        const response = await fetch('/api/runtime_device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: nextEnabled })
+        });
+        const status = await response.json();
+        if (!response.ok) throw new Error(status.error || 'Unable to change GPU mode');
+        renderRuntimeDeviceStatus(status);
+        showToast(status.enabled ? 'GPU acceleration enabled' : 'CPU mode enabled', 'success');
+    } catch (error) {
+        showToast(error.message || 'Unable to change GPU mode', 'danger');
+        await loadRuntimeDeviceStatus();
+    }
+}
 
 function switchInputMode(mode) {
     if (!['image', 'video'].includes(mode) || currentInputMode === mode) return;

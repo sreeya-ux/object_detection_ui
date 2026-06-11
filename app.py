@@ -22,6 +22,7 @@ from collections import Counter, defaultdict
 
 from config import DB_TYPE, DB_NAME, PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_DB
 from worker import enqueue_video_job, get_video_job_status, start_video_workers, update_video_job
+from runtime_device import device_status, inference_device, set_gpu_enabled
 
 from flask_cors import CORS
 import cv2
@@ -410,7 +411,7 @@ def load_detection_models(load_unet=False):
         required.append("conductor_unet")
     validate_model_paths(*required)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = inference_device()
 
     if pipeline_engine is None:
         pipeline_engine = InfrastructurePipeline(
@@ -1150,7 +1151,9 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
         if not fast_mode:
             # 2. Process Conductors with UNet Segmentation Model (ResNet34)
             input_img = cv2.resize(img, (512, 512)).transpose(2, 0, 1) / 255.0
-            tensor = torch.tensor(input_img[None, ...], dtype=torch.float32).to(device)
+            active_device = inference_device()
+            unet_model.to(active_device)
+            tensor = torch.tensor(input_img[None, ...], dtype=torch.float32).to(active_device)
             
             with torch.no_grad():
                 out = unet_model(tensor)
@@ -1416,6 +1419,25 @@ def predict_stream():
 def home():
     ngrok_url = get_ngrok_url()
     return render_template('index.html', ngrok_url=ngrok_url, role=session.get('role', 'user'))
+
+
+@app.route('/api/runtime_device', methods=['GET', 'POST'])
+@login_required
+def runtime_device():
+    if request.method == 'GET':
+        return jsonify(device_status())
+
+    payload = request.get_json(silent=True) or {}
+    if "enabled" not in payload:
+        return jsonify({"error": "Missing enabled flag"}), 400
+
+    status = set_gpu_enabled(payload["enabled"])
+    print(
+        f"[RUNTIME] GPU {'enabled' if status['enabled'] else 'disabled'} "
+        f"by {session.get('user', 'unknown')} (available={status['available']})",
+        flush=True,
+    )
+    return jsonify(status)
 
 @app.route('/admin')
 @admin_required
@@ -1956,7 +1978,8 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                         conf=0.25,
                         iou=0.45,
                         imgsz=VIDEO_INFER_IMGSZ,
-                        verbose=False
+                        verbose=False,
+                        device=inference_device()
                     )
                 else:
                     results = pole_model(
@@ -1964,7 +1987,8 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                         conf=0.25,
                         iou=0.45,
                         imgsz=VIDEO_INFER_IMGSZ,
-                        verbose=False
+                        verbose=False,
+                        device=inference_device()
                     )
 
                 for res in results:
