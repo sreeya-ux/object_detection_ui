@@ -694,7 +694,6 @@ function updateVideoPreviewControls() {
     const scrubber = document.getElementById('videoPreviewScrubber');
     const timeLabel = document.getElementById('videoPreviewTimeLabel');
     const playBtn = document.getElementById('videoPreviewPlayBtn');
-    const muteBtn = document.getElementById('videoPreviewMuteBtn');
     const downloadBtn = document.getElementById('videoDownloadBtn');
     const duration = getVideoPreviewClipDuration();
     const elapsed = getVideoPreviewClipElapsed();
@@ -709,19 +708,28 @@ function updateVideoPreviewControls() {
     if (playBtn) {
         playBtn.innerHTML = `<i class="fa-solid ${video && !video.paused ? 'fa-pause' : 'fa-play'}"></i>`;
     }
-    if (muteBtn) {
-        const isMuted = !video || video.muted || video.volume === 0;
-        muteBtn.innerHTML = `<i class="fa-solid ${isMuted ? 'fa-volume-xmark' : 'fa-volume-high'}"></i>`;
-        muteBtn.title = isMuted ? 'Unmute video' : 'Mute video';
-        muteBtn.setAttribute('aria-label', muteBtn.title);
-    }
+    updateVideoPreviewMuteControl();
     if (downloadBtn) {
         downloadBtn.classList.toggle('hidden', !processedVideoDownloadUrl || !isShowingProcessedVideo());
     }
 }
 
+function updateVideoPreviewMuteControl() {
+    const video = document.getElementById('videoPreview');
+    const muteBtn = document.getElementById('videoPreviewMuteBtn');
+    if (!muteBtn) return;
+    const isMuted = !video || video.muted || video.volume === 0;
+    muteBtn.innerHTML = `<i class="fa-solid ${isMuted ? 'fa-volume-xmark' : 'fa-volume-high'}"></i>`;
+    muteBtn.title = isMuted ? 'Unmute video' : 'Mute video';
+    muteBtn.setAttribute('aria-label', muteBtn.title);
+    muteBtn.classList.toggle('is-muted', isMuted);
+}
+
 function toggleVideoPreviewMute(event) {
-    if (event) event.stopPropagation();
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
     const video = document.getElementById('videoPreview');
     if (!video) return;
     const isEffectivelyMuted = video.muted || video.volume === 0;
@@ -731,7 +739,7 @@ function toggleVideoPreviewMute(event) {
     } else {
         video.muted = true;
     }
-    updateVideoPreviewControls();
+    updateVideoPreviewMuteControl();
 }
 
 function downloadProcessedVideo(event) {
@@ -818,7 +826,7 @@ function handleVideoUpload(e) {
     };
     video.onplay = updateVideoPreviewControls;
     video.onpause = updateVideoPreviewControls;
-    video.onvolumechange = updateVideoPreviewControls;
+    video.onvolumechange = updateVideoPreviewMuteControl;
     video.onloadeddata = updateVideoPreviewControls;
     video.onloadedmetadata = () => {
         videoDuration = Number.isFinite(video.duration) ? video.duration : 0;
@@ -1324,7 +1332,7 @@ async function processVideo() {
         video.ontimeupdate = updateVideoPreviewControls;
         video.onplay = updateVideoPreviewControls;
         video.onpause = updateVideoPreviewControls;
-        video.onvolumechange = updateVideoPreviewControls;
+        video.onvolumechange = updateVideoPreviewMuteControl;
         appendVideoLog('Processed video loaded into preview player.', 'success');
 
         const videoDetections = (data.detections || []).map(d => ({
