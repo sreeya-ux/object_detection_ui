@@ -198,8 +198,9 @@
                             <svg id="detectionOverlay" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
                             <div id="manualPointHud" class="absolute inset-0 pointer-events-none"></div>
                         </div>
+                    </div>
 
-                        <div id="videoContainer" class="hidden w-full space-y-4">
+                    <div id="videoContainer" class="hidden w-full space-y-4">
                             <div class="relative rounded-xl border border-white/10 bg-black overflow-hidden shadow-2xl">
                                 <video id="videoPreview" class="block w-full max-h-[500px] bg-black" playsinline></video>
                                 <div class="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/70 border border-white/10 text-[8px] font-bold uppercase tracking-widest text-blue-300 backdrop-blur">
@@ -240,7 +241,6 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
                     <!-- 2. RUN INTERFACE (Below Image) -->
                     <div class="flex gap-4 mt-6">
@@ -407,7 +407,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}?v=4.4"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=4.5"></script>
     <script>
         let userStatsInFlight = false;
         let userStatsRetryDelay = 30000;

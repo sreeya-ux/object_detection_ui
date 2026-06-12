@@ -425,6 +425,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const videoInput = document.getElementById('videoUpload');
     const previewImg = document.getElementById('preview');
     const dropZone = document.getElementById('dropZone');
+    const videoContainer = document.getElementById('videoContainer');
     const trimSlider = document.getElementById('videoTrimSlider');
     const trimTrack = document.getElementById('videoTrimTrack');
     const profileMenuButton = document.getElementById('profileMenuButton');
@@ -475,6 +476,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (videoInput) {
         videoInput.addEventListener('change', handleVideoUpload);
+    }
+
+    if (videoContainer) {
+        videoContainer.addEventListener('click', event => event.stopPropagation());
+        videoContainer.addEventListener('pointerdown', event => event.stopPropagation());
     }
 
     if (trimSlider) {
@@ -543,8 +549,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dropZone) {
         dropZone.addEventListener('click', (e) => {
-            if (e.target.closest('#videoTrimPanel') || e.target.closest('#videoPreview')) return;
             if (currentInputMode === 'video') {
+                if (uploadedVideoFile || videoInput.disabled) return;
                 videoInput.click();
             } else {
                 // Allow adding more images even if batch is active
@@ -553,6 +559,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
+            if (currentInputMode === 'video' && (uploadedVideoFile || videoInput.disabled)) return;
             dropZone.classList.add('border-blue-500', 'bg-blue-500/5');
         });
         dropZone.addEventListener('dragleave', () => {
@@ -563,6 +570,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dropZone.classList.remove('border-blue-500', 'bg-blue-500/5');
             if (e.dataTransfer.files.length) {
                 if (currentInputMode === 'video') {
+                    if (uploadedVideoFile || videoInput.disabled) return;
                     videoInput.files = e.dataTransfer.files;
                     handleVideoUpload({ target: videoInput });
                 } else {
@@ -628,6 +636,10 @@ async function toggleGpuAcceleration() {
 
 function switchInputMode(mode) {
     if (!['image', 'video'].includes(mode) || currentInputMode === mode) return;
+    if (uploadedVideoFile) {
+        showToast("Reset the current video session before changing uploads", "warning");
+        return;
+    }
     resetSession(true);
     currentInputMode = mode;
 
@@ -860,6 +872,10 @@ function seekToVideoDetection(frameTime) {
 function handleVideoUpload(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+    if (uploadedVideoFile) {
+        e.target.value = '';
+        return;
+    }
 
     if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
     uploadedVideoFile = file;
@@ -927,8 +943,8 @@ function handleVideoUpload(e) {
     document.getElementById('batchStripWrapper').classList.add('hidden');
 
     const dz = document.getElementById('dropZone');
-    dz.classList.add('py-4', 'border-transparent');
-    dz.classList.remove('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30');
+    dz.classList.add('hidden');
+    e.target.disabled = true;
 
     renderResults();
     e.target.value = '';
@@ -1120,10 +1136,13 @@ function resetSession(force = false) {
     document.getElementById('resultBox').innerHTML = '';
     document.getElementById('masterIdentityCard').classList.add('hidden');
     const dz = document.getElementById('dropZone');
+    dz.classList.remove('hidden');
     dz.classList.remove('py-4', 'border-transparent');
     dz.classList.add('p-10', 'border-dashed', 'border-white/5', 'hover:border-blue-500/30', 'cursor-pointer');
     document.getElementById('upload').value = ''; // Clear file input
-    document.getElementById('videoUpload').value = '';
+    const videoInput = document.getElementById('videoUpload');
+    videoInput.value = '';
+    videoInput.disabled = false;
     setVideoButtonProgressVisible(false);
 
     // Hide and reset Submit Section
