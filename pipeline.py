@@ -376,11 +376,21 @@ class InfrastructurePipeline:
             ar_obj.shape = "straight"
             all_arms_res.append(ar_obj)
 
-        # Extract street lights from 'other_b' specifically for the UI if needed
+        # Resolve the model's common street-light/special-clamp confusion using
+        # pole context before splitting dedicated UI classes.
         st_lights = []
         final_others = []
         for name, box, conf, poly in other_b:
             name_lower = name.lower()
+            if name_lower == "street_light" and self._is_compact_pole_mounted_hardware(box, all_poles_res):
+                print(
+                    "[IMAGE-HARDWARE-RESOLVE] "
+                    f"raw=street_light resolved=special_clamp conf={float(conf):.3f} "
+                    f"bbox={[int(v) for v in box]} reason=compact_pole_overlap",
+                    flush=True
+                )
+                name = "special_clamp"
+                name_lower = name
             if name_lower == "street_light" or name_lower.startswith("lamp_") or name_lower in {"lamp", "lamp_head"}:
                 st_lights.append((box, conf, poly))
             else:
@@ -509,6 +519,28 @@ class InfrastructurePipeline:
             return 1.0  # Force suppression
             
         return inter / float(area1 + area2 - inter + 1e-6)
+
+    def _is_compact_pole_mounted_hardware(self, box, poles):
+        if not poles:
+            return False
+        x1, y1, x2, y2 = [float(v) for v in box]
+        width = max(1.0, x2 - x1)
+        height = max(1.0, y2 - y1)
+        if max(width, height) / min(width, height) > 1.5:
+            return False
+
+        box_area = width * height
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        for pole in poles:
+            px1, py1, px2, py2 = [float(v) for v in pole.box]
+            inter_w = max(0.0, min(x2, px2) - max(x1, px1))
+            inter_h = max(0.0, min(y2, py2) - max(y1, py1))
+            overlap = (inter_w * inter_h) / box_area
+            center_on_pole = px1 <= cx <= px2 and py1 <= cy <= py2
+            if center_on_pole or overlap >= 0.20:
+                return True
+        return False
 
     def _enhance_image(self, img):
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
