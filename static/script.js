@@ -841,6 +841,22 @@ function seekVideoPreviewClip(value) {
     updateVideoPreviewControls();
 }
 
+function seekToVideoDetection(frameTime) {
+    const video = document.getElementById('videoPreview');
+    if (!video || !Number.isFinite(Number(frameTime))) return;
+
+    const trimStart = Number(batchImages[0]?.trimStart || 0);
+    const targetTime = isShowingProcessedVideo()
+        ? Math.max(0, Number(frameTime) - trimStart)
+        : Math.max(0, Number(frameTime));
+    const duration = Number.isFinite(video.duration) ? video.duration : targetTime;
+
+    video.currentTime = Math.min(targetTime, Math.max(0, duration - 0.01));
+    video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    video.pause();
+    updateVideoPreviewControls();
+}
+
 function handleVideoUpload(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -1740,6 +1756,14 @@ function renderResults() {
         
         const itemDiv = document.createElement("div");
         itemDiv.className = `flex items-center justify-between p-3 rounded-lg border transition-all result-card-hover ${obj.confirmed ? 'border-green-500/40 bg-green-500/5' : 'bg-white/5 border-white/5'} hover:border-white/20`;
+        if (activeMedia === 'video' && obj.details?.frame_time !== undefined) {
+            itemDiv.classList.add('cursor-pointer');
+            itemDiv.title = `Go to ${formatSeconds(obj.details.frame_time)} in the video`;
+            itemDiv.onclick = (event) => {
+                if (event.target.closest('button')) return;
+                seekToVideoDetection(obj.details.frame_time);
+            };
+        }
 
         // Interactive Sync: Glow the box on the image when hovering the result item
         itemDiv.onmouseenter = () => {

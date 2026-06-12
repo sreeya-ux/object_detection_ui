@@ -83,6 +83,8 @@ VIDEO_OUTPUT_MAX_WIDTH = int(os.environ.get("VIDEO_OUTPUT_MAX_WIDTH", "960") or 
 VIDEO_SAMPLE_FPS = max(0.1, float(os.environ.get("VIDEO_SAMPLE_FPS", "1") or 1))
 MIN_POLE_VISIBLE_SECONDS = 2.0
 TEMPORAL_GAP_MAX_SECONDS = 3.0
+VIDEO_FINAL_MIN_CONF = max(0.0, min(1.0, float(os.environ.get("VIDEO_FINAL_MIN_CONF", "0.40") or 0.40)))
+VIDEO_MAIN_POLE_MIN_ASPECT = max(1.0, float(os.environ.get("VIDEO_MAIN_POLE_MIN_ASPECT", "1.5") or 1.5))
 IMAGE_DEFAULT_DISPLAY_THRESHOLD = 0.40
 IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD = 0.25
 IMAGE_SMALL_HARDWARE_CLASSES = {"street_light", "special_clamp"}
@@ -1595,6 +1597,12 @@ def _bbox_center(bbox):
 def _bbox_height(bbox):
     return max(1, int(bbox[3]) - int(bbox[1]))
 
+def _video_pole_geometry_ok(label, bbox):
+    if label != "MAIN_POLE":
+        return True
+    width = max(1, int(bbox[2]) - int(bbox[0]))
+    return (_bbox_height(bbox) / width) >= VIDEO_MAIN_POLE_MIN_ASPECT
+
 def _video_best_frame_score(confidence, bbox, frame_width, frame_height):
     cx, _ = _bbox_center(bbox)
     half_width = max(1.0, frame_width / 2.0)
@@ -1809,13 +1817,23 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         max_frames = int(max(1, round(effective_trim_duration * fps)))
         sample_fps = VIDEO_SAMPLE_FPS
         min_pole_appearances = max(2, int(MIN_POLE_VISIBLE_SECONDS * sample_fps))
-        temporal_gap_max_frames = max(1, int(TEMPORAL_GAP_MAX_SECONDS * sample_fps))
+        temporal_gap_max_sampled_frames = max(1, int(TEMPORAL_GAP_MAX_SECONDS * sample_fps))
+        # Observations use source-frame indices, so merge gaps must use source FPS.
+        temporal_gap_max_source_frames = max(1, int(round(TEMPORAL_GAP_MAX_SECONDS * fps)))
         sample_step = fps / sample_fps
         sampled_frame_limit = int(max(1, math.floor(effective_trim_duration * sample_fps)))
         sample_indices = [
             int(round(start_frame + (i * sample_step)))
             for i in range(sampled_frame_limit)
         ]
+        final_source_frame = min(
+            start_frame + max_frames - 1,
+            frame_count - 1 if frame_count > 0 else start_frame + max_frames - 1,
+        )
+        if final_source_frame not in sample_indices:
+            sample_indices.append(final_source_frame)
+        sample_indices = sorted(set(sample_indices))
+        sampled_frame_limit = len(sample_indices)
         sample_index_set = set(sample_indices)
         video_log(
             f"[VIDEO:{request_id}] Metadata fps={fps:.2f}, frames={frame_count}, "
@@ -1828,7 +1846,9 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         )
         video_log(
             f"[VIDEO:{request_id}] Thresholds: sample_fps={sample_fps:g}, "
-            f"min_appearances={min_pole_appearances}, temporal_gap_max={temporal_gap_max_frames} frames"
+            f"min_appearances={min_pole_appearances}, "
+            f"temporal_gap_max={temporal_gap_max_sampled_frames} sampled frames "
+            f"({temporal_gap_max_source_frames} source frames)"
         )
         set_video_progress(request_id, 12, "Metadata loaded and trim window prepared")
         tracker_backend = _video_tracker_backend()
@@ -1949,7 +1969,8 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                             "score": best_score
                         })
 
-                        last_frame_detections.append(([x1, y1, x2, y2], label, conf, track_id))
+                        if conf >= VIDEO_FINAL_MIN_CONF and _video_pole_geometry_ok(label, scored_bbox):
+                            last_frame_detections.append(([x1, y1, x2, y2], label, conf, track_id))
 
             for bbox, label, conf, track_id in last_frame_detections:
                 _draw_video_detection(annotated, _scale_bbox(bbox, output_scale_x, output_scale_y), label, conf, track_id)
@@ -1975,16 +1996,64 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
 
         video_log(f"[VIDEO:{request_id}] Consolidating {len(tracks)} tracker fragments into physical poles")
         set_video_progress(request_id, 88, "Consolidating track fragments into physical poles")
-        fragment_groups = _merge_pole_track_fragments(tracks, width, temporal_gap_max_frames)
-        physical_poles = _merge_temporal_pole_events(fragment_groups, width, temporal_gap_max_frames)
-        persistent_poles = [pole for pole in physical_poles if int(pole.get("appearances", 0)) >= min_pole_appearances]
-        removed = len(physical_poles) - len(persistent_poles)
-        if removed > 0:
+        fragment_groups = _merge_pole_track_fragments(tracks, width, temporal_gap_max_source_frames)
+        physical_poles = _merge_temporal_pole_events(fragment_groups, width, temporal_gap_max_source_frames)
+        end_boundary_start = max(start_frame, final_source_frame - int(math.ceil(sample_step)))
+        appearance_filtered_poles = []
+        recovered_end_boundary_poles = 0
+        for pole in physical_poles:
+            appearances = int(pole.get("appearances", 0))
+            best = pole.get("best") or {}
+            is_valid_end_boundary_pole = (
+                appearances == 1
+                and _track_end_frame(pole) >= end_boundary_start
+                and float(best.get("confidence", 0.0)) >= VIDEO_FINAL_MIN_CONF
+                and _video_pole_geometry_ok(
+                    pole.get("label", ""),
+                    best.get("bbox", [0, 0, 0, 0]),
+                )
+            )
+            if appearances >= min_pole_appearances or is_valid_end_boundary_pole:
+                appearance_filtered_poles.append(pole)
+                if is_valid_end_boundary_pole:
+                    recovered_end_boundary_poles += 1
+
+        removed_short = len(physical_poles) - len(appearance_filtered_poles)
+        if removed_short > 0:
             video_log(
-                f"[VIDEO:{request_id}] Filtered {removed} short-lived pole group(s) "
+                f"[VIDEO:{request_id}] Filtered {removed_short} short-lived pole group(s) "
                 f"below {min_pole_appearances} sampled-frame appearances"
             )
-        physical_poles = persistent_poles
+        if recovered_end_boundary_poles > 0:
+            video_log(
+                f"[VIDEO:{request_id}] Recovered {recovered_end_boundary_poles} valid pole group(s) "
+                f"from the final clip boundary sample"
+            )
+
+        physical_poles = [
+            pole
+            for pole in appearance_filtered_poles
+            if (
+                float((pole.get("best") or {}).get("confidence", 0.0)) >= VIDEO_FINAL_MIN_CONF
+                and _video_pole_geometry_ok(
+                    pole.get("label", ""),
+                    (pole.get("best") or {}).get("bbox", [0, 0, 0, 0]),
+                )
+            )
+        ]
+        removed_quality = len(appearance_filtered_poles) - len(physical_poles)
+        if removed_quality > 0:
+            video_log(
+                f"[VIDEO:{request_id}] Filtered {removed_quality} pole group(s) by final quality "
+                f"(confidence>={VIDEO_FINAL_MIN_CONF:.2f}, "
+                f"main_pole_aspect>={VIDEO_MAIN_POLE_MIN_ASPECT:.2f})"
+            )
+        physical_poles.sort(
+            key=lambda pole: (
+                float(pole.get("first_time", _track_best_time(pole))),
+                pole.get("label", ""),
+            )
+        )
         video_log(
             f"[VIDEO:{request_id}] Temporal pole-event merge: "
             f"fragment_groups={len(fragment_groups)}, physical_poles={len(physical_poles)}"
