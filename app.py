@@ -608,47 +608,8 @@ def clean_b64(b64_str):
     return b64_str
 
 def normalize_pole_id_text(text):
-    if not text:
-        logger.warning(f"[OCR] normalize rejected: {repr(text)}")
-        return "Not Found"
-
-    raw = str(text).upper()
-    raw = raw.replace("|", "1").replace("!", "1")
-    raw = raw.replace("}", "7").replace("]", "7").replace(")", "7")
-    raw = raw.replace("{", "6").replace("[", "6").replace("(", "6")
-    raw = raw.replace("₹", "").replace("¥", "").replace("`", "")
-    spaced = re.sub(r"[^A-Z0-9]+", " ", raw).strip()
-    compact = re.sub(r"[^A-Z0-9]", "", raw)
-    if len(compact) < 3:
-        logger.warning(f"[OCR] normalize rejected: {repr(text)}")
-        return "Not Found"
-
-    letters_view = spaced.replace("0", "O").replace("5", "S").replace("2", "Z").replace("6", "G").replace("8", "B")
-    rdss_match = re.search(r"R[CDOG]SS?(?:[\s-]+)?([0-9OQSBZIL]{1,4})", letters_view)
-    if rdss_match:
-        digits_text = rdss_match.group(1)
-        digits_text = digits_text.replace("O", "0").replace("Q", "0")
-        digits_text = re.sub(r"(?<=\d)[IL]|(?<=^)[IL](?=\d)", "1", digits_text)
-        digits_text = digits_text.replace("S", "5").replace("B", "8").replace("Z", "2")
-        digits = re.search(r"\d{1,4}", digits_text)
-        if digits:
-            return f"RDSS {digits.group(0)}"
-        return "RDSS"
-
-    generic = re.search(r"\b([A-Z]{2,6})[\s-]*([0-9OQSBZIL]{1,4})\b", spaced)
-    if generic:
-        prefix = generic.group(1)
-        if prefix in {"ID", "IV", "IMG", "IP", "IMAGE", "PAGE", "FIG", "TABLE"}:
-            logger.warning(f"[OCR] normalize rejected: {repr(text)}")
-            return "Not Found"
-        digits_text = generic.group(2).replace("O", "0").replace("Q", "0")
-        digits_text = re.sub(r"(?<=\d)[IL]|(?<=^)[IL](?=\d)", "1", digits_text)
-        digits_text = digits_text.replace("S", "5").replace("B", "8").replace("Z", "2")
-        digits = re.search(r"\d{1,4}", digits_text)
-        if digits:
-            return f"{prefix} {digits.group(0)}"
-    logger.warning(f"[OCR] normalize rejected: {repr(text)}")
-    return "Not Found"
+    from ocr_utils import PoleOCR
+    return PoleOCR._normalize_pole_id(text)
 
 
 def extract_ocr_text_lines(raw_text):
@@ -689,19 +650,8 @@ def extract_ocr_text_lines(raw_text):
     return lines
 
 def pole_id_score(text):
-    normalized = normalize_pole_id_text(text)
-    if normalized == "Not Found":
-        return -9999
-    score = 1000
-    if normalized.startswith("RDSS"):
-        score += 500
-    digit_groups = re.findall(r"\d+", normalized)
-    if digit_groups:
-        longest_group = max(len(group) for group in digit_groups)
-        score += sum(len(group) for group in digit_groups) * 100
-        if longest_group >= 2:
-            score += 300
-    return score
+    from ocr_utils import PoleOCR
+    return PoleOCR._pole_score(text)
 
 
 def get_rapidocr_engine():
@@ -835,29 +785,25 @@ def read_pole_id_with_rapidocr(image_path):
                 "raw_text": "",
             }
 
-        crop_raw = find_pole_tag_crop(img)
-        print("[OCR] Running one RapidOCR attempt on pole tag crop...")
-        engine = get_rapidocr_engine()
-        result, _ = engine(crop_raw)
-        pieces = []
-        if result:
-            for line in result:
-                if not line or len(line) < 2:
-                    continue
-                text = str(line[1]).strip()
-                if text:
-                    pieces.append(text)
+        from ocr_utils import PoleOCR
+        ocr = PoleOCR()
+        h, w = img.shape[:2]
+        result = ocr.process_pole_tag(img, [0, 0, w, h])
+        
+        if result == "Not Found":
+            return {
+                "pole_id": "Not Found",
+                "text_lines": [],
+                "raw_text": "",
+            }
 
-        clean_text = " ".join(pieces).strip()
-        normalized = normalize_pole_id_text(clean_text)
-        print(f"[OCR] RapidOCR raw output: {repr(clean_text)}")
         return {
-            "pole_id": normalized,
-            "text_lines": extract_ocr_text_lines(clean_text),
-            "raw_text": clean_text,
+            "pole_id": result,
+            "text_lines": extract_ocr_text_lines(result),
+            "raw_text": result,
         }
     except Exception as exc:
-        print(f"[OCR] RapidOCR error: {exc}")
+        print(f"[OCR] Standalone OCR error: {exc}")
         return {
             "pole_id": "Not Found",
             "text_lines": [],
