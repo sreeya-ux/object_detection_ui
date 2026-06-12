@@ -434,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check for saved draft on page load
     checkAndRestoreDraft();
     loadUserTrainingStats();
-    loadRuntimeDeviceStatus();
+    if (gpuToggle) loadRuntimeDeviceStatus();
 
     profileMenuButton?.addEventListener('click', (event) => {
         event.stopPropagation();

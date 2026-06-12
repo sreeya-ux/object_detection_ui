@@ -1424,6 +1424,9 @@ def home():
 @app.route('/api/runtime_device', methods=['GET', 'POST'])
 @login_required
 def runtime_device():
+    if session.get('role') != 'admin':
+        return jsonify({"error": "Administrator access required"}), 403
+
     if request.method == 'GET':
         return jsonify(device_status())
 
