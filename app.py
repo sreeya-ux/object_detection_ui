@@ -829,78 +829,33 @@ def read_pole_id_with_rapidocr(image_path):
     try:
         img = cv2.imread(image_path)
         if img is None:
-            return "Not Found"
+            return {
+                "pole_id": "Not Found",
+                "text_lines": [],
+                "raw_text": "",
+            }
 
         crop_raw = find_pole_tag_crop(img)
-        crop_prepped = prepare_ocr_image(crop_raw)
-        print("[OCR] Running RapidOCR on pole tag crop...")
+        print("[OCR] Running one RapidOCR attempt on pole tag crop...")
         engine = get_rapidocr_engine()
-        best_payload = {
-            "pole_id": "Not Found",
-            "text_lines": [],
-            "raw_text": "",
+        result, _ = engine(crop_raw)
+        pieces = []
+        if result:
+            for line in result:
+                if not line or len(line) < 2:
+                    continue
+                text = str(line[1]).strip()
+                if text:
+                    pieces.append(text)
+
+        clean_text = " ".join(pieces).strip()
+        normalized = normalize_pole_id_text(clean_text)
+        print(f"[OCR] RapidOCR raw output: {repr(clean_text)}")
+        return {
+            "pole_id": normalized,
+            "text_lines": extract_ocr_text_lines(clean_text),
+            "raw_text": clean_text,
         }
-        best_score = -9999
-
-        crop_variants = (("raw", crop_raw), ("prep", crop_prepped))
-        saw_any_crop_text = False
-
-        for variant_name, candidate_img in crop_variants:
-            result, _ = engine(candidate_img)
-            pieces = []
-            if result:
-                for line in result:
-                    if not line or len(line) < 2:
-                        continue
-                    text = str(line[1]).strip()
-                    if text:
-                        pieces.append(text)
-            clean_text = " ".join(pieces).strip()
-            print(f"[OCR] RapidOCR raw output ({variant_name}): {repr(clean_text)}")
-            if clean_text:
-                saw_any_crop_text = True
-            normalized = normalize_pole_id_text(clean_text)
-            score = pole_id_score(normalized)
-            if score > best_score:
-                best_score = score
-                best_payload = {
-                    "pole_id": normalized,
-                    "text_lines": extract_ocr_text_lines(clean_text),
-                    "raw_text": clean_text,
-                }
-
-        if not saw_any_crop_text:
-            print("[OCR] Crop OCR empty, retrying RapidOCR on full image...")
-            full_prepped = prepare_ocr_image(img)
-            for variant_name, candidate_img in (("full_raw", img), ("full_prep", full_prepped)):
-                result, _ = engine(candidate_img)
-                pieces = []
-                if result:
-                    for line in result:
-                        if not line or len(line) < 2:
-                            continue
-                        text = str(line[1]).strip()
-                        if text:
-                            pieces.append(text)
-                clean_text = " ".join(pieces).strip()
-                print(f"[OCR] RapidOCR raw output ({variant_name}): {repr(clean_text)}")
-                normalized = normalize_pole_id_text(clean_text)
-                score = pole_id_score(normalized)
-                if score > best_score:
-                    best_score = score
-                    best_payload = {
-                        "pole_id": normalized,
-                        "text_lines": extract_ocr_text_lines(clean_text),
-                        "raw_text": clean_text,
-                    }
-
-        if best_payload["pole_id"] == "Not Found":
-            _save_debug_crop(crop_raw, tag="ocr_fail_raw")
-            _save_debug_crop(crop_prepped, tag="ocr_fail_prep")
-            return best_payload
-
-        print(f"[OCR] RapidOCR selected: '{best_payload['pole_id']}' from '{best_payload['raw_text']}'")
-        return best_payload
     except Exception as exc:
         print(f"[OCR] RapidOCR error: {exc}")
         return {
