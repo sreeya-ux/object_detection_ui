@@ -768,16 +768,16 @@ def prepare_ocr_image(img):
         print(f"[OCR] OCR preprocessing error: {exc}")
         return img
 
-def read_pole_id_for_blob(blob):
+def read_pole_id_for_blob(blob, box=None):
     temp_filename = os.path.join(UPLOADS_FOLDER, f"temp_ocr_{uuid.uuid4()}.jpg")
     try:
         with open(temp_filename, "wb") as f:
             f.write(blob)
-        return read_pole_id_with_rapidocr(temp_filename)
+        return read_pole_id_with_rapidocr(temp_filename, box)
     finally:
         safe_remove_file(temp_filename, "OCR temp image")
 
-def read_pole_id_with_rapidocr(image_path):
+def read_pole_id_with_rapidocr(image_path, box=None):
     try:
         img = cv2.imread(image_path)
         if img is None:
@@ -790,7 +790,9 @@ def read_pole_id_with_rapidocr(image_path):
         from ocr_utils import PoleOCR
         ocr = PoleOCR()
         h, w = img.shape[:2]
-        result = ocr.process_pole_tag(img, [0, 0, w, h])
+        if box is None:
+            box = [0, 0, w, h]
+        result = ocr.process_pole_tag(img, box)
         
         if result == "Not Found":
             return {
@@ -1032,16 +1034,20 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
         with open(temp_filename, "wb") as f:
             f.write(file_stream.read())
 
-        # Run model inference and a single OCR API call in parallel.
-        log_mem("Before Pipeline")
+        # Run model inference first to locate the pole
+        pipe_res = pipeline_engine.predict(temp_filename, visualize=False, fast_mode=fast_mode)
+        
+        # Find the best pole box
+        best_box = None
+        best_conf = -1.0
+        for po in getattr(pipe_res, 'all_poles', []):
+            if float(po.detection_conf) > best_conf and float(po.detection_conf) >= 0.35:
+                best_conf = float(po.detection_conf)
+                best_box = [int(v) for v in po.box]
+
         if enable_ocr:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                pipe_future = executor.submit(pipeline_engine.predict, temp_filename, False, None, fast_mode)
-                ocr_future = executor.submit(read_pole_id_with_rapidocr, temp_filename)
-                pipe_res = pipe_future.result()
-                ocr_payload = ocr_future.result()
+            ocr_payload = read_pole_id_with_rapidocr(temp_filename, best_box)
         else:
-            pipe_res = pipeline_engine.predict(temp_filename, visualize=False, fast_mode=fast_mode)
             ocr_payload = {"pole_id": "Not Found", "text_lines": [], "raw_text": ""}
         log_mem("After Pipeline")
         print(f"[Timing] Pipeline: {time.perf_counter() - t0:.2f}s")
@@ -1495,8 +1501,18 @@ def process_multi_images(file_streams):
         if not blob or results[idx] is None:
             continue
         print(f"DEBUG: Running OCR on image {idx+1}/{len(file_streams)} in merged mode...")
+        
+        # Find the best pole box from results[idx]['detections']
+        best_box = None
+        best_conf = -1.0
+        for det in results[idx].get("detections", []):
+            label = str(det.get("label", "")).lower()
+            if "pole" in label and det.get("confidence", 0.0) > best_conf:
+                best_conf = det.get("confidence")
+                best_box = det.get("bbox")
+
         try:
-            ocr_results[idx] = read_pole_id_for_blob(blob)
+            ocr_results[idx] = read_pole_id_for_blob(blob, best_box)
         except Exception as e:
             print(f"[ERROR] Merged OCR failed on image {idx+1}: {e}")
 

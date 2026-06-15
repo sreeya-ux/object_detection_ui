@@ -628,13 +628,6 @@ class PoleOCR:
                                 best_score = score
                                 best_result = normalized
 
-                            # Early exit if we find a high-confidence match (starts with RDSS and has 2+ digits)
-                            if normalized.startswith("RDSS"):
-                                digit_groups = re.findall(r"\d+", normalized)
-                                if digit_groups and len(digit_groups[0]) >= 2:
-                                    print(f"[OCR] Early exit on EasyOCR candidate crop: '{normalized}' (score={score})")
-                                    return normalized
-
             # 2. Try RapidOCR on full-patch candidates (as secondary/complement)
             for crop in unique_candidates:
                 local_text = self._read_with_rapidocr(crop, use_tight=False)
@@ -646,13 +639,6 @@ class PoleOCR:
                         if score > best_score:
                             best_score = score
                             best_result = normalized
-
-                        # Early exit if we find a high-confidence match (starts with RDSS and has 2+ digits)
-                        if normalized.startswith("RDSS"):
-                            digit_groups = re.findall(r"\d+", normalized)
-                            if digit_groups and len(digit_groups[0]) >= 2:
-                                print(f"[OCR] Early exit on RapidOCR candidate crop: '{normalized}' (score={score})")
-                                return normalized
 
             # 3. Try line-level crops (top/bottom splits) — fixes two-line "RDSS\n84" tags
             for crop in unique_line_candidates:
@@ -667,12 +653,6 @@ class PoleOCR:
                                 best_score = score
                                 best_result = normalized
 
-                            if normalized.startswith("RDSS"):
-                                digit_groups = re.findall(r"\d+", normalized)
-                                if digit_groups and len(digit_groups[0]) >= 2:
-                                    print(f"[OCR] Early exit on EasyOCR line crop: '{normalized}' (score={score})")
-                                    return normalized
-
                 local_text = self._read_with_rapidocr(crop, use_tight=True)
                 if local_text:
                     raw_texts_seen.append(local_text)
@@ -682,12 +662,6 @@ class PoleOCR:
                         if score > best_score:
                             best_score = score
                             best_result = normalized
-
-                        if normalized.startswith("RDSS"):
-                            digit_groups = re.findall(r"\d+", normalized)
-                            if digit_groups and len(digit_groups[0]) >= 2:
-                                print(f"[OCR] Early exit on RapidOCR line crop: '{normalized}' (score={score})")
-                                return normalized
 
             # 4. Multi-line combination: if we have "RDSS" but no digits yet,
             # hunt for a standalone digit in ALL raw OCR texts seen so far.
