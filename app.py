@@ -2087,6 +2087,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                     "track_fragments": pole["fragments"],
                     "appearances": pole["appearances"],
                     "frame_time": round(best["frame_time"], 2),
+                    "clip_time": round(max(0.0, best["frame_time"] - trim_start), 3),
                     "sharpness": round(best["sharpness"], 1),
                     "pole_area": int(best["area"]),
                     "best_frame_rank": idx,
@@ -2096,7 +2097,11 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
 
         detections = sorted(
             detections,
-            key=lambda d: (d["label"], -float(d.get("confidence", 0)))
+            key=lambda d: (
+                float(d.get("details", {}).get("clip_time", 0.0)),
+                d["label"],
+                -float(d.get("confidence", 0)),
+            )
         )
         detected_classes = {
             label: sum(1 for d in detections if d["label"] == label)
@@ -2108,6 +2113,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
         writer = None
         ffmpeg_path = shutil.which("ffmpeg")
         if ffmpeg_path:
+            keyframe_interval = max(1, int(round(fps)))
             mux_command = [
                 ffmpeg_path,
                 "-y",
@@ -2117,8 +2123,14 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                 "-i", video_only_path,
                 "-map", "1:v:0",
                 "-map", "0:a:0?",
-                "-c:v", "copy",
+                "-c:v", "libvpx",
+                "-deadline", "realtime",
+                "-cpu-used", "8",
+                "-b:v", "2M",
+                "-g", str(keyframe_interval),
+                "-keyint_min", str(keyframe_interval),
                 "-c:a", "libopus",
+                "-reset_timestamps", "1",
                 "-shortest",
                 output_path,
             ]
@@ -2134,7 +2146,10 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
                 mux_result = None
                 video_log(f"[VIDEO:{request_id}] Audio mux failed to start: {exc}")
             if mux_result is not None and mux_result.returncode == 0 and os.path.exists(output_path):
-                video_log(f"[VIDEO:{request_id}] Preserved source audio in processed WebM")
+                video_log(
+                    f"[VIDEO:{request_id}] Preserved source audio and generated seekable WebM "
+                    f"with keyframes every {keyframe_interval} frames"
+                )
                 safe_remove_file(video_only_path, "video-only output")
             else:
                 mux_exit = mux_result.returncode if mux_result is not None else "unavailable"

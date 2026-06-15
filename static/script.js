@@ -853,19 +853,20 @@ function seekVideoPreviewClip(value) {
     updateVideoPreviewControls();
 }
 
-function seekToVideoDetection(frameTime) {
+function seekToVideoDetection(frameTime, clipTime) {
     const video = document.getElementById('videoPreview');
     if (!video || !Number.isFinite(Number(frameTime))) return;
 
     const trimStart = Number(batchImages[0]?.trimStart || 0);
     const targetTime = isShowingProcessedVideo()
-        ? Math.max(0, Number(frameTime) - trimStart)
+        ? Math.max(0, Number.isFinite(Number(clipTime)) ? Number(clipTime) : Number(frameTime) - trimStart)
         : Math.max(0, Number(frameTime));
     const duration = Number.isFinite(video.duration) ? video.duration : targetTime;
+    const clampedTime = Math.min(targetTime, Math.max(0, duration - 0.01));
 
-    video.currentTime = Math.min(targetTime, Math.max(0, duration - 0.01));
-    video.scrollIntoView({ behavior: 'smooth', block: 'center' });
     video.pause();
+    video.currentTime = clampedTime;
+    video.scrollIntoView({ behavior: 'smooth', block: 'center' });
     updateVideoPreviewControls();
 }
 
@@ -1776,11 +1777,12 @@ function renderResults() {
         const itemDiv = document.createElement("div");
         itemDiv.className = `flex items-center justify-between p-3 rounded-lg border transition-all result-card-hover ${obj.confirmed ? 'border-green-500/40 bg-green-500/5' : 'bg-white/5 border-white/5'} hover:border-white/20`;
         if (activeMedia === 'video' && obj.details?.frame_time !== undefined) {
+            const displayedFrameTime = obj.details.clip_time ?? obj.details.frame_time;
             itemDiv.classList.add('cursor-pointer');
-            itemDiv.title = `Go to ${formatSeconds(obj.details.frame_time)} in the video`;
+            itemDiv.title = `Go to ${formatSeconds(displayedFrameTime)} in the processed clip`;
             itemDiv.onclick = (event) => {
                 if (event.target.closest('button')) return;
-                seekToVideoDetection(obj.details.frame_time);
+                seekToVideoDetection(obj.details.frame_time, obj.details.clip_time);
             };
         }
 
@@ -1859,7 +1861,7 @@ function renderResults() {
                     <div class="flex items-center gap-2">
                         <p class="text-[10px] font-bold text-gray-200 uppercase tracking-tight">${label} ID-${obj.detIdx + 1}</p>
                         ${batchImages.length > 1 ? `<span class="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded border border-blue-500/30 text-[7px] font-bold">IMAGE ${obj.imgIdx + 1}</span>` : ''}
-                        ${activeMedia === 'video' && obj.details?.frame_time !== undefined ? `<span class="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 rounded border border-emerald-500/20 text-[7px] font-bold">${formatSeconds(obj.details.frame_time)}</span>` : ''}
+                        ${activeMedia === 'video' && obj.details?.frame_time !== undefined ? `<span class="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 rounded border border-emerald-500/20 text-[7px] font-bold">${formatSeconds(obj.details.clip_time ?? obj.details.frame_time)}</span>` : ''}
                     </div>
                     <div class="flex items-center gap-1.5 mt-0.5">
                         <i class="fa-solid ${metaIcon} text-[8px] text-gray-600"></i>

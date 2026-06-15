@@ -204,7 +204,7 @@
                             <div class="relative rounded-xl border border-white/10 bg-black overflow-hidden shadow-2xl">
                                 <video id="videoPreview" class="block w-full max-h-[500px] bg-black" playsinline></video>
                                 <div class="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/70 border border-white/10 text-[8px] font-bold uppercase tracking-widest text-blue-300 backdrop-blur">
-                                    3 FPS + ByteTrack + Pole Only
+                                    1 FPS Inference + Full-FPS Output
                                 </div>
                                 <div class="video-preview-controls">
                                     <button id="videoPreviewPlayBtn" type="button" class="video-preview-play" onclick="toggleVideoPreviewPlayback(event)">
@@ -407,7 +407,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}?v=4.5"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=4.6"></script>
     <script>
         let userStatsInFlight = false;
         let userStatsRetryDelay = 30000;
