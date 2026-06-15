@@ -486,7 +486,11 @@ class PoleOCR:
 
     def _read_with_gemini(self, crop_bgr):
         """Use Gemini 2.5 Flash to read the hand-painted pole tag from the crop."""
-        from config import GEMINI_API_KEY, USE_LLM_OCR
+        try:
+            from config import USE_LLM_OCR
+        except ImportError:
+            USE_LLM_OCR = False
+        from config import GEMINI_API_KEY
         if not USE_LLM_OCR or not GEMINI_API_KEY or crop_bgr is None or crop_bgr.size == 0:
             return ""
 

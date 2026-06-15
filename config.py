@@ -110,3 +110,4 @@ PIN_TILT_AR_THRESHOLD = 1.0
 
 # ── API Keys (Automatically populated from secure store) ─────
 GEMINI_API_KEY = "AIzaSyAGJVjCry9BYdb9oMcvR5ySLLAkhnlZR34"
+USE_LLM_OCR = False
