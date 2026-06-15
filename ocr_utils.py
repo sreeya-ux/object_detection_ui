@@ -11,11 +11,12 @@ class PoleOCR:
     """
     Reads hand-painted pole IDs using Azure Mistral OCR.
     """
+    # Class-level cached variables to reuse heavy OCR model instances across calls
+    _cached_rapidocr_reader = None
+    _cached_easyocr_reader = None
 
     def __init__(self):
         self.active = True
-        self.rapidocr_reader = None
-        self.easyocr_reader = None
         print("[OCR] PoleOCR ready (Azure Mistral + RapidOCR + EasyOCR).")
 
     # ------------------------------------------------------------------
@@ -150,18 +151,18 @@ class PoleOCR:
             return crop_bgr
 
     def _get_easyocr_reader(self):
-        if hasattr(self, 'easyocr_reader') and self.easyocr_reader is not None:
-            return self.easyocr_reader
+        if PoleOCR._cached_easyocr_reader is not None:
+            return PoleOCR._cached_easyocr_reader
         try:
             import easyocr
             import torch
             gpu_avail = torch.cuda.is_available()
             print(f"[OCR] Initializing EasyOCR reader (gpu={gpu_avail})...")
-            self.easyocr_reader = easyocr.Reader(["en"], gpu=gpu_avail)
+            PoleOCR._cached_easyocr_reader = easyocr.Reader(["en"], gpu=gpu_avail)
         except Exception as e:
             print(f"[OCR] EasyOCR unavailable: {e}")
-            self.easyocr_reader = False
-        return self.easyocr_reader
+            PoleOCR._cached_easyocr_reader = False
+        return PoleOCR._cached_easyocr_reader
 
     def _read_with_easyocr(self, crop_bgr, use_tight=True):
         reader = self._get_easyocr_reader()
@@ -187,18 +188,18 @@ class PoleOCR:
             return ""
 
     def _get_rapidocr_reader(self):
-        if hasattr(self, 'rapidocr_reader') and self.rapidocr_reader is not None:
-            return self.rapidocr_reader
+        if PoleOCR._cached_rapidocr_reader is not None:
+            return PoleOCR._cached_rapidocr_reader
         try:
             try:
                 from rapidocr import RapidOCR
             except ImportError:
                 from rapidocr_onnxruntime import RapidOCR
-            self.rapidocr_reader = RapidOCR()
+            PoleOCR._cached_rapidocr_reader = RapidOCR()
         except Exception as e:
             print(f"[OCR] RapidOCR unavailable: {e}")
-            self.rapidocr_reader = False
-        return self.rapidocr_reader
+            PoleOCR._cached_rapidocr_reader = False
+        return PoleOCR._cached_rapidocr_reader
 
     def _read_with_rapidocr(self, crop_bgr, use_tight=True):
         reader = self._get_rapidocr_reader()
