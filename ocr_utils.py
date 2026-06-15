@@ -615,21 +615,10 @@ class PoleOCR:
             best_score = -9999
             raw_texts_seen = []  # track all raw OCR texts for multi-line combination
 
-            # 1. Try EasyOCR first on full-patch candidates (if available)
-            easy_reader = self._get_easyocr_reader()
-            if easy_reader:
-                for crop in unique_candidates:
-                    local_text = self._read_with_easyocr(crop, use_tight=False)
-                    if local_text:
-                        raw_texts_seen.append(local_text)
-                        normalized = self._normalize_pole_id(local_text)
-                        if normalized != "Not Found":
-                            score = self._pole_score(normalized) + 200  # Extra weight for EasyOCR
-                            if score > best_score:
-                                best_score = score
-                                best_result = normalized
-
-            # 2. Try RapidOCR on full-patch candidates (as secondary/complement)
+            # 1. Run the fast RapidOCR engine on all crops first (takes < 0.5s total)
+            easy_reader = None
+            
+            # A. Try RapidOCR on full-patch candidates
             for crop in unique_candidates:
                 local_text = self._read_with_rapidocr(crop, use_tight=False)
                 if local_text:
@@ -641,19 +630,8 @@ class PoleOCR:
                             best_score = score
                             best_result = normalized
 
-            # 3. Try line-level crops (top/bottom splits) — fixes two-line "RDSS\n84" tags
+            # B. Try RapidOCR on line-level crops (top/bottom splits)
             for crop in unique_line_candidates:
-                if easy_reader:
-                    local_text = self._read_with_easyocr(crop, use_tight=True)
-                    if local_text:
-                        raw_texts_seen.append(local_text)
-                        normalized = self._normalize_pole_id(local_text)
-                        if normalized != "Not Found":
-                            score = self._pole_score(normalized) + 200
-                            if score > best_score:
-                                best_score = score
-                                best_result = normalized
-
                 local_text = self._read_with_rapidocr(crop, use_tight=True)
                 if local_text:
                     raw_texts_seen.append(local_text)
@@ -663,6 +641,39 @@ class PoleOCR:
                         if score > best_score:
                             best_score = score
                             best_result = normalized
+
+            # 2. Check if we have a high-confidence RDSS tag (starts with RDSS, has 2+ digits, score >= 1800).
+            # If so, we bypass the slow local EasyOCR run completely to achieve ~4-second request times.
+            if best_score >= 1800:
+                print(f"[OCR] RapidOCR found high-confidence result '{best_result}' (score={best_score}). Skipping EasyOCR fallback.")
+            else:
+                # 3. Fallback: Run EasyOCR if RapidOCR was weak or found nothing
+                easy_reader = self._get_easyocr_reader()
+                if easy_reader:
+                    print(f"[OCR] RapidOCR score ({best_score}) is low. Running EasyOCR fallback...")
+                    # A. Try EasyOCR on full-patch candidates
+                    for crop in unique_candidates:
+                        local_text = self._read_with_easyocr(crop, use_tight=False)
+                        if local_text:
+                            raw_texts_seen.append(local_text)
+                            normalized = self._normalize_pole_id(local_text)
+                            if normalized != "Not Found":
+                                score = self._pole_score(normalized) + 200  # Extra weight for EasyOCR
+                                if score > best_score:
+                                    best_score = score
+                                    best_result = normalized
+
+                    # B. Try EasyOCR on line-level crops
+                    for crop in unique_line_candidates:
+                        local_text = self._read_with_easyocr(crop, use_tight=True)
+                        if local_text:
+                            raw_texts_seen.append(local_text)
+                            normalized = self._normalize_pole_id(local_text)
+                            if normalized != "Not Found":
+                                score = self._pole_score(normalized) + 200
+                                if score > best_score:
+                                    best_score = score
+                                    best_result = normalized
 
             # 4. Multi-line combination: if we have "RDSS" but no digits yet,
             # hunt for a standalone digit in ALL raw OCR texts seen so far.
