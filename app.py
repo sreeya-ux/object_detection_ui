@@ -176,7 +176,6 @@ def image_display_threshold(label):
 
 def _count_dataset_files(folder):
     image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    label_exts = {".txt", ".json"}
     image_count = 0
     annotation_count = 0
     if not os.path.isdir(folder):
@@ -186,7 +185,16 @@ def _count_dataset_files(folder):
             ext = os.path.splitext(filename)[1].lower()
             if ext in image_exts:
                 image_count += 1
-            elif ext in label_exts:
+            elif ext == ".txt":
+                label_path = os.path.join(root, filename)
+                try:
+                    with open(label_path, "r", encoding="utf-8", errors="ignore") as handle:
+                        for line in handle:
+                            if line.strip():
+                                annotation_count += 1
+                except Exception:
+                    pass
+            elif ext == ".json":
                 annotation_count += 1
     return image_count, annotation_count
 
