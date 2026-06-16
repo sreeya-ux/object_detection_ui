@@ -1903,7 +1903,7 @@ def process_video_path(input_path, trim_start=0.0, trim_duration=30.0, job_id=No
             frame_time = source_frame_index / fps if fps > 0 else trim_start
             should_sample = source_frame_index in sample_index_set
             annotated = (
-                cv2.resize(frame, (output_width, output_height), interpolation=cv2.INTER_AREA)
+                cv2.resize(frame, (output_width, output_height), interpolation=cv2.INTER_LINEAR)
                 if output_width != width or output_height != height
                 else frame.copy()
             )
