@@ -103,10 +103,10 @@ DATASET_STATS_ROOTS = [
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
     1: "V_CROSS_ARM",
-    2: "TAPPING_ARM",
+    2: "TAPPING_CHANNEL",
     3: "TOP_CLEAT",
-    4: "SIDE_ARM",
-    5: "T_RISING",
+    4: "SIDE_ARM_CHANNEL",
+    5: "T_RISING_CHANNEL",
     6: "SPECIAL_CLAMP",
     7: "STREET_LIGHT",
     8: "STAY_SET",
@@ -121,7 +121,7 @@ COMPONENT_DATASET_CLASS_MAP = {
     3: "CONDUCTOR",
 }
 HARDWARE_DATASET_CLASS_MAP = {
-    0: "INSULATOR",
+    0: "INSULATORS",
     1: "CROSSARM",
     2: "CONDUCTOR",
 }
@@ -342,8 +342,14 @@ def _calculate_actual_confidences():
                     label = "MAIN_POLE"
                 elif label == "V_CROSS":
                     label = "V_CROSS_ARM"
-                elif label in {"HT_PIN", "INS_PIN"}:
+                elif label in {"HT_PIN", "INS_PIN", "INSULATOR"}:
                     label = "INSULATORS"
+                elif label == "TAPPING_ARM":
+                    label = "TAPPING_CHANNEL"
+                elif label == "SIDE_ARM":
+                    label = "SIDE_ARM_CHANNEL"
+                elif label == "T_RISING":
+                    label = "T_RISING_CHANNEL"
                     
                 conf = d.get("confidence")
                 if conf is not None:
@@ -371,10 +377,43 @@ def build_training_dashboard_stats(stats=None):
     unknown_by_dataset = {}
     scanned_label_files = 0
 
+    ALLOWED_STATS_CLASSES = {
+        "V_CROSS_ARM",
+        "TAPPING_CHANNEL",
+        "SIDE_ARM_CHANNEL",
+        "T_RISING_CHANNEL",
+        "MAIN_POLE",
+        "STRUT_POLE",
+        "CONDUCTOR",
+        "STAY_SET",
+        "SPECIAL_CLAMP",
+        "INSULATORS",
+    }
+
+    stats_folder_annotations = {}
+    for folder in DATASET_STATS_ROOTS:
+        by_class, images_per_class, unknown_ids, label_files, class_map = _scan_dataset_label_stats(folder)
+        dataset_by_class.update(by_class)
+        dataset_images_per_class.update(images_per_class)
+        scanned_label_files += label_files
+        
+        # Count only allowed classes for this folder to sync dataset list
+        stats_folder_annotations[folder] = sum(count for cls, count in by_class.items() if cls in ALLOWED_STATS_CLASSES)
+        
+        if unknown_ids:
+            unknown_by_dataset[folder] = {str(k): v for k, v in sorted(unknown_ids.items())}
+            print(
+                f"[TRAINING-STATS] {folder} has label ids missing from its class map: "
+                f"{dict(sorted(unknown_ids.items()))}",
+                flush=True
+            )
+
     datasets = []
     for folder in DATASET_INVENTORY_ROOTS:
         if os.path.isdir(folder):
             images, annotations = _count_dataset_files(folder)
+            if folder in DATASET_STATS_ROOTS:
+                annotations = stats_folder_annotations.get(folder, 0)
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
@@ -384,20 +423,19 @@ def build_training_dashboard_stats(stats=None):
                 "included_in_stats": folder in DATASET_STATS_ROOTS,
             })
 
-    for folder in DATASET_STATS_ROOTS:
-        by_class, images_per_class, unknown_ids, label_files, class_map = _scan_dataset_label_stats(folder)
-        dataset_by_class.update(by_class)
-        dataset_images_per_class.update(images_per_class)
-        scanned_label_files += label_files
-        if unknown_ids:
-            unknown_by_dataset[folder] = {str(k): v for k, v in sorted(unknown_ids.items())}
-            print(
-                f"[TRAINING-STATS] {folder} has label ids missing from its class map: "
-                f"{dict(sorted(unknown_ids.items()))}",
-                flush=True
-            )
+    # Filter counts to only allowed classes
+    filtered_by_class = Counter()
+    filtered_images_per_class = Counter()
+    
+    for cls, count in dataset_by_class.items():
+        if cls in ALLOWED_STATS_CLASSES:
+            filtered_by_class[cls] = count
+            
+    for cls, count in dataset_images_per_class.items():
+        if cls in ALLOWED_STATS_CLASSES:
+            filtered_images_per_class[cls] = count
 
-    by_class = dict(sorted(dataset_by_class.items(), key=lambda item: item[1], reverse=True))
+    by_class = dict(sorted(filtered_by_class.items(), key=lambda item: item[1], reverse=True))
     stats["total_samples"] = _count_unique_dataset_images(DATASET_STATS_ROOTS)
     stats["by_class"] = by_class
     stats["total_classes"] = len(by_class)
@@ -409,7 +447,7 @@ def build_training_dashboard_stats(stats=None):
         label: float(class_avg.get(label, 0.85)) for label in by_class
     }
     
-    stats["images_per_class"] = dict(dataset_images_per_class)
+    stats["images_per_class"] = dict(filtered_images_per_class)
     stats["datasets"] = datasets
     stats["stats_source"] = "dataset_folders"
     stats["scanned_label_files"] = scanned_label_files
