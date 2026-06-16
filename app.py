@@ -305,6 +305,57 @@ def _scan_dataset_label_stats(folder):
                 images_per_class[label] += 1
     return by_class, images_per_class, unknown_ids, label_files, class_map
 
+def _calculate_actual_confidences():
+    """Queries the database to calculate actual average confidence per class."""
+    class_confs = defaultdict(list)
+    try:
+        db = get_db_connection()
+        cur = db.execute("SELECT detections FROM asset_images")
+        rows = cur.fetchall()
+        db.close()
+        for r in rows:
+            if isinstance(r, dict):
+                dets_data = r.get("detections")
+            elif hasattr(r, "keys"):
+                dets_data = r["detections"]
+            else:
+                dets_data = r[0]
+            
+            if not dets_data:
+                continue
+            
+            dets = parse_db_json(dets_data)
+            if not isinstance(dets, list):
+                continue
+                
+            for d in dets:
+                label = _normalise_stats_label(d.get("label", ""))
+                if label == "POLE":
+                    label = "MAIN_POLE"
+                elif label == "V_CROSS":
+                    label = "V_CROSS_ARM"
+                elif label in {"HT_PIN", "INS_PIN"}:
+                    label = "INSULATORS"
+                    
+                conf = d.get("confidence")
+                if conf is not None:
+                    try:
+                        class_confs[label].append(float(conf))
+                    except ValueError:
+                        pass
+    except Exception as e:
+        print(f"[TRAINING-STATS] Error calculating database confidences: {e}", flush=True)
+        
+    class_avg = {}
+    all_confs = []
+    for label, confs in class_confs.items():
+        if confs:
+            class_avg[label] = sum(confs) / len(confs)
+            all_confs.extend(confs)
+            
+    overall_avg = sum(all_confs) / len(all_confs) if all_confs else 0.85
+    return overall_avg, class_avg
+
 def build_training_dashboard_stats(stats=None):
     stats = dict(stats or {})
     dataset_by_class = Counter()
@@ -343,8 +394,13 @@ def build_training_dashboard_stats(stats=None):
     stats["by_class"] = by_class
     stats["total_classes"] = len(by_class)
     stats["total_annotations"] = int(sum(by_class.values()))
-    stats["avg_confidence"] = 85
-    stats["class_confidence"] = {label: 85 for label in by_class}
+    
+    overall_avg, class_avg = _calculate_actual_confidences()
+    stats["avg_confidence"] = float(overall_avg)
+    stats["class_confidence"] = {
+        label: float(class_avg.get(label, 0.85)) for label in by_class
+    }
+    
     stats["images_per_class"] = dict(dataset_images_per_class)
     stats["datasets"] = datasets
     stats["stats_source"] = "dataset_folders"
