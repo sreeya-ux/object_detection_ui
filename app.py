@@ -97,7 +97,8 @@ DATASET_INVENTORY_ROOTS = [
 ]
 DATASET_STATS_ROOTS = [
     "training_data_component",
-    "dataset_combined",
+    "dataset_channels",
+    "training_data_hardware",
 ]
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
@@ -109,13 +110,15 @@ CHANNEL_DATASET_CLASS_MAP = {
     6: "SPECIAL_CLAMP",
     7: "STREET_LIGHT",
     8: "STAY_SET",
-    9: "BOX_ARM",
-    10: "AB_SWITCH",
-    11: "DTR",
+    9: "GO_SWITCH",
+    10: "HORN_GAP_FUSE",
+    11: "OTHERS",
 }
 COMPONENT_DATASET_CLASS_MAP = {
-    0: "MAIN_POLE",
-    1: "STRUT_POLE",
+    0: "STRUT_POLE",
+    1: "CROSSARM",
+    2: "MAIN_POLE",
+    3: "CONDUCTOR",
 }
 HARDWARE_DATASET_CLASS_MAP = {
     0: "INSULATOR",
@@ -251,16 +254,15 @@ def _parse_dataset_names_yaml(yaml_path):
     return names
 
 def _dataset_class_map_for(folder):
-    yaml_map = _parse_dataset_names_yaml(os.path.join(folder, "data.yaml"))
-    if yaml_map:
-        return yaml_map
-    if folder in {"dataset_channels", "dataset_combined"}:
-        channel_yaml_map = _parse_dataset_names_yaml("channels.yaml")
-        return channel_yaml_map or CHANNEL_DATASET_CLASS_MAP
     if folder == "training_data_component":
         return COMPONENT_DATASET_CLASS_MAP
     if folder == "training_data_hardware":
         return HARDWARE_DATASET_CLASS_MAP
+    if folder in {"dataset_channels", "dataset_combined"}:
+        return CHANNEL_DATASET_CLASS_MAP
+    yaml_map = _parse_dataset_names_yaml(os.path.join(folder, "data.yaml"))
+    if yaml_map:
+        return yaml_map
     return {}
 
 def _scan_dataset_label_stats(folder):
