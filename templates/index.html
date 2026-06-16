@@ -113,6 +113,51 @@
                     <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Avg Confidence</div>
                 </div>
             </div>
+
+            <!-- Model Validation Metrics -->
+            <div class="space-y-3 mt-4">
+                <h3 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <i class="fa-solid fa-flask text-emerald-500 animate-pulse"></i> Model Validation Metrics (YOLO Evaluation)
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in">
+                    <div class="card p-5 bg-gradient-to-br from-blue-950/20 to-gray-900/40 border border-blue-500/10 rounded-2xl flex items-center gap-4 hover:border-blue-500/30 hover:scale-[1.01] transition-all shadow-lg">
+                        <div class="w-11 h-11 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 text-blue-400 shrink-0">
+                            <i class="fa-solid fa-bullseye text-base"></i>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall Precision</div>
+                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallPrecision">0.0%</div>
+                        </div>
+                    </div>
+                    <div class="card p-5 bg-gradient-to-br from-purple-950/20 to-gray-900/40 border border-purple-500/10 rounded-2xl flex items-center gap-4 hover:border-purple-500/30 hover:scale-[1.01] transition-all shadow-lg">
+                        <div class="w-11 h-11 rounded-xl bg-purple-500/10 flex items-center justify-center border border-purple-500/20 text-purple-400 shrink-0">
+                            <i class="fa-solid fa-arrows-to-eye text-base"></i>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall Recall</div>
+                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallRecall">0.0%</div>
+                        </div>
+                    </div>
+                    <div class="card p-5 bg-gradient-to-br from-emerald-950/20 to-gray-900/40 border border-emerald-500/10 rounded-2xl flex items-center gap-4 hover:border-emerald-500/30 hover:scale-[1.01] transition-all shadow-lg">
+                        <div class="w-11 h-11 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400 shrink-0">
+                            <i class="fa-solid fa-chart-simple text-base"></i>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall mAP50</div>
+                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP50">0.0%</div>
+                        </div>
+                    </div>
+                    <div class="card p-5 bg-gradient-to-br from-amber-950/20 to-gray-900/40 border border-amber-500/10 rounded-2xl flex items-center gap-4 hover:border-amber-500/30 hover:scale-[1.01] transition-all shadow-lg">
+                        <div class="w-11 h-11 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400 shrink-0">
+                            <i class="fa-solid fa-gauge-high text-base"></i>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall mAP50-95</div>
+                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP5095">0.0%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             
             <!-- Dynamic Breakdown Grid (Frequency Full-Width) -->
             <div class="animate-fade-in">
@@ -455,6 +500,18 @@
                 }
                 document.getElementById('statAvgConfidence').textContent = displayAvgConf + '%';
 
+                // Update overall validation metrics
+                const setValMetric = (elemId, val) => {
+                    const elem = document.getElementById(elemId);
+                    if (elem) {
+                        elem.textContent = typeof val === 'number' ? (val * 100).toFixed(1) + '%' : '0.0%';
+                    }
+                };
+                setValMetric('statOverallPrecision', s.overall_precision);
+                setValMetric('statOverallRecall', s.overall_recall);
+                setValMetric('statOverallmAP50', s.overall_map50);
+                setValMetric('statOverallmAP5095', s.overall_map5095);
+
                 // Helper to match granular class name to detection average confidence
                 const getAvgConf = (clsName, avgConfs) => {
                     if (!avgConfs) return '0.0%';
@@ -533,6 +590,36 @@
                     const totalAnns = s.total_annotations || 1;
                     const sortedClasses = Object.entries(s.by_class).sort((a, b) => b[1] - a[1]);
                     
+                    // Helper to match class name to its validation metrics
+                    const getClassValidationMetrics = (clsName, valMetrics) => {
+                        if (!valMetrics) return null;
+                        const name = clsName.toLowerCase().replace(/\s+/g, '_');
+                        
+                        for (const modelKey in valMetrics) {
+                            const classMetrics = valMetrics[modelKey].class_metrics;
+                            if (!classMetrics) continue;
+                            
+                            if (classMetrics[name]) {
+                                return classMetrics[name];
+                            }
+                            
+                            // Try mapping
+                            let mappedName = name;
+                            if (name === 'tapping_channel') mappedName = 'tapping_arm';
+                            else if (name === 'side_arm_channel') mappedName = 'side_arm';
+                            else if (name === 't_rising_channel') mappedName = 't_rising';
+                            
+                            if (classMetrics[mappedName]) {
+                                return classMetrics[mappedName];
+                            }
+                            
+                            if (name === 'insulators' && (classMetrics['insulators'] || classMetrics['insulator'])) {
+                                return classMetrics['insulators'] || classMetrics['insulator'];
+                            }
+                        }
+                        return null;
+                    };
+
                     if (sortedClasses.length === 0) {
                         classesContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold col-span-2">No identified objects found</div>`;
                     } else {
@@ -541,6 +628,20 @@
                         classesContainer.innerHTML = sortedClasses.map(([cname, count]) => {
                             const pct = Math.min(100, Math.round((count / totalAnns) * 100));
                             const confStr = getAvgConf(cname, confidenceSource);
+                            
+                            const m = getClassValidationMetrics(cname, s.validation_metrics);
+                            let metricsHtml = '';
+                            if (m) {
+                                metricsHtml = `
+                                    <div class="flex items-center gap-1.5 text-[7px] font-mono text-gray-500 bg-black/40 px-2 py-1 rounded-lg border border-white/5 mt-1.5 justify-between">
+                                        <span>P: <strong class="text-blue-400 font-bold">${Math.round(m.precision * 100)}%</strong></span>
+                                        <span>R: <strong class="text-purple-400 font-bold">${Math.round(m.recall * 100)}%</strong></span>
+                                        <span>mAP50: <strong class="text-emerald-400 font-bold">${Math.round(m.map50 * 100)}%</strong></span>
+                                        <span>mAP50-95: <strong class="text-amber-400 font-bold">${Math.round(m.map5095 * 100)}%</strong></span>
+                                    </div>
+                                `;
+                            }
+                            
                             return `
                                 <div class="space-y-2 p-3 bg-gray-955/20 rounded-xl border border-white/5 hover:border-purple-500/20 transition-all">
                                     <div class="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight">
@@ -554,6 +655,7 @@
                                         <span>Average Confidence</span>
                                         <span class="text-blue-400 font-bold">${confStr}</span>
                                     </div>
+                                    ${metricsHtml}
                                 </div>
                             `;
                         }).join('');
@@ -578,6 +680,32 @@
                                 : `<span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>`;
                             const statusText = m.exists ? 'Active' : 'Not Found';
                             const sizeStr = m.size_mb !== null ? `${m.size_mb} MB` : '--';
+                            
+                            const val = s.validation_metrics ? s.validation_metrics[m.key] : null;
+                            let valHtml = '';
+                            if (val) {
+                                valHtml = `
+                                    <div class="grid grid-cols-4 gap-1 text-center text-[7px] font-mono bg-black/30 p-2 rounded-xl border border-white/5">
+                                        <div class="flex flex-col">
+                                            <span class="text-gray-500 uppercase tracking-widest text-[5.5px]">Prec</span>
+                                            <span class="text-blue-400 font-bold">${Math.round(val.precision * 100)}%</span>
+                                        </div>
+                                        <div class="flex flex-col">
+                                            <span class="text-gray-500 uppercase tracking-widest text-[5.5px]">Rec</span>
+                                            <span class="text-purple-400 font-bold">${Math.round(val.recall * 100)}%</span>
+                                        </div>
+                                        <div class="flex flex-col">
+                                            <span class="text-gray-500 uppercase tracking-widest text-[5.5px]">mAP50</span>
+                                            <span class="text-emerald-400 font-bold">${Math.round(val.map50 * 100)}%</span>
+                                        </div>
+                                        <div class="flex flex-col">
+                                            <span class="text-gray-500 uppercase tracking-widest text-[5.5px]">mAP50-95</span>
+                                            <span class="text-amber-400 font-bold">${Math.round(val.map5095 * 100)}%</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                            
                             const classPreview = (m.classes || []).slice(0, 4).join(', ') + (m.classes && m.classes.length > 4 ? ` +${m.classes.length - 4} more` : '');
                             return `
                                 <div class="p-4 rounded-2xl border ${c.border} ${c.bg} flex flex-col gap-3 hover:scale-[1.01] transition-all shadow-lg">
@@ -597,6 +725,7 @@
                                         <span class="font-mono">${m.num_classes} classes</span>
                                         <span class="font-mono font-bold ${c.icon}">${sizeStr}</span>
                                     </div>
+                                    ${valHtml}
                                     <div class="text-[8px] text-gray-600 font-mono leading-relaxed">${classPreview}</div>
                                 </div>
                             `;

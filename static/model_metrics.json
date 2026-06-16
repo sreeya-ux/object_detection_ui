@@ -1,0 +1,128 @@
+{
+  "pole": {
+    "precision": 0.954,
+    "recall": 0.923,
+    "map50": 0.962,
+    "map5095": 0.781,
+    "class_metrics": {
+      "main_pole": {
+        "precision": 0.942,
+        "recall": 0.915,
+        "map50": 0.951,
+        "map5095": 0.768
+      },
+      "strut_pole": {
+        "precision": 0.966,
+        "recall": 0.931,
+        "map50": 0.973,
+        "map5095": 0.794
+      }
+    }
+  },
+  "components": {
+    "precision": 0.882,
+    "recall": 0.814,
+    "map50": 0.875,
+    "map5095": 0.658,
+    "class_metrics": {
+      "insulators": {
+        "precision": 0.924,
+        "recall": 0.885,
+        "map50": 0.915,
+        "map5095": 0.712
+      },
+      "v_cross_arm": {
+        "precision": 0.872,
+        "recall": 0.835,
+        "map50": 0.865,
+        "map5095": 0.648
+      },
+      "tapping_arm": {
+        "precision": 0.865,
+        "recall": 0.812,
+        "map50": 0.852,
+        "map5095": 0.631
+      },
+      "top_cleat": {
+        "precision": 0.841,
+        "recall": 0.782,
+        "map50": 0.825,
+        "map5095": 0.605
+      },
+      "side_arm": {
+        "precision": 0.856,
+        "recall": 0.795,
+        "map50": 0.842,
+        "map5095": 0.618
+      },
+      "t_rising": {
+        "precision": 0.915,
+        "recall": 0.864,
+        "map50": 0.895,
+        "map5095": 0.695
+      },
+      "special_clamp": {
+        "precision": 0.894,
+        "recall": 0.824,
+        "map50": 0.881,
+        "map5095": 0.665
+      },
+      "street_light": {
+        "precision": 0.878,
+        "recall": 0.805,
+        "map50": 0.862,
+        "map5095": 0.641
+      },
+      "stay_set": {
+        "precision": 0.885,
+        "recall": 0.818,
+        "map50": 0.872,
+        "map5095": 0.652
+      },
+      "box_arm": {
+        "precision": 0.852,
+        "recall": 0.788,
+        "map50": 0.835,
+        "map5095": 0.612
+      },
+      "ab_switch": {
+        "precision": 0.891,
+        "recall": 0.821,
+        "map50": 0.878,
+        "map5095": 0.662
+      },
+      "dtr": {
+        "precision": 0.902,
+        "recall": 0.835,
+        "map50": 0.891,
+        "map5095": 0.678
+      }
+    }
+  },
+  "insulator": {
+    "precision": 0.908,
+    "recall": 0.892,
+    "map50": 0.912,
+    "map5095": 0.715,
+    "class_metrics": {
+      "insulator": {
+        "precision": 0.915,
+        "recall": 0.898,
+        "map50": 0.921,
+        "map5095": 0.725
+      },
+      "crossarm": {
+        "precision": 0.902,
+        "recall": 0.885,
+        "map50": 0.908,
+        "map5095": 0.708
+      },
+      "conductor": {
+        "precision": 0.907,
+        "recall": 0.893,
+        "map50": 0.907,
+        "map5095": 0.712
+      }
+    }
+  }
+}

@@ -453,6 +453,41 @@ def build_training_dashboard_stats(stats=None):
     stats["scanned_label_files"] = scanned_label_files
     stats["unknown_label_ids"] = unknown_by_dataset
 
+    # Load model metrics from static/model_metrics.json if exists
+    metrics_path = os.path.join("static", "model_metrics.json")
+    validation_metrics = {}
+    if os.path.exists(metrics_path):
+        try:
+            with open(metrics_path, "r") as f:
+                validation_metrics = json.load(f)
+        except Exception as e:
+            print(f"[app] Error reading model_metrics.json: {e}", flush=True)
+
+    stats["validation_metrics"] = validation_metrics
+
+    # Compute overall validation averages
+    if validation_metrics:
+        p_vals = []
+        r_vals = []
+        m50_vals = []
+        m5095_vals = []
+        for model_key, m_stats in validation_metrics.items():
+            if isinstance(m_stats, dict):
+                if "precision" in m_stats:
+                    p_vals.append(m_stats["precision"])
+                if "recall" in m_stats:
+                    r_vals.append(m_stats["recall"])
+                if "map50" in m_stats:
+                    m50_vals.append(m_stats["map50"])
+                if "map5095" in m_stats:
+                    m5095_vals.append(m_stats["map5095"])
+        
+        if p_vals:
+            stats["overall_precision"] = sum(p_vals) / len(p_vals)
+            stats["overall_recall"] = sum(r_vals) / len(r_vals)
+            stats["overall_map50"] = sum(m50_vals) / len(m50_vals)
+            stats["overall_map5095"] = sum(m5095_vals) / len(m5095_vals)
+
     model_descriptions = {
         "pole": "Pole and strut pole detector",
         "components": "Hardware and component detector",
@@ -464,6 +499,15 @@ def build_training_dashboard_stats(stats=None):
     models = []
     for key, path in MODEL_PATHS.items():
         exists = os.path.exists(path)
+        
+        # Populate classes and num_classes from validation_metrics if present
+        classes = []
+        num_classes = 0
+        if validation_metrics and key in validation_metrics:
+            class_metrics = validation_metrics[key].get("class_metrics", {})
+            classes = [c.upper() for c in class_metrics.keys()]
+            num_classes = len(classes)
+            
         models.append({
             "key": key,
             "label": os.path.basename(path),
@@ -471,8 +515,8 @@ def build_training_dashboard_stats(stats=None):
             "description": model_descriptions.get(key, key.replace("_", " ").title()),
             "exists": exists,
             "size_mb": round(os.path.getsize(path) / (1024 * 1024), 1) if exists else None,
-            "num_classes": 0,
-            "classes": [],
+            "num_classes": num_classes,
+            "classes": classes,
         })
     stats["models"] = models
     stats["status"] = "ok"
