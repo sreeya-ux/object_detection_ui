@@ -95,11 +95,16 @@ DATASET_INVENTORY_ROOTS = [
     "training_data_hardware",
     "dataset_channels",
     "dataset_combined",
+    "dataset 1 labels&images",
+    "dataset 2 labels&images",
+    "raw_dataset",
 ]
 DATASET_STATS_ROOTS = [
     "training_data_component",
     "dataset_channels",
     "training_data_hardware",
+    "dataset 1 labels&images",
+    "dataset 2 labels&images",
 ]
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
@@ -263,7 +268,7 @@ def _parse_dataset_names_yaml(yaml_path):
     return names
 
 def _dataset_class_map_for(folder):
-    if folder == "training_data_component":
+    if folder in {"training_data_component", "dataset 1 labels&images", "dataset 2 labels&images", "raw_dataset"}:
         return COMPONENT_DATASET_CLASS_MAP
     if folder == "training_data_hardware":
         return HARDWARE_DATASET_CLASS_MAP
