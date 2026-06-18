@@ -379,7 +379,17 @@ def _calculate_actual_confidences():
     overall_avg = sum(all_confs) / len(all_confs) if all_confs else 0.85
     return overall_avg, class_avg
 
+_STATS_CACHE = None
+_STATS_CACHE_TIME = 0.0
+_STATS_CACHE_TTL = 600.0  # 10 minutes cache
+
 def build_training_dashboard_stats(stats=None):
+    global _STATS_CACHE, _STATS_CACHE_TIME
+    now = time.time()
+    if _STATS_CACHE is not None and (now - _STATS_CACHE_TIME) < _STATS_CACHE_TTL:
+        print("[TRAINING-STATS] Returning cached stats (TTL remaining: {:.1f}s)".format(_STATS_CACHE_TTL - (now - _STATS_CACHE_TIME)), flush=True)
+        return _STATS_CACHE
+
     stats = dict(stats or {})
     dataset_by_class = Counter()
     dataset_images_per_class = Counter()
@@ -536,6 +546,8 @@ def build_training_dashboard_stats(stats=None):
         f"label_files={scanned_label_files} datasets={len(stats['datasets'])} models={len(stats['models'])}",
         flush=True
     )
+    _STATS_CACHE = stats
+    _STATS_CACHE_TIME = now
     return stats
 
 def safe_remove_file(path, label="temp file"):

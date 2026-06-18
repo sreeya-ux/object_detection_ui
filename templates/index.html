@@ -515,7 +515,7 @@
             if (userStatsInFlight) return;
             userStatsInFlight = true;
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            const timeoutId = setTimeout(() => controller.abort(), 35000);
             const statusText = document.getElementById('statsStatusText');
             if (statusText) statusText.textContent = 'Loading stats...';
 
