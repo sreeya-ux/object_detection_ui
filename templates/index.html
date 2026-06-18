@@ -174,40 +174,56 @@
                     <i class="fa-solid fa-flask text-emerald-500 animate-pulse"></i> Model Validation Metrics (YOLO Evaluation)
                 </h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in">
-                    <div class="card p-5 bg-gradient-to-br from-blue-950/20 to-gray-900/40 border border-blue-500/10 rounded-2xl flex items-center gap-4 hover:border-blue-500/30 hover:scale-[1.01] transition-all shadow-lg">
-                        <div class="w-11 h-11 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 text-blue-400 shrink-0">
-                            <i class="fa-solid fa-bullseye text-base"></i>
-                        </div>
-                        <div class="text-left">
-                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall Precision</div>
-                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallPrecision">0.0%</div>
-                        </div>
-                    </div>
-                    <div class="card p-5 bg-gradient-to-br from-purple-950/20 to-gray-900/40 border border-purple-500/10 rounded-2xl flex items-center gap-4 hover:border-purple-500/30 hover:scale-[1.01] transition-all shadow-lg">
-                        <div class="w-11 h-11 rounded-xl bg-purple-500/10 flex items-center justify-center border border-purple-500/20 text-purple-400 shrink-0">
-                            <i class="fa-solid fa-arrows-to-eye text-base"></i>
-                        </div>
-                        <div class="text-left">
-                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall Recall</div>
-                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallRecall">0.0%</div>
+                    <!-- Overall Precision Card -->
+                    <div class="card p-5 bg-gradient-to-br from-blue-950/20 to-gray-900/40 border border-blue-500/10 rounded-2xl hover:border-blue-500/30 hover:scale-[1.01] transition-all shadow-lg text-left relative tooltip-container">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold border-b border-dashed border-gray-600/50 pb-0.5 cursor-help inline-block">Overall Precision</div>
+                        <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallPrecision">0.0%</div>
+                        <!-- Tooltip Box -->
+                        <div class="tooltip-box text-left" style="width: 250px;">
+                            <div class="text-[9px] font-bold text-blue-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">Precision</div>
+                            <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
+                                <div><strong>Meaning:</strong> Accuracy of positive predictions. Out of all positive detections the model made, how many were actually correct? Higher precision means fewer false alarms.</div>
+                                <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-blue-300">TP / (TP + FP)</code></div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card p-5 bg-gradient-to-br from-emerald-950/20 to-gray-900/40 border border-emerald-500/10 rounded-2xl flex items-center gap-4 hover:border-emerald-500/30 hover:scale-[1.01] transition-all shadow-lg">
-                        <div class="w-11 h-11 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400 shrink-0">
-                            <i class="fa-solid fa-chart-simple text-base"></i>
-                        </div>
-                        <div class="text-left">
-                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall mAP50</div>
-                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP50">0.0%</div>
+                    <!-- Overall Recall Card -->
+                    <div class="card p-5 bg-gradient-to-br from-purple-950/20 to-gray-900/40 border border-purple-500/10 rounded-2xl hover:border-purple-500/30 hover:scale-[1.01] transition-all shadow-lg text-left relative tooltip-container">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold border-b border-dashed border-gray-600/50 pb-0.5 cursor-help inline-block">Overall Recall</div>
+                        <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallRecall">0.0%</div>
+                        <!-- Tooltip Box -->
+                        <div class="tooltip-box text-left" style="width: 250px;">
+                            <div class="text-[9px] font-bold text-purple-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">Recall (Sensitivity)</div>
+                            <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
+                                <div><strong>Meaning:</strong> Detection coverage. Out of all actual positive objects present in the images, how many did the model find? Higher recall means fewer missed objects.</div>
+                                <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-purple-300">TP / (TP + FN)</code></div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card p-5 bg-gradient-to-br from-amber-950/20 to-gray-900/40 border border-amber-500/10 rounded-2xl flex items-center gap-4 hover:border-amber-500/30 hover:scale-[1.01] transition-all shadow-lg">
-                        <div class="w-11 h-11 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400 shrink-0">
-                            <i class="fa-solid fa-gauge-high text-base"></i>
+                    <!-- Overall mAP50 Card -->
+                    <div class="card p-5 bg-gradient-to-br from-emerald-950/20 to-gray-900/40 border border-emerald-500/10 rounded-2xl hover:border-emerald-500/30 hover:scale-[1.01] transition-all shadow-lg text-left relative tooltip-container">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold border-b border-dashed border-gray-600/50 pb-0.5 cursor-help inline-block">Overall mAP50</div>
+                        <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP50">0.0%</div>
+                        <!-- Tooltip Box -->
+                        <div class="tooltip-box text-left" style="width: 250px;">
+                            <div class="text-[9px] font-bold text-emerald-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">mAP @ IoU 0.50</div>
+                            <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
+                                <div><strong>Meaning:</strong> Mean Average Precision over all classes at an Intersection over Union (IoU) overlap threshold of 0.50. A standard standard benchmark.</div>
+                                <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-emerald-300">Mean of AP across classes at IoU=0.50</code></div>
+                            </div>
                         </div>
-                        <div class="text-left">
-                            <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold">Overall mAP50-95</div>
-                            <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP5095">0.0%</div>
+                    </div>
+                    <!-- Overall mAP50-95 Card -->
+                    <div class="card p-5 bg-gradient-to-br from-amber-950/20 to-gray-900/40 border border-amber-500/10 rounded-2xl hover:border-amber-500/30 hover:scale-[1.01] transition-all shadow-lg text-left relative tooltip-container">
+                        <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold border-b border-dashed border-gray-600/50 pb-0.5 cursor-help inline-block">Overall mAP50-95</div>
+                        <div class="text-xl font-bold text-white font-mono mt-0.5" id="statOverallmAP5095">0.0%</div>
+                        <!-- Tooltip Box -->
+                        <div class="tooltip-box text-left" style="width: 250px;">
+                            <div class="text-[9px] font-bold text-amber-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">mAP @ IoU 0.50:0.95</div>
+                            <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
+                                <div><strong>Meaning:</strong> Average mAP across 10 IoU thresholds ranging from 0.50 to 0.95 (with 0.05 steps). Evaluates bounding box placement precision.</div>
+                                <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-amber-300">Avg(mAP<sub>50</sub>, mAP<sub>55</sub>, ..., mAP<sub>95</sub>)</code></div>
+                            </div>
                         </div>
                     </div>
                 </div>
