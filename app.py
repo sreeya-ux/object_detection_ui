@@ -105,6 +105,9 @@ DATASET_STATS_ROOTS = [
     "training_data_hardware",
     "dataset 1 labels&images",
     "dataset 2 labels&images",
+    "dataset_combined",
+    "training_data",
+    "raw_dataset",
 ]
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",

@@ -18,6 +18,46 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.3">
+    <style>
+        .tooltip-container {
+            position: relative;
+            cursor: help;
+        }
+        .tooltip-box {
+            visibility: hidden;
+            width: 200px;
+            background-color: rgba(10, 12, 22, 0.98);
+            color: #fff;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 10px 14px;
+            position: absolute;
+            z-index: 999;
+            bottom: 125%; /* Position above the text */
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.2s, visibility 0.2s;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .tooltip-container:hover .tooltip-box {
+            visibility: visible;
+            opacity: 1;
+        }
+        /* Arrow */
+        .tooltip-box::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: rgba(10, 12, 22, 0.98) transparent transparent transparent;
+        }
+    </style>
 </head>
 
 <body class="bg-[#030712] min-h-screen text-slate-100">
@@ -89,7 +129,10 @@
                 <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                     <i class="fa-solid fa-chart-line text-blue-500"></i> Performance Overview
                 </h2>
-                <span id="statsStatusText" class="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Loading stats...</span>
+                <div class="flex items-center gap-3">
+                    <span id="overallMetricsUpdatedText" class="text-[9px] text-gray-400 bg-gray-900/80 px-2.5 py-1 rounded border border-white/5 font-mono">Metrics updated weekly</span>
+                    <span id="statsStatusText" class="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Loading stats...</span>
+                </div>
                 <!-- Active Datasets / Models Collapsible Button -->
                 <button id="btnActiveDatasets" type="button" class="bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white transition-all px-3 py-1.5 rounded-lg border border-blue-500/20 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                     <i class="fa-solid fa-cube"></i> Datasets & Models
@@ -108,9 +151,20 @@
                     <div class="text-3xl font-bold text-emerald-400 font-mono" id="statTotalAnnotations">0</div>
                     <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Total Objects Identified</div>
                 </div>
-                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg">
+                <div class="card p-6 bg-gray-900/40 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg relative tooltip-container">
                     <div class="text-3xl font-bold text-amber-400 font-mono" id="statAvgConfidence">0%</div>
-                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold">Avg Confidence</div>
+                    <div class="text-gray-500 uppercase text-[9px] mt-1.5 tracking-widest font-bold border-b border-dashed border-gray-600/50 pb-0.5 cursor-help">Avg Confidence</div>
+                    <!-- Tooltip Box -->
+                    <div class="tooltip-box text-left">
+                        <div class="text-[9px] font-bold text-amber-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">Overall Metrics</div>
+                        <div class="space-y-1 text-[8px] font-mono text-gray-300">
+                            <div>Precision: <strong class="text-blue-400 font-bold" id="tooltipOverallPrecision">0.0%</strong></div>
+                            <div>Recall: <strong class="text-purple-400 font-bold" id="tooltipOverallRecall">0.0%</strong></div>
+                            <div>mAP 50: <strong class="text-emerald-400 font-bold" id="tooltipOverallmAP50">0.0%</strong></div>
+                            <div>mAP 50-95: <strong class="text-amber-400 font-bold" id="tooltipOverallmAP5095">0.0%</strong></div>
+                        </div>
+                        <div class="text-[7px] text-gray-500 font-mono border-t border-white/5 mt-1.5 pt-1" id="tooltipOverallUpdated">Updated: June 18, 2026</div>
+                    </div>
                 </div>
             </div>
 
@@ -512,6 +566,23 @@
                 setValMetric('statOverallmAP50', s.overall_map50);
                 setValMetric('statOverallmAP5095', s.overall_map5095);
 
+                // Populate tooltips
+                setValMetric('tooltipOverallPrecision', s.overall_precision);
+                setValMetric('tooltipOverallRecall', s.overall_recall);
+                setValMetric('tooltipOverallmAP50', s.overall_map50);
+                setValMetric('tooltipOverallmAP5095', s.overall_map5095);
+
+                const lastUpdatedStr = (s.validation_metrics && s.validation_metrics.last_updated) || 'June 18, 2026, 10:39 AM';
+                const tooltipUpdated = document.getElementById('tooltipOverallUpdated');
+                if (tooltipUpdated) {
+                    tooltipUpdated.textContent = `Updated: ${lastUpdatedStr}`;
+                }
+
+                const overallUpdatedText = document.getElementById('overallMetricsUpdatedText');
+                if (overallUpdatedText) {
+                    overallUpdatedText.textContent = `Metrics updated weekly: ${lastUpdatedStr}`;
+                }
+
                 // Helper to match granular class name to detection average confidence
                 const getAvgConf = (clsName, avgConfs) => {
                     if (!avgConfs) return '0.0%';
@@ -630,14 +701,22 @@
                             const confStr = getAvgConf(cname, confidenceSource);
                             
                             const m = getClassValidationMetrics(cname, s.validation_metrics);
-                            let metricsHtml = '';
+                            let tooltipHtml = '';
+                            let cursorClass = '';
+                            let borderClass = '';
                             if (m) {
-                                metricsHtml = `
-                                    <div class="flex items-center gap-1.5 text-[7px] font-mono text-gray-500 bg-black/40 px-2 py-1 rounded-lg border border-white/5 mt-1.5 justify-between">
-                                        <span>P: <strong class="text-blue-400 font-bold">${Math.round(m.precision * 100)}%</strong></span>
-                                        <span>R: <strong class="text-purple-400 font-bold">${Math.round(m.recall * 100)}%</strong></span>
-                                        <span>mAP50: <strong class="text-emerald-400 font-bold">${Math.round(m.map50 * 100)}%</strong></span>
-                                        <span>mAP50-95: <strong class="text-amber-400 font-bold">${Math.round(m.map5095 * 100)}%</strong></span>
+                                cursorClass = 'cursor-help';
+                                borderClass = 'border-b border-dashed border-gray-600/50 pb-0.5';
+                                tooltipHtml = `
+                                    <div class="tooltip-box text-left">
+                                        <div class="text-[9px] font-bold text-purple-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">${cname} Metrics</div>
+                                        <div class="space-y-1 text-[8px] font-mono text-gray-300">
+                                            <div>Precision: <strong class="text-blue-400 font-bold">${(m.precision * 100).toFixed(1)}%</strong></div>
+                                            <div>Recall: <strong class="text-purple-400 font-bold">${(m.recall * 100).toFixed(1)}%</strong></div>
+                                            <div>mAP 50: <strong class="text-emerald-400 font-bold">${(m.map50 * 100).toFixed(1)}%</strong></div>
+                                            <div>mAP 50-95: <strong class="text-amber-400 font-bold">${(m.map5095 * 100).toFixed(1)}%</strong></div>
+                                        </div>
+                                        <div class="text-[7px] text-gray-500 font-mono border-t border-white/5 mt-1.5 pt-1">Updated: ${lastUpdatedStr}</div>
                                     </div>
                                 `;
                             }
@@ -651,11 +730,11 @@
                                     <div class="w-full bg-gray-950/80 h-1.5 rounded-full overflow-hidden border border-white/5">
                                         <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
                                     </div>
-                                    <div class="flex justify-between items-center text-[8px] text-gray-500 font-mono">
+                                    <div class="flex justify-between items-center text-[8px] text-gray-500 font-mono relative tooltip-container ${borderClass} ${cursorClass}">
                                         <span>Average Confidence</span>
                                         <span class="text-blue-400 font-bold">${confStr}</span>
+                                        ${tooltipHtml}
                                     </div>
-                                    ${metricsHtml}
                                 </div>
                             `;
                         }).join('');
