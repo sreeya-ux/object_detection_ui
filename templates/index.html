@@ -555,32 +555,36 @@
                 document.getElementById('statAvgConfidence').textContent = displayAvgConf + '%';
 
                 // Update overall validation metrics
-                const setValMetric = (elemId, val) => {
-                    const elem = document.getElementById(elemId);
-                    if (elem) {
-                        elem.textContent = typeof val === 'number' ? (val * 100).toFixed(1) + '%' : '0.0%';
+                try {
+                    const setValMetric = (elemId, val) => {
+                        const elem = document.getElementById(elemId);
+                        if (elem) {
+                            elem.textContent = typeof val === 'number' ? (val * 100).toFixed(1) + '%' : '0.0%';
+                        }
+                    };
+                    setValMetric('statOverallPrecision', s.overall_precision);
+                    setValMetric('statOverallRecall', s.overall_recall);
+                    setValMetric('statOverallmAP50', s.overall_map50);
+                    setValMetric('statOverallmAP5095', s.overall_map5095);
+
+                    // Populate tooltips
+                    setValMetric('tooltipOverallPrecision', s.overall_precision);
+                    setValMetric('tooltipOverallRecall', s.overall_recall);
+                    setValMetric('tooltipOverallmAP50', s.overall_map50);
+                    setValMetric('tooltipOverallmAP5095', s.overall_map5095);
+
+                    const lastUpdatedStr = (s.validation_metrics && s.validation_metrics.last_updated) || 'June 18, 2026, 10:39 AM';
+                    const tooltipUpdated = document.getElementById('tooltipOverallUpdated');
+                    if (tooltipUpdated) {
+                        tooltipUpdated.textContent = `Updated: ${lastUpdatedStr}`;
                     }
-                };
-                setValMetric('statOverallPrecision', s.overall_precision);
-                setValMetric('statOverallRecall', s.overall_recall);
-                setValMetric('statOverallmAP50', s.overall_map50);
-                setValMetric('statOverallmAP5095', s.overall_map5095);
 
-                // Populate tooltips
-                setValMetric('tooltipOverallPrecision', s.overall_precision);
-                setValMetric('tooltipOverallRecall', s.overall_recall);
-                setValMetric('tooltipOverallmAP50', s.overall_map50);
-                setValMetric('tooltipOverallmAP5095', s.overall_map5095);
-
-                const lastUpdatedStr = (s.validation_metrics && s.validation_metrics.last_updated) || 'June 18, 2026, 10:39 AM';
-                const tooltipUpdated = document.getElementById('tooltipOverallUpdated');
-                if (tooltipUpdated) {
-                    tooltipUpdated.textContent = `Updated: ${lastUpdatedStr}`;
-                }
-
-                const overallUpdatedText = document.getElementById('overallMetricsUpdatedText');
-                if (overallUpdatedText) {
-                    overallUpdatedText.textContent = `Metrics updated weekly: ${lastUpdatedStr}`;
+                    const overallUpdatedText = document.getElementById('overallMetricsUpdatedText');
+                    if (overallUpdatedText) {
+                        overallUpdatedText.textContent = `Metrics updated weekly: ${lastUpdatedStr}`;
+                    }
+                } catch (err) {
+                    console.error("[loadUserStats] Error updating overall validation metrics:", err);
                 }
 
                 // Helper to match granular class name to detection average confidence
@@ -633,112 +637,125 @@
                 };
 
                 // Update Active Dataset Folders
-                const datasetsContainer = document.getElementById('datasetsList');
-                if (datasetsContainer && s.datasets) {
-                    if (s.datasets.length === 0) {
-                        datasetsContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">No active datasets found</div>`;
-                    } else {
-                        datasetsContainer.innerHTML = s.datasets.map(d => `
-                            <div class="flex justify-between items-center bg-gray-950/40 p-3.5 rounded-xl border border-white/5 hover:border-blue-500/20 transition-all">
-                                <div class="flex items-center gap-3">
-                                    <div class="bg-blue-500/10 text-blue-400 w-8 h-8 rounded-lg flex items-center justify-center border border-blue-500/25">
-                                        <i class="fa-solid fa-folder-open text-xs"></i>
+                try {
+                    const datasetsContainer = document.getElementById('datasetsList');
+                    if (datasetsContainer && s.datasets) {
+                        if (s.datasets.length === 0) {
+                            datasetsContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold">No active datasets found</div>`;
+                        } else {
+                            datasetsContainer.innerHTML = s.datasets.map(d => `
+                                <div class="flex justify-between items-center bg-gray-955/40 p-3.5 rounded-xl border border-white/5 hover:border-blue-500/20 transition-all">
+                                    <div class="flex items-center gap-3">
+                                        <div class="bg-blue-500/10 text-blue-400 w-8 h-8 rounded-lg flex items-center justify-center border border-blue-500/25">
+                                            <i class="fa-solid fa-folder-open text-xs"></i>
+                                        </div>
+                                        <div class="text-left">
+                                            <div class="text-[11px] font-bold text-white">${d.name}</div>
+                                            <div class="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">${d.annotations || 0} objects identified</div>
+                                        </div>
                                     </div>
-                                    <div class="text-left">
-                                        <div class="text-[11px] font-bold text-white">${d.name}</div>
-                                        <div class="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">${d.annotations || 0} objects identified</div>
-                                    </div>
+                                    <div class="text-[11px] font-mono font-bold text-blue-400 bg-blue-500/5 px-2.5 py-1 rounded-lg border border-blue-500/10">${d.count} images</div>
                                 </div>
-                                <div class="text-[11px] font-mono font-bold text-blue-400 bg-blue-500/5 px-2.5 py-1 rounded-lg border border-blue-500/10">${d.count} images</div>
-                            </div>
-                        `).join('');
+                            `).join('');
+                        }
                     }
+                } catch (err) {
+                    console.error("[loadUserStats] Error updating active dataset folders list:", err);
                 }
 
                 // Update Class Annotation Frequencies
-                const classesContainer = document.getElementById('classesList');
-                if (classesContainer && s.by_class) {
-                    const totalAnns = s.total_annotations || 1;
-                    const sortedClasses = Object.entries(s.by_class).sort((a, b) => b[1] - a[1]);
-                    
-                    // Helper to match class name to its validation metrics
-                    const getClassValidationMetrics = (clsName, valMetrics) => {
-                        if (!valMetrics) return null;
-                        const name = clsName.toLowerCase().replace(/\s+/g, '_');
+                try {
+                    const classesContainer = document.getElementById('classesList');
+                    if (classesContainer && s.by_class) {
+                        const totalAnns = s.total_annotations || 1;
+                        const sortedClasses = Object.entries(s.by_class).sort((a, b) => b[1] - a[1]);
                         
-                        for (const modelKey in valMetrics) {
-                            const classMetrics = valMetrics[modelKey].class_metrics;
-                            if (!classMetrics) continue;
+                        // Helper to match class name to its validation metrics
+                        const getClassValidationMetrics = (clsName, valMetrics) => {
+                            if (!valMetrics) return null;
+                            const name = clsName.toLowerCase().replace(/\s+/g, '_');
                             
-                            if (classMetrics[name]) {
-                                return classMetrics[name];
+                            for (const modelKey in valMetrics) {
+                                const modelObj = valMetrics[modelKey];
+                                if (!modelObj || typeof modelObj !== 'object') continue;
+                                const classMetrics = modelObj.class_metrics;
+                                if (!classMetrics || typeof classMetrics !== 'object') continue;
+                                
+                                let entry = classMetrics[name];
+                                if (!entry) {
+                                    // Try mapping
+                                    let mappedName = name;
+                                    if (name === 'tapping_channel') mappedName = 'tapping_arm';
+                                    else if (name === 'side_arm_channel') mappedName = 'side_arm';
+                                    else if (name === 't_rising_channel') mappedName = 't_rising';
+                                    
+                                    if (classMetrics[mappedName]) {
+                                        entry = classMetrics[mappedName];
+                                    } else if (name === 'insulators' && (classMetrics['insulators'] || classMetrics['insulator'])) {
+                                        entry = classMetrics['insulators'] || classMetrics['insulator'];
+                                    }
+                                }
+                                
+                                if (entry && typeof entry === 'object') {
+                                    return entry;
+                                }
                             }
-                            
-                            // Try mapping
-                            let mappedName = name;
-                            if (name === 'tapping_channel') mappedName = 'tapping_arm';
-                            else if (name === 'side_arm_channel') mappedName = 'side_arm';
-                            else if (name === 't_rising_channel') mappedName = 't_rising';
-                            
-                            if (classMetrics[mappedName]) {
-                                return classMetrics[mappedName];
-                            }
-                            
-                            if (name === 'insulators' && (classMetrics['insulators'] || classMetrics['insulator'])) {
-                                return classMetrics['insulators'] || classMetrics['insulator'];
-                            }
-                        }
-                        return null;
-                    };
+                            return null;
+                        };
 
-                    if (sortedClasses.length === 0) {
-                        classesContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold col-span-2">No identified objects found</div>`;
-                    } else {
-                        // Accept both backend key class_confidence or avg_confidences fallback
-                        const confidenceSource = s.class_confidence || s.avg_confidences || {};
-                        classesContainer.innerHTML = sortedClasses.map(([cname, count]) => {
-                            const pct = Math.min(100, Math.round((count / totalAnns) * 100));
-                            const confStr = getAvgConf(cname, confidenceSource);
+                        if (sortedClasses.length === 0) {
+                            classesContainer.innerHTML = `<div class="text-center py-10 opacity-30 text-[10px] uppercase tracking-wider font-bold col-span-2">No identified objects found</div>`;
+                        } else {
+                            // Accept both backend key class_confidence or avg_confidences fallback
+                            const confidenceSource = s.class_confidence || s.avg_confidences || {};
+                            const lastUpdatedStr = (s.validation_metrics && s.validation_metrics.last_updated) || 'June 18, 2026, 10:39 AM';
                             
-                            const m = getClassValidationMetrics(cname, s.validation_metrics);
-                            let tooltipHtml = '';
-                            let cursorClass = '';
-                            let borderClass = '';
-                            if (m) {
-                                cursorClass = 'cursor-help';
-                                borderClass = 'border-b border-dashed border-gray-600/50 pb-0.5';
-                                tooltipHtml = `
-                                    <div class="tooltip-box text-left">
-                                        <div class="text-[9px] font-bold text-purple-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">${cname} Metrics</div>
-                                        <div class="space-y-1 text-[8px] font-mono text-gray-300">
-                                            <div>Precision: <strong class="text-blue-400 font-bold">${(m.precision * 100).toFixed(1)}%</strong></div>
-                                            <div>Recall: <strong class="text-purple-400 font-bold">${(m.recall * 100).toFixed(1)}%</strong></div>
-                                            <div>mAP 50: <strong class="text-emerald-400 font-bold">${(m.map50 * 100).toFixed(1)}%</strong></div>
-                                            <div>mAP 50-95: <strong class="text-amber-400 font-bold">${(m.map5095 * 100).toFixed(1)}%</strong></div>
+                            classesContainer.innerHTML = sortedClasses.map(([cname, count]) => {
+                                const pct = Math.min(100, Math.round((count / totalAnns) * 100));
+                                const confStr = getAvgConf(cname, confidenceSource);
+                                
+                                const m = getClassValidationMetrics(cname, s.validation_metrics);
+                                let tooltipHtml = '';
+                                let cursorClass = '';
+                                let borderClass = '';
+                                if (m) {
+                                    cursorClass = 'cursor-help';
+                                    borderClass = 'border-b border-dashed border-gray-600/50 pb-0.5';
+                                    tooltipHtml = `
+                                        <div class="tooltip-box text-left">
+                                            <div class="text-[9px] font-bold text-purple-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">${cname} Metrics</div>
+                                            <div class="space-y-1 text-[8px] font-mono text-gray-300">
+                                                <div>Precision: <strong class="text-blue-400 font-bold">${typeof m.precision === 'number' ? (m.precision * 100).toFixed(1) : '0.0'}%</strong></div>
+                                                <div>Recall: <strong class="text-purple-400 font-bold">${typeof m.recall === 'number' ? (m.recall * 100).toFixed(1) : '0.0'}%</strong></div>
+                                                <div>mAP 50: <strong class="text-emerald-400 font-bold">${typeof m.map50 === 'number' ? (m.map50 * 100).toFixed(1) : '0.0'}%</strong></div>
+                                                <div>mAP 50-95: <strong class="text-amber-400 font-bold">${typeof m.map5095 === 'number' ? (m.map5095 * 100).toFixed(1) : '0.0'}%</strong></div>
+                                            </div>
+                                            <div class="text-[7px] text-gray-500 font-mono border-t border-white/5 mt-1.5 pt-1">Updated: ${lastUpdatedStr}</div>
                                         </div>
-                                        <div class="text-[7px] text-gray-500 font-mono border-t border-white/5 mt-1.5 pt-1">Updated: ${lastUpdatedStr}</div>
+                                    `;
+                                }
+                                
+                                return `
+                                    <div class="space-y-2 p-3 bg-gray-955/20 rounded-xl border border-white/5 hover:border-purple-500/20 transition-all">
+                                        <div class="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight">
+                                            <span class="text-gray-300">${cname}</span>
+                                            <span class="text-purple-400 font-mono bg-purple-500/5 px-2 py-0.5 rounded border border-purple-500/10">${count} identified (${pct}%)</span>
+                                        </div>
+                                        <div class="w-full bg-gray-950/80 h-1.5 rounded-full overflow-hidden border border-white/5">
+                                            <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                                        </div>
+                                        <div class="flex justify-between items-center text-[8px] text-gray-500 font-mono relative tooltip-container ${borderClass} ${cursorClass}">
+                                            <span>Average Confidence</span>
+                                            <span class="text-blue-400 font-bold">${confStr}</span>
+                                            ${tooltipHtml}
+                                        </div>
                                     </div>
                                 `;
-                            }
-                            
-                            return `
-                                <div class="space-y-2 p-3 bg-gray-955/20 rounded-xl border border-white/5 hover:border-purple-500/20 transition-all">
-                                    <div class="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight">
-                                        <span class="text-gray-300">${cname}</span>
-                                        <span class="text-purple-400 font-mono bg-purple-500/5 px-2 py-0.5 rounded border border-purple-500/10">${count} identified (${pct}%)</span>
-                                    </div>
-                                    <div class="w-full bg-gray-950/80 h-1.5 rounded-full overflow-hidden border border-white/5">
-                                        <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
-                                    </div>
-                                    <div class="flex justify-between items-center text-[8px] text-gray-500 font-mono relative tooltip-container ${borderClass} ${cursorClass}">
-                                        <span>Average Confidence</span>
-                                        <span class="text-blue-400 font-bold">${confStr}</span>
-                                        ${tooltipHtml}
-                                    </div>
-                                </div>
-                            `;
-                        }).join('');
+                            }).join('');
+                        }
                     }
+                } catch (err) {
+                    console.error("[loadUserStats] Error updating class frequencies:", err);
                 }
 
                 // Update Trained Model Files
