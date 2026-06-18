@@ -68,6 +68,7 @@ video_component_model = None
 MODEL_PATHS = {
     "pole": "models/best (2).pt",
     "components": "models/channel_12class_v2.pt",
+    "components_extra": "models/new_component.pt",
     "insulator": "models/insulator_model.pt",
     "shed": "models/shed_model.pt",
     "conductor_unet": "models/conductor_unet.pth",
@@ -564,11 +565,16 @@ def load_detection_models(load_unet=False):
     device = inference_device()
 
     if pipeline_engine is None:
+        extra_path = MODEL_PATHS.get("components_extra")
+        if extra_path and not os.path.exists(extra_path):
+            extra_path = None
+
         pipeline_engine = InfrastructurePipeline(
             comp_model=MODEL_PATHS["pole"],
             hardware_model=MODEL_PATHS["components"],
             shed_model=MODEL_PATHS["shed"],
-            insulator_model=MODEL_PATHS["insulator"]
+            insulator_model=MODEL_PATHS["insulator"],
+            hardware_model_extra=extra_path
         )
 
     if load_unet and unet_model is None:

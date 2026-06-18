@@ -80,11 +80,13 @@ def _safe_yolo_load(path: str) -> "YOLO":
 
 
 class InfrastructurePipeline:
-    def __init__(self, comp_model, hardware_model, shed_model, crop_clf=None, insulator_model=None):
+    def __init__(self, comp_model, hardware_model, shed_model, crop_clf=None, insulator_model=None, hardware_model_extra=None):
         # comp_model: only for poles (main_pole, strut_pole)
         self.component_model = _safe_yolo_load(comp_model) if comp_model else None
         # hardware_model: component hardware such as arms, cleats, switches, lights, DTR.
         self.hardware_model = _safe_yolo_load(hardware_model)
+        # hardware_model_extra: optional secondary component hardware model for ensembling
+        self.hardware_model_extra = _safe_yolo_load(hardware_model_extra) if hardware_model_extra else None
         # insulator_model: dedicated insulator detector/classifier model.
         self.insulator_model = _safe_yolo_load(insulator_model) if insulator_model else None
         self.insulator_clf = InsulatorClassifier(shed_model, crop_clf)
@@ -113,6 +115,10 @@ class InfrastructurePipeline:
             hw_res = self.hardware_model(image_path, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
             raw_hardware.extend(list(hw_res))
             
+            if self.hardware_model_extra:
+                hw_extra_res = self.hardware_model_extra(image_path, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
+                raw_hardware.extend(list(hw_extra_res))
+            
             if not fast_mode and (img_w > 1500 or img_h > 1500):
                 step = int(tile_size * (1 - overlap))
                 for y in range(0, img_h, step):
@@ -130,6 +136,19 @@ class InfrastructurePipeline:
                                     b[0] += x1; b[2] += x1
                                     b[1] += y1; b[3] += y1
                                     raw_hardware.append((tuple(b.astype(int)), conf, cls_id))
+                        
+                        if self.hardware_model_extra:
+                            tile_extra_res = self.hardware_model_extra(tile_crop, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
+                            for r in tile_extra_res:
+                                if r.boxes:
+                                    for b_obj in r.boxes:
+                                        cls_id = int(b_obj.cls)
+                                        conf = float(b_obj.conf)
+                                        b = b_obj.xyxy[0].cpu().numpy().copy()
+                                        b[0] += x1; b[2] += x1
+                                        b[1] += y1; b[3] += y1
+                                        raw_hardware.append((tuple(b.astype(int)), conf, cls_id))
+                                        
                         del tile_crop; gc.collect()
                         if torch.cuda.is_available(): torch.cuda.empty_cache()
         except Exception as e:
