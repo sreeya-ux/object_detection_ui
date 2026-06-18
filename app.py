@@ -271,8 +271,14 @@ def _parse_dataset_names_yaml(yaml_path):
     return names
 
 def _dataset_class_map_for(folder):
-    if folder in {"training_data_component", "dataset 1 labels&images", "dataset 2 labels&images", "raw_dataset"}:
+    if folder == "training_data_component":
         return COMPONENT_DATASET_CLASS_MAP
+    if folder == "dataset 1 labels&images":
+        return {0: "V_CROSS_ARM", 1: "MAIN_POLE"}
+    if folder == "dataset 2 labels&images":
+        return {0: "CONDUCTOR", 1: "STRUT_POLE"}
+    if folder in {"raw_dataset", "training_data"}:
+        return {0: "MAIN_POLE", 1: "MAIN_POLE"}
     if folder == "training_data_hardware":
         return HARDWARE_DATASET_CLASS_MAP
     if folder in {"dataset_channels", "dataset_combined"}:
