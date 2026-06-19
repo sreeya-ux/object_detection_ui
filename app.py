@@ -372,7 +372,7 @@ def _scan_dataset_label_stats(folder):
                         if not label:
                             unknown_ids[class_id] += 1
                             continue
-                        if label == physical_pole_label:
+                        if physical_pole_label and label in {"MAIN_POLE", "STRUT_POLE"}:
                             continue
                         by_class[label] += 1
                         labels_in_file.add(label)
