@@ -89,16 +89,30 @@ VIDEO_MAIN_POLE_MIN_ASPECT = max(1.0, float(os.environ.get("VIDEO_MAIN_POLE_MIN_
 IMAGE_DEFAULT_DISPLAY_THRESHOLD = 0.40
 IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD = 0.25
 IMAGE_SMALL_HARDWARE_CLASSES = {"street_light", "special_clamp"}
-if os.path.isdir("total_annotated_dataset"):
+TOTAL_ANNOTATED_DATASET_ROOT = "total_annotated_dataset"
+if os.path.isdir(TOTAL_ANNOTATED_DATASET_ROOT):
     # Remote Production Paths
     DATASET_STATS_ROOTS = [
-        "total_annotated_dataset/Pole_dataset/dataset_annotated/dataset 1",
-        "total_annotated_dataset/Pole_dataset/dataset_annotated/dataset 2",
-        "total_annotated_dataset/components_dataset",
-        "total_annotated_dataset/insulator_dataset",
-        "total_annotated_dataset/insulator_self/insulator_yolo/train",
-        "total_annotated_dataset/insulator_self/insulator_yolo/valid",
-        "total_annotated_dataset/master_dataset_comp",
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "components_dataset"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "insulator_dataset"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "insulator_self", "insulator_yolo"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "master_dataset_comp"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset", "dataset_annotated", "dataset 1"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset", "dataset_annotated", "dataset 2"),
+    ]
+    DATASET_INVENTORY_ROOTS = [
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "components_dataset"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "insulator_dataset"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "insulator_self"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "master_dataset_comp"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset"),
+    ]
+    # insulator_dataset repeats component images with a separate label split.
+    DATASET_IMAGE_STATS_ROOTS = [
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "components_dataset"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "insulator_self", "insulator_yolo"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "master_dataset_comp"),
+        os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset"),
     ]
 else:
     # Local PC Development Paths
@@ -112,8 +126,8 @@ else:
         "training_data",
         "raw_dataset",
     ]
-
-DATASET_INVENTORY_ROOTS = DATASET_STATS_ROOTS
+    DATASET_INVENTORY_ROOTS = DATASET_STATS_ROOTS
+    DATASET_IMAGE_STATS_ROOTS = DATASET_STATS_ROOTS
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
     1: "V_CROSS_ARM",
@@ -133,6 +147,12 @@ COMPONENT_DATASET_CLASS_MAP = {
     1: "CROSSARM",
     2: "MAIN_POLE",
     3: "CONDUCTOR",
+}
+INSULATOR_DATASET_CLASS_MAP = {
+    0: "HT_DISC",
+    1: "HT_PIN",
+    2: "LT_PIN",
+    3: "SHACKLE_INSULATOR",
 }
 HARDWARE_DATASET_CLASS_MAP = {
     0: "INSULATORS",
@@ -285,10 +305,8 @@ def _dataset_class_map_for(folder):
         return {0: "CONDUCTOR", 1: "STRUT_POLE"}
     if "components_dataset" in normalized:
         return CHANNEL_DATASET_CLASS_MAP
-    if "insulator_dataset" in normalized:
-        return {0: "INSULATORS", 1: "CROSSARM", 2: "CONDUCTOR", 3: "CONDUCTOR"}
-    if "insulator_self" in normalized:
-        return {0: "INSULATORS", 1: "INSULATORS", 2: "INSULATORS", 3: "INSULATORS"}
+    if "insulator_dataset" in normalized or "insulator_self" in normalized:
+        return INSULATOR_DATASET_CLASS_MAP
     if "master_dataset_comp" in normalized:
         return CHANNEL_DATASET_CLASS_MAP
 
@@ -425,19 +443,6 @@ def build_training_dashboard_stats(stats=None):
     unknown_by_dataset = {}
     scanned_label_files = 0
 
-    ALLOWED_STATS_CLASSES = {
-        "V_CROSS_ARM",
-        "TAPPING_CHANNEL",
-        "SIDE_ARM_CHANNEL",
-        "T_RISING_CHANNEL",
-        "MAIN_POLE",
-        "STRUT_POLE",
-        "CONDUCTOR",
-        "STAY_SET",
-        "SPECIAL_CLAMP",
-        "INSULATORS",
-    }
-
     stats_folder_annotations = {}
     for folder in DATASET_STATS_ROOTS:
         by_class, images_per_class, unknown_ids, label_files, class_map = _scan_dataset_label_stats(folder)
@@ -445,8 +450,7 @@ def build_training_dashboard_stats(stats=None):
         dataset_images_per_class.update(images_per_class)
         scanned_label_files += label_files
         
-        # Count only allowed classes for this folder to sync dataset list
-        stats_folder_annotations[folder] = sum(count for cls, count in by_class.items() if cls in ALLOWED_STATS_CLASSES)
+        stats_folder_annotations[folder] = sum(by_class.values())
         
         if unknown_ids:
             unknown_by_dataset[folder] = {str(k): v for k, v in sorted(unknown_ids.items())}
@@ -460,31 +464,23 @@ def build_training_dashboard_stats(stats=None):
     for folder in DATASET_INVENTORY_ROOTS:
         if os.path.isdir(folder):
             images, annotations = _count_dataset_files(folder)
-            if folder in DATASET_STATS_ROOTS:
-                annotations = stats_folder_annotations.get(folder, 0)
+            included_stats_roots = [
+                stats_root for stats_root in DATASET_STATS_ROOTS
+                if stats_root == folder or stats_root.startswith(folder + os.sep)
+            ]
+            if included_stats_roots:
+                annotations = sum(stats_folder_annotations.get(stats_root, 0) for stats_root in included_stats_roots)
             datasets.append({
                 "name": folder,
                 "path": os.path.abspath(folder),
                 "count": images,
                 "images": images,
                 "annotations": annotations,
-                "included_in_stats": folder in DATASET_STATS_ROOTS,
+                "included_in_stats": bool(included_stats_roots),
             })
 
-    # Filter counts to only allowed classes
-    filtered_by_class = Counter()
-    filtered_images_per_class = Counter()
-    
-    for cls, count in dataset_by_class.items():
-        if cls in ALLOWED_STATS_CLASSES:
-            filtered_by_class[cls] = count
-            
-    for cls, count in dataset_images_per_class.items():
-        if cls in ALLOWED_STATS_CLASSES:
-            filtered_images_per_class[cls] = count
-
-    by_class = dict(sorted(filtered_by_class.items(), key=lambda item: item[1], reverse=True))
-    stats["total_samples"] = _count_unique_dataset_images(DATASET_STATS_ROOTS)
+    by_class = dict(sorted(dataset_by_class.items(), key=lambda item: item[1], reverse=True))
+    stats["total_samples"] = _count_unique_dataset_images(DATASET_IMAGE_STATS_ROOTS)
     stats["by_class"] = by_class
     stats["total_classes"] = len(by_class)
     stats["total_annotations"] = int(sum(by_class.values()))
@@ -495,7 +491,7 @@ def build_training_dashboard_stats(stats=None):
         label: float(class_avg.get(label, 0.85)) for label in by_class
     }
     
-    stats["images_per_class"] = dict(filtered_images_per_class)
+    stats["images_per_class"] = dict(dataset_images_per_class)
     stats["datasets"] = datasets
     stats["stats_source"] = "dataset_folders"
     stats["scanned_label_files"] = scanned_label_files
