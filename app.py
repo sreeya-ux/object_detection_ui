@@ -300,9 +300,9 @@ def _dataset_class_map_for(folder):
     
     # Check new remote paths first
     if "Pole_dataset/dataset_annotated/dataset 1" in normalized:
-        return {0: "V_CROSS_ARM", 1: "MAIN_POLE"}
+        return {0: "MAIN_POLE", 1: "STRUT_POLE"}
     if "Pole_dataset/dataset_annotated/dataset 2" in normalized:
-        return {0: "CONDUCTOR", 1: "STRUT_POLE"}
+        return {0: "MAIN_POLE", 1: "STRUT_POLE"}
     if "components_dataset" in normalized:
         return CHANNEL_DATASET_CLASS_MAP
     if "insulator_dataset" in normalized or "insulator_self" in normalized:
@@ -314,9 +314,9 @@ def _dataset_class_map_for(folder):
     if folder == "training_data_component":
         return COMPONENT_DATASET_CLASS_MAP
     if folder == "dataset 1 labels&images":
-        return {0: "V_CROSS_ARM", 1: "MAIN_POLE"}
+        return {0: "MAIN_POLE", 1: "STRUT_POLE"}
     if folder == "dataset 2 labels&images":
-        return {0: "CONDUCTOR", 1: "STRUT_POLE"}
+        return {0: "MAIN_POLE", 1: "STRUT_POLE"}
     if folder in {"raw_dataset", "training_data"}:
         return {0: "MAIN_POLE", 1: "MAIN_POLE"}
     if folder == "training_data_hardware":
