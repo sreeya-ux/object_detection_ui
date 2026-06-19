@@ -709,6 +709,8 @@
                                         entry = classMetrics[mappedName];
                                     } else if (name === 'insulators' && (classMetrics['insulators'] || classMetrics['insulator'])) {
                                         entry = classMetrics['insulators'] || classMetrics['insulator'];
+                                    } else if (['ht_pin', 'lt_pin', 'shackle_insulator', 'ht_disc'].includes(name) && (classMetrics['insulators'] || classMetrics['insulator'])) {
+                                        entry = classMetrics['insulators'] || classMetrics['insulator'];
                                     }
                                 }
                                 
