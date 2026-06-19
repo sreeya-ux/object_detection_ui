@@ -89,26 +89,31 @@ VIDEO_MAIN_POLE_MIN_ASPECT = max(1.0, float(os.environ.get("VIDEO_MAIN_POLE_MIN_
 IMAGE_DEFAULT_DISPLAY_THRESHOLD = 0.40
 IMAGE_SMALL_HARDWARE_DISPLAY_THRESHOLD = 0.25
 IMAGE_SMALL_HARDWARE_CLASSES = {"street_light", "special_clamp"}
-DATASET_INVENTORY_ROOTS = [
-    "training_data",
-    "training_data_component",
-    "training_data_hardware",
-    "dataset_channels",
-    "dataset_combined",
-    "dataset 1 labels&images",
-    "dataset 2 labels&images",
-    "raw_dataset",
-]
-DATASET_STATS_ROOTS = [
-    "training_data_component",
-    "dataset_channels",
-    "training_data_hardware",
-    "dataset 1 labels&images",
-    "dataset 2 labels&images",
-    "dataset_combined",
-    "training_data",
-    "raw_dataset",
-]
+if os.path.isdir("total_annotated_dataset"):
+    # Remote Production Paths
+    DATASET_STATS_ROOTS = [
+        "total_annotated_dataset/Pole_dataset/dataset_annotated/dataset 1",
+        "total_annotated_dataset/Pole_dataset/dataset_annotated/dataset 2",
+        "total_annotated_dataset/components_dataset",
+        "total_annotated_dataset/insulator_dataset",
+        "total_annotated_dataset/insulator_self/insulator_yolo/train",
+        "total_annotated_dataset/insulator_self/insulator_yolo/valid",
+        "total_annotated_dataset/master_dataset_comp",
+    ]
+else:
+    # Local PC Development Paths
+    DATASET_STATS_ROOTS = [
+        "training_data_component",
+        "dataset_channels",
+        "training_data_hardware",
+        "dataset 1 labels&images",
+        "dataset 2 labels&images",
+        "dataset_combined",
+        "training_data",
+        "raw_dataset",
+    ]
+
+DATASET_INVENTORY_ROOTS = DATASET_STATS_ROOTS
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
     1: "V_CROSS_ARM",
@@ -271,6 +276,23 @@ def _parse_dataset_names_yaml(yaml_path):
     return names
 
 def _dataset_class_map_for(folder):
+    normalized = folder.replace("\\", "/")
+    
+    # Check new remote paths first
+    if "Pole_dataset/dataset_annotated/dataset 1" in normalized:
+        return {0: "V_CROSS_ARM", 1: "MAIN_POLE"}
+    if "Pole_dataset/dataset_annotated/dataset 2" in normalized:
+        return {0: "CONDUCTOR", 1: "STRUT_POLE"}
+    if "components_dataset" in normalized:
+        return CHANNEL_DATASET_CLASS_MAP
+    if "insulator_dataset" in normalized:
+        return {0: "INSULATORS", 1: "CROSSARM", 2: "CONDUCTOR", 3: "CONDUCTOR"}
+    if "insulator_self" in normalized:
+        return {0: "INSULATORS", 1: "INSULATORS", 2: "INSULATORS", 3: "INSULATORS"}
+    if "master_dataset_comp" in normalized:
+        return CHANNEL_DATASET_CLASS_MAP
+
+    # Local / Legacy paths
     if folder == "training_data_component":
         return COMPONENT_DATASET_CLASS_MAP
     if folder == "dataset 1 labels&images":
@@ -283,6 +305,7 @@ def _dataset_class_map_for(folder):
         return HARDWARE_DATASET_CLASS_MAP
     if folder in {"dataset_channels", "dataset_combined"}:
         return CHANNEL_DATASET_CLASS_MAP
+        
     yaml_map = _parse_dataset_names_yaml(os.path.join(folder, "data.yaml"))
     if yaml_map:
         return yaml_map
