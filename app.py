@@ -163,6 +163,11 @@ INSULATOR_DATASET_CLASS_MAP = {
     2: "LT_PIN",
     3: "SHACKLE_INSULATOR",
 }
+EXCLUDED_STATS_CLASSES = {
+    "INSULATORS",
+    "HORN_GAP_FUSE",
+    "GO_SWITCH",
+}
 HARDWARE_DATASET_CLASS_MAP = {
     0: "INSULATORS",
     1: "CROSSARM",
@@ -463,6 +468,9 @@ def build_training_dashboard_stats(stats=None):
     stats_folder_annotations = {}
     for folder in DATASET_STATS_ROOTS:
         by_class, images_per_class, unknown_ids, label_files, class_map = _scan_dataset_label_stats(folder)
+        for excluded_label in EXCLUDED_STATS_CLASSES:
+            by_class.pop(excluded_label, None)
+            images_per_class.pop(excluded_label, None)
         dataset_by_class.update(by_class)
         dataset_images_per_class.update(images_per_class)
         scanned_label_files += label_files
