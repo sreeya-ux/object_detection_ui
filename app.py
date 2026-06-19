@@ -114,6 +114,14 @@ if os.path.isdir(TOTAL_ANNOTATED_DATASET_ROOT):
         os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "master_dataset_comp"),
         os.path.join(TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset"),
     ]
+    POLE_CLASS_BY_DATASET_ROOT = {
+        os.path.normpath(os.path.join(
+            TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset", "dataset_annotated", "dataset 1"
+        )): "MAIN_POLE",
+        os.path.normpath(os.path.join(
+            TOTAL_ANNOTATED_DATASET_ROOT, "Pole_dataset", "dataset_annotated", "dataset 2"
+        )): "STRUT_POLE",
+    }
 else:
     # Local PC Development Paths
     DATASET_STATS_ROOTS = [
@@ -128,6 +136,7 @@ else:
     ]
     DATASET_INVENTORY_ROOTS = DATASET_STATS_ROOTS
     DATASET_IMAGE_STATS_ROOTS = DATASET_STATS_ROOTS
+    POLE_CLASS_BY_DATASET_ROOT = {}
 CHANNEL_DATASET_CLASS_MAP = {
     0: "INSULATORS",
     1: "V_CROSS_ARM",
@@ -331,6 +340,7 @@ def _dataset_class_map_for(folder):
 
 def _scan_dataset_label_stats(folder):
     class_map = _dataset_class_map_for(folder)
+    physical_pole_label = POLE_CLASS_BY_DATASET_ROOT.get(os.path.normpath(folder))
     by_class = Counter()
     images_per_class = Counter()
     unknown_ids = Counter()
@@ -346,12 +356,14 @@ def _scan_dataset_label_stats(folder):
             label_files += 1
             labels_in_file = set()
             label_path = os.path.join(root, filename)
+            has_annotations = False
             try:
                 with open(label_path, "r", encoding="utf-8", errors="ignore") as handle:
                     for raw_line in handle:
                         parts = raw_line.strip().split()
                         if not parts:
                             continue
+                        has_annotations = True
                         try:
                             class_id = int(float(parts[0]))
                         except ValueError:
@@ -360,11 +372,16 @@ def _scan_dataset_label_stats(folder):
                         if not label:
                             unknown_ids[class_id] += 1
                             continue
+                        if label == physical_pole_label:
+                            continue
                         by_class[label] += 1
                         labels_in_file.add(label)
             except Exception as exc:
                 print(f"[TRAINING-STATS] Could not scan label file {label_path}: {exc}", flush=True)
                 continue
+            if physical_pole_label and has_annotations:
+                by_class[physical_pole_label] += 1
+                labels_in_file.add(physical_pole_label)
             for label in labels_in_file:
                 images_per_class[label] += 1
     return by_class, images_per_class, unknown_ids, label_files, class_map
@@ -480,7 +497,9 @@ def build_training_dashboard_stats(stats=None):
             })
 
     by_class = dict(sorted(dataset_by_class.items(), key=lambda item: item[1], reverse=True))
-    stats["total_samples"] = _count_unique_dataset_images(DATASET_IMAGE_STATS_ROOTS)
+    stats["total_samples"] = sum(
+        _count_dataset_files(folder)[0] for folder in DATASET_IMAGE_STATS_ROOTS
+    )
     stats["by_class"] = by_class
     stats["total_classes"] = len(by_class)
     stats["total_annotations"] = int(sum(by_class.values()))
