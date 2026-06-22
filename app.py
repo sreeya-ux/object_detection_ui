@@ -337,6 +337,8 @@ def _dataset_class_map_for(folder):
 
 def _scan_dataset_label_stats(folder):
     class_map = _dataset_class_map_for(folder)
+    normalized_folder = folder.replace("\\", "/")
+    count_class_presence_per_file = "Pole_dataset/dataset_annotated" in normalized_folder
     by_class = Counter()
     images_per_class = Counter()
     unknown_ids = Counter()
@@ -366,11 +368,15 @@ def _scan_dataset_label_stats(folder):
                         if not label:
                             unknown_ids[class_id] += 1
                             continue
-                        by_class[label] += 1
+                        if not count_class_presence_per_file:
+                            by_class[label] += 1
                         labels_in_file.add(label)
             except Exception as exc:
                 print(f"[TRAINING-STATS] Could not scan label file {label_path}: {exc}", flush=True)
                 continue
+            if count_class_presence_per_file:
+                for label in labels_in_file:
+                    by_class[label] += 1
             for label in labels_in_file:
                 images_per_class[label] += 1
     return by_class, images_per_class, unknown_ids, label_files, class_map
