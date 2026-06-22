@@ -366,17 +366,7 @@ class InfrastructurePipeline:
                 max_part   = max(left_part, right_part)
                 sym_ratio  = min(left_part, right_part) / max_part if max_part > 0 else 0.0
 
-                if name == "v_cross":
-                    # Trust the model's v_cross prediction unless the box is
-                    # clearly one-sided (strongly asymmetric → it's actually a side arm)
-                    if sym_ratio < 0.40:
-                        name = "side_arm_channel"
-                    # Or if the box is extremely flat/thin (high aspect ratio → straight tapping channel)
-                    elif ar >= 5.0:
-                        name = "tapping_channel"
-                    # else: keep v_cross — a real V arm IS wide (ar > 1 is expected)
-
-                elif name == "tapping_channel":
+                if name == "tapping_channel":
                     # Tapping channel predicted by model, refine with geometry
                     if sym_ratio < 0.40:
                         name = "side_arm_channel"
