@@ -182,7 +182,7 @@
                         <div class="tooltip-box text-left" style="width: 250px;">
                             <div class="text-[9px] font-bold text-blue-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">Precision</div>
                             <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
-                                <div><strong>Meaning:</strong> Accuracy of positive predictions. Out of all positive detections the model made, how many were actually correct? Higher precision means fewer false alarms.</div>
+                                <div><strong>Meaning:</strong> Accuracy of positive predictions. Out of all positive detections the model made, it represents the percentage that were actually correct. Higher precision means fewer false alarms.</div>
                                 <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-blue-300">TP / (TP + FP)</code></div>
                             </div>
                         </div>
@@ -195,7 +195,7 @@
                         <div class="tooltip-box text-left" style="width: 250px;">
                             <div class="text-[9px] font-bold text-purple-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">Recall (Sensitivity)</div>
                             <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
-                                <div><strong>Meaning:</strong> Detection coverage. Out of all actual positive objects present in the images, how many did the model find? Higher recall means fewer missed objects.</div>
+                                <div><strong>Meaning:</strong> Detection coverage. Out of all actual positive objects present in the images, it represents the percentage that the model successfully found. Higher recall means fewer missed objects.</div>
                                 <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-purple-300">TP / (TP + FN)</code></div>
                             </div>
                         </div>
@@ -208,7 +208,7 @@
                         <div class="tooltip-box text-left" style="width: 250px;">
                             <div class="text-[9px] font-bold text-emerald-400 uppercase border-b border-white/10 pb-1 mb-1.5 tracking-wider">mAP @ IoU 0.50</div>
                             <div class="space-y-1.5 text-[8px] text-gray-300 leading-relaxed font-mono">
-                                <div><strong>Meaning:</strong> Mean Average Precision over all classes at an Intersection over Union (IoU) overlap threshold of 0.50. A standard standard benchmark.</div>
+                                <div><strong>Meaning:</strong> Mean Average Precision over all classes at an Intersection over Union (IoU) overlap threshold of 0.50. This is a standard benchmark.</div>
                                 <div class="pt-1 border-t border-white/5"><strong>Formula:</strong> <code class="text-emerald-300">Mean of AP across classes at IoU=0.50</code></div>
                             </div>
                         </div>
