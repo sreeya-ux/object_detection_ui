@@ -18,6 +18,7 @@ let videoTrimStart = 0;
 let videoTrimDuration = 30;
 let activeVideoJobId = null;
 let processedVideoDownloadUrl = null;
+let detectConductors = false;
 
 function normalizePoleIdText(text) {
     if (!text) return "Not Found";
@@ -1212,6 +1213,7 @@ async function processImage() {
 
     try {
         const formData = new FormData();
+        formData.append("fast_mode", detectConductors ? "false" : "true");
         
         // If there are multiple images, we send them as image1, image2, image3
         // If only one, we send as 'image' for backward compatibility
@@ -2282,6 +2284,18 @@ function toggleDrawMode() {
         status.classList.add('hidden');
         status.classList.remove('flex');
         showToast("Draw Mode: Disabled", "primary");
+    }
+}
+
+function toggleConductorMode() {
+    detectConductors = !detectConductors;
+    const btn = document.getElementById('btnConductorMode');
+    if (detectConductors) {
+        btn.classList.add('active');
+        showToast("Conductor Detection: Enabled (Segmentation will run)", "success");
+    } else {
+        btn.classList.remove('active');
+        showToast("Conductor Detection: Disabled", "primary");
     }
 }
 

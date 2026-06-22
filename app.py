@@ -1658,22 +1658,23 @@ def predict():
     if not files:
         return jsonify({"error": "No images uploaded"}), 400
 
+    fast_mode = request.form.get('fast_mode', 'true').lower() == 'true'
+
     try:
         if len(files) == 1:
-            # Single image: fast processing for interactive worker review
-            result = process_image_file(files[0], fast_mode=True)
+            result = process_image_file(files[0], fast_mode=fast_mode)
             return jsonify(result)
         else:
             # Multi-image: Merged processing
-            print(f"DEBUG: Processing {len(files)} images in merged mode...")
-            return jsonify(process_multi_images(files))
+            print(f"DEBUG: Processing {len(files)} images in merged mode (fast_mode={fast_mode})...")
+            return jsonify(process_multi_images(files, fast_mode=fast_mode))
             
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Inference Error: {str(e)}"}), 500
 
-def process_multi_images(file_streams):
+def process_multi_images(file_streams, fast_mode=True):
     """
     Processes multiple images sequentially to avoid Out of Memory (OOM) on 1.7GB RAM instances.
     """
@@ -1684,7 +1685,7 @@ def process_multi_images(file_streams):
             print(f"DEBUG: Processing image {idx+1}/{len(file_streams)} in merged mode...")
             blob = stream.read()
             file_blobs.append(blob)
-            res = process_image_file(io.BytesIO(blob), fast_mode=True, enable_ocr=False)
+            res = process_image_file(io.BytesIO(blob), fast_mode=fast_mode, enable_ocr=False)
             if res:
                 results[idx] = res
         except Exception as e:
