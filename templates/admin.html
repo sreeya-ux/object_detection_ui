@@ -63,13 +63,10 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- User Management Panel -->
             <div class="card p-6 border border-blue-500/20 bg-blue-900/5 flex flex-col h-full">
-                <div class="flex items-center justify-between mb-4">
+                <div class="mb-4 border-b border-blue-500/10 pb-2">
                     <h2 class="text-base font-bold flex items-center gap-2 text-blue-300">
                         <i class="fa-solid fa-users text-blue-400"></i> User Directory
                     </h2>
-                    <button onclick="loadUsers()" class="text-gray-500 hover:text-white transition-colors" title="Refresh Users">
-                        <i class="fa-solid fa-rotate-right text-xs"></i>
-                    </button>
                 </div>
                 <!-- Users list -->
                 <div class="flex-1 overflow-y-auto max-h-[250px] pr-2 space-y-2" id="userDirectoryList">
@@ -79,64 +76,39 @@
 
             <!-- Training Pool Panel -->
             <div class="card p-6 space-y-4 border border-purple-500/20 bg-purple-900/5">
-            <div class="flex items-center justify-between">
-                <h2 class="text-base font-bold flex items-center gap-2 text-purple-300">
-                    <i class="fa-solid fa-brain text-purple-400"></i> Active Learning Pool
-                    <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 font-bold">LIVE</span>
-                </h2>
-                <span class="text-[10px] text-gray-500" id="lastApprovedTime">Loading...</span>
+                <div class="flex items-center justify-between">
+                    <h2 class="text-base font-bold flex items-center gap-2 text-purple-300">
+                        <i class="fa-solid fa-brain text-purple-400"></i> Active Learning Pool
+                        <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 font-bold">LIVE</span>
+                    </h2>
+                    <span class="text-[10px] text-gray-500" id="lastApprovedTime">Loading...</span>
+                </div>
+
+                <div id="activeLearningMetricGrid" class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                        <div class="text-[10px] text-purple-300 font-bold uppercase tracking-widest mb-1">TOTAL APPROVED</div>
+                        <div class="text-xl font-bold text-white" id="metricTotalApproved">0</div>
+                    </div>
+                    <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                        <div class="text-[10px] text-blue-300 font-bold uppercase tracking-widest mb-1">TOTAL CLASSES</div>
+                        <div class="text-xl font-bold text-white" id="metricTotalClasses">0</div>
+                    </div>
+                    <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                        <div class="text-[10px] text-amber-300 font-bold uppercase tracking-widest mb-1">AVG CONFIDENCE</div>
+                        <div class="text-xl font-bold text-white" id="metricAvgConfidence">0.00%</div>
+                    </div>
+                </div>
+
+                <details class="rounded-xl border border-white/5 bg-gray-900/50">
+                    <summary class="cursor-pointer select-none px-3 py-2 text-[9px] text-purple-300 uppercase font-bold tracking-widest flex items-center justify-between">
+                        <span>Active Dataset</span>
+                        <i class="fa-solid fa-chevron-down text-[8px] text-gray-500"></i>
+                    </summary>
+                    <div id="activeDatasetList" class="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div class="text-[9px] text-gray-600 italic">Loading active datasets...</div>
+                    </div>
+                </details>
             </div>
-
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
-                    <div class="text-xl font-bold text-purple-300" id="trainedImagesCount">0</div>
-                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Trained Images</div>
-                </div>
-                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
-                    <div class="text-xl font-bold text-blue-300" id="trainedClassCount">0</div>
-                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Classes</div>
-                </div>
-                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
-                    <div class="text-xl font-bold text-emerald-300" id="trainedAnnotationCount">0</div>
-                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Total Objects Identified</div>
-                </div>
-                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5">
-                    <div class="text-xl font-bold text-amber-300" id="avgConfidenceCount">--</div>
-                    <div class="text-[8px] text-gray-500 uppercase font-bold tracking-widest mt-1">Avg Confidence</div>
-                </div>
-            </div>
-
-            <!-- Auto-retrain progress removed -->
-
-            <!-- Per-class breakdown -->
-            <div>
-                <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-2">Training Samples by Class</p>
-                <div id="classBreakdown" class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div class="text-[9px] text-gray-600 italic col-span-full">Loading class stats...</div>
-                </div>
-            </div>
-
-            <details class="rounded-xl border border-white/5 bg-gray-900/50">
-                <summary class="cursor-pointer select-none px-3 py-2 text-[9px] text-purple-300 uppercase font-bold tracking-widest flex items-center justify-between">
-                    <span>Active Dataset</span>
-                    <i class="fa-solid fa-chevron-down text-[8px] text-gray-500"></i>
-                </summary>
-                <div id="activeDatasetList" class="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <div class="text-[9px] text-gray-600 italic">Loading active datasets...</div>
-                </div>
-            </details>
-
-            <!-- Weak classes alert -->
-            <div id="weakClassAlert" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                <p class="text-[10px] text-amber-400 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Classes needing more data: <span id="weakClassList"></span></p>
-            </div>
-
-            <!-- Recent training runs -->
-            <div id="recentRunsSection" class="hidden">
-                <p class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-2">Recent Training Runs</p>
-                <div id="recentRunsList" class="space-y-1"></div>
-            </div>
-        </div>
         </div>
 
                     <div class="flex items-center justify-between">
@@ -179,7 +151,7 @@
                         <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
                     </div>
                     <div>
-                        <h2 class="text-lg font-bold text-white font-['Outfit']">Annotation History</h2>
+                        <h2 class="text-lg font-bold text-white font-['Outfit']">Logs</h2>
                         <p id="historySubtitle" class="text-[10px] text-gray-500 font-mono"></p>
                     </div>
                 </div>
@@ -301,17 +273,130 @@
             return 'data:image/jpeg;base64,' + cleaned;
         }
 
+        class DashboardStateStore {
+            constructor() {
+                this.state = {
+                    assets: [],
+                    pendingCount: 0,
+                    approvedCount: 0,
+                    rejectedCount: 0,
+                    approvedClassesCount: 0,
+                    approvedAvgConfidence: 0.0,
+                    classBreakdown: {}
+                };
+                this.observers = [];
+            }
+
+            subscribe(fn) {
+                this.observers.push(fn);
+                fn(this.state);
+            }
+
+            notify() {
+                this.observers.forEach(fn => fn(this.state));
+            }
+
+            setAssets(assets) {
+                this.state.assets = assets;
+                this.recalculate();
+            }
+
+            recalculate() {
+                const assets = this.state.assets;
+                
+                this.state.pendingCount = assets.filter(t => t.status === 'pending').length;
+                this.state.approvedCount = assets.filter(t => t.status === 'approved').length;
+                this.state.rejectedCount = assets.filter(t => t.status === 'rejected').length;
+
+                const approvedTasks = assets.filter(t => t.status === 'approved');
+                
+                const classes = new Set();
+                let totalConfidence = 0;
+                let totalDetectionsCount = 0;
+                const classBreakdown = {};
+
+                approvedTasks.forEach(task => {
+                    const detections = task.detections || [];
+                    detections.forEach(det => {
+                        if (det.label) {
+                            const label = det.label.toUpperCase().trim();
+                            const conf = typeof det.confidence === 'number' ? det.confidence : parseFloat(det.confidence) || 0;
+                            
+                            classes.add(label);
+                            
+                            if (!classBreakdown[label]) {
+                                classBreakdown[label] = { count: 0, totalConfidence: 0 };
+                            }
+                            classBreakdown[label].count += 1;
+                            classBreakdown[label].totalConfidence += conf;
+                            
+                            totalConfidence += conf;
+                            totalDetectionsCount += 1;
+                        }
+                    });
+                });
+
+                this.state.approvedClassesCount = classes.size;
+                this.state.approvedAvgConfidence = totalDetectionsCount > 0 ? (totalConfidence / totalDetectionsCount) : 0.0;
+                this.state.classBreakdown = classBreakdown;
+
+                this.notify();
+            }
+        }
+
+        const dashboardStore = new DashboardStateStore();
+
+        // Subscribe elements to store changes
+        dashboardStore.subscribe(state => {
+            // Update global dashboard summary cards
+            const pendingEl = document.getElementById('statPending');
+            const approvedEl = document.getElementById('statApproved');
+            const rejectedEl = document.getElementById('statRejected');
+            if (pendingEl) pendingEl.textContent = state.pendingCount;
+            if (approvedEl) approvedEl.textContent = state.approvedCount;
+            if (rejectedEl) rejectedEl.textContent = state.rejectedCount;
+
+            // Update Active Learning Pool dense metrics grid
+            const grid = document.getElementById('activeLearningMetricGrid');
+            if (!grid) return;
+
+            const formattedAvgConf = (state.approvedAvgConfidence * 100).toFixed(2) + '%';
+
+            let html = `
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                    <div class="text-[10px] text-purple-300 font-bold uppercase tracking-widest mb-1">TOTAL APPROVED</div>
+                    <div class="text-xl font-bold text-white">${state.approvedCount}</div>
+                </div>
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                    <div class="text-[10px] text-blue-300 font-bold uppercase tracking-widest mb-1">TOTAL CLASSES</div>
+                    <div class="text-xl font-bold text-white">${state.approvedClassesCount}</div>
+                </div>
+                <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                    <div class="text-[10px] text-amber-300 font-bold uppercase tracking-widest mb-1">AVG CONFIDENCE</div>
+                    <div class="text-xl font-bold text-white">${formattedAvgConf}</div>
+                </div>
+            `;
+
+            // Append per-class metrics
+            Object.entries(state.classBreakdown).forEach(([cls, data]) => {
+                const avgConf = data.count > 0 ? (data.totalConfidence / data.count) : 0.0;
+                const formattedConf = (avgConf * 100).toFixed(2) + '%';
+                html += `
+                    <div class="p-3 bg-gray-900/50 rounded-lg border border-white/5 flex flex-col justify-between">
+                        <div class="text-[10px] text-purple-300 font-bold uppercase tracking-widest mb-1">${cls}</div>
+                        <div class="text-xl font-bold text-white">${data.count}</div>
+                        <div class="text-xs text-gray-500 font-mono mt-1">${formattedConf}</div>
+                    </div>
+                `;
+            });
+
+            grid.innerHTML = html;
+        });
+
         async function updateStats() {
             const allRes = await fetch('/api/get_assets');
             allTasksCached = await allRes.json();
-            
-            const pending = allTasksCached.filter(t => t.status === 'pending').length;
-            const approved = allTasksCached.filter(t => t.status === 'approved').length;
-            const rejected = allTasksCached.filter(t => t.status === 'rejected').length;
-
-            document.getElementById('statPending').textContent = pending;
-            document.getElementById('statApproved').textContent = approved;
-            document.getElementById('statRejected').textContent = rejected;
+            dashboardStore.setAssets(allTasksCached);
         }
 
         async function loadTasks() {
@@ -354,19 +439,12 @@
                             <img src="${formatB64(task.thumbnail)}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
                         </div>
                     </a>
-                    <div class="grid grid-cols-2 gap-2 mt-3">
-                        <button onclick="event.stopPropagation(); openReview('${task.id}')" 
-                            class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
-                            <i class="fa-solid fa-eye"></i> Review
-                        </button>
+                    <div class="mt-3">
                         <button onclick="event.stopPropagation(); openHistory('${task.id}', '${task.worker_name}')" 
-                            class="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/5 text-gray-500 hover:text-gray-300 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                            class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
                             <i class="fa-solid fa-clock-rotate-left"></i> Logs
                         </button>
                     </div>
-                    <a href="/view_pathway/${task.image_db_id}" target="_blank" class="block w-full mt-2 py-2 bg-emerald-900/10 hover:bg-emerald-900/20 border border-emerald-500/10 text-emerald-500 text-center rounded-xl text-[8px] font-bold uppercase tracking-widest transition-all">
-                        <i class="fa-solid fa-link mr-1"></i> Result Pathway
-                    </a>
                 </div>
             `).join('');
         }
@@ -668,6 +746,27 @@
             'training_data_exported': { icon:'fa-brain',           color:'text-emerald-400', label:'Training Export' },
         };
 
+        function formatLogTimestamp(ts) {
+            if (!ts) return '';
+            const parts = ts.split(' ');
+            if (parts.length < 2) return ts;
+            const datePart = parts[0];
+            const timePart = parts[1];
+            
+            const timeSubparts = timePart.split(':');
+            if (timeSubparts.length < 3) return ts;
+            let hours = parseInt(timeSubparts[0], 10);
+            const minutes = timeSubparts[1];
+            const seconds = timeSubparts[2];
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12;
+            const formattedHours = hours < 10 ? '0' + hours : hours;
+            
+            const formattedTime = `${formattedHours}:${minutes}:${seconds} ${ampm}`;
+            return `<span class="block text-[8px] text-gray-500 font-mono mt-0.5">${datePart} at ${formattedTime}</span>`;
+        }
+
         async function openHistory(assetId, workerName) {
             const modal = document.getElementById('historyModal');
             document.getElementById('historySubtitle').textContent = 'Worker: ' + workerName + '  ·  ' + assetId.split('-')[0] + '...';
@@ -731,9 +830,12 @@
                                '<div class="absolute -left-9 top-1.5 w-5 h-5 rounded-full bg-gray-900 border-2 '+(isFirst?'border-blue-500':isLast?'border-purple-500':'border-gray-700')+' flex items-center justify-center">'+
                                '<i class="fa-solid '+meta.icon+' '+meta.color+' text-[6px]"></i></div>'+
                                '<div class="p-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 rounded-xl transition-all">'+
-                               '<div class="flex justify-between items-start gap-2 mb-1">'+
+                               '<div class="flex flex-col gap-0.5 mb-1">'+
+                               '<div class="flex justify-between items-center w-full">'+
                                '<span class="text-[9px] font-bold '+meta.color+' uppercase tracking-wider">'+meta.label+'</span>'+
-                               '<span class="text-[8px] text-gray-600 font-mono shrink-0">'+(ev.timestamp||'')+'</span></div>'+
+                               '</div>'+
+                               formatLogTimestamp(ev.timestamp)+
+                               '</div>'+
                                '<p class="text-[9px] text-gray-400"><i class="fa-solid fa-user text-[7px] mr-1"></i>'+(ev.user_name||'System')+'</p>'+
                                (ev.details ? '<p class="text-[8px] text-gray-600 leading-relaxed border-t border-white/5 pt-1 mt-1">'+ev.details.replace(/\|/g,' · ')+'</p>' : '')+
                                '</div></div>';
@@ -789,13 +891,6 @@
                 const res = await fetch('/api/training_stats');
                 if (!res.ok) return;
                 const s = await res.json();
-                const threshold = s.threshold || 50;
-                const avgConfidence = typeof s.avg_confidence === 'number' ? `${Math.round(s.avg_confidence * 100)}%` : '--';
-
-                document.getElementById('trainedImagesCount').textContent = s.trained_images || s.total_samples || 0;
-                document.getElementById('trainedClassCount').textContent = s.total_classes || 0;
-                document.getElementById('trainedAnnotationCount').textContent = s.total_annotations || 0;
-                document.getElementById('avgConfidenceCount').textContent = avgConfidence;
                 const activeDatasetList = document.getElementById('activeDatasetList');
                 if (activeDatasetList) {
                     activeDatasetList.innerHTML = (s.datasets || []).map(ds => `
@@ -807,62 +902,12 @@
                     `).join('') || '<div class="text-[9px] text-gray-600 italic">No active datasets found.</div>';
                 }
 
-                // Progress bar updates removed
-                document.getElementById('lastApprovedTime').textContent = 
-                    s.last_approved ? `Last: ${s.last_approved}` : 'No samples yet';
-
-                // Class breakdown
-                const breakdown = document.getElementById('classBreakdown');
-                const byClass = s.by_class || {};
-                const classConfidence = s.class_confidence || {};
-                if (Object.keys(byClass).length === 0) {
-                    breakdown.innerHTML = '<div class="text-[9px] text-gray-600 italic col-span-full">No samples exported yet. Approve assets to begin collecting training data.</div>';
-                } else {
-                    breakdown.innerHTML = Object.entries(byClass).map(([cls, cnt]) => {
-                        const cat = getTrainClassCategory(cls);
-                        const color = CLASS_COLORS_TRAIN[cat] || '#a8a29e';
-                        const pctBar = Math.min(100, (cnt / 300) * 100);
-                        const clsConf = typeof classConfidence[cls] === 'number' ? `${Math.round(classConfidence[cls] * 100)}%` : '--';
-                        const displayName = cls.replace(/_/g, ' ').toUpperCase();
-                        return `<div class="p-2 bg-gray-900/50 rounded-lg border border-white/5">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-[9px] font-bold uppercase" style="color:${color}">${displayName}</span>
-                                <span class="text-[9px] font-mono text-gray-400">${cnt}</span>
-                            </div>
-                            <div class="w-full bg-gray-800 rounded-full h-1">
-                                <div class="h-1 rounded-full transition-all" style="width:${pctBar}%;background:${color}"></div>
-                            </div>
-                            <div class="text-[7px] text-gray-500 mt-0.5">Identified: ${cnt}</div>
-                            <div class="text-[7px] text-gray-600">Avg Confidence: ${clsConf}</div>
-                            <div class="text-[7px] text-gray-600 mt-0.5">${cnt < 300 ? `Need ${300-cnt} more` : 'Ready'}</div>
-                        </div>`;
-                    }).join('');
+                const lastApprovedEl = document.getElementById('lastApprovedTime');
+                if (lastApprovedEl) {
+                    lastApprovedEl.textContent = s.last_approved ? `Last: ${s.last_approved}` : 'No samples yet';
                 }
-
-                // Weak class alert
-                if (s.weak_classes && s.weak_classes.length > 0) {
-                    document.getElementById('weakClassAlert').classList.remove('hidden');
-                    document.getElementById('weakClassList').textContent = s.weak_classes.join(', ');
-                } else {
-                    document.getElementById('weakClassAlert').classList.add('hidden');
-                }
-
-                // Recent training runs
-                if (s.recent_runs && s.recent_runs.length > 0) {
-                    document.getElementById('recentRunsSection').classList.remove('hidden');
-                    document.getElementById('recentRunsList').innerHTML = s.recent_runs.map(r => `
-                        <div class="flex justify-between items-center text-[9px] p-2 bg-white/3 rounded-lg border border-white/5">
-                            <span class="text-gray-400">${r.triggered_at}</span>
-                            <span class="text-gray-500">${r.sample_count} samples</span>
-                            <span class="font-bold px-2 py-0.5 rounded ${r.status === 'done' ? 'text-emerald-400 bg-emerald-500/10' : r.status === 'queued' ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 bg-white/5'}">${r.status}</span>
-                        </div>
-                    `).join('');
-                }
-
             } catch(e) {
-                // Silently fail — training pipeline optional
-                document.getElementById('classBreakdown').innerHTML = 
-                    '<div class="text-[9px] text-gray-600 italic col-span-full">Training stats unavailable.</div>';
+                console.warn('Training stats unavailable.', e);
             }
         }
 
@@ -919,6 +964,22 @@
         loadTasks();
         loadTrainingStats();
         loadUsers();
+
+        const detailsEl = document.querySelector('details');
+        if (detailsEl) {
+            detailsEl.addEventListener('toggle', (e) => {
+                const icon = e.target.querySelector('summary i');
+                if (icon) {
+                    if (e.target.open) {
+                        icon.classList.remove('fa-chevron-down');
+                        icon.classList.add('fa-chevron-up');
+                    } else {
+                        icon.classList.remove('fa-chevron-up');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                }
+            });
+        }
         setInterval(() => {
             updateStats();
             loadTasks();

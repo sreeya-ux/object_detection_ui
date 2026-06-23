@@ -415,6 +415,14 @@
                             <i class="fa-solid fa-brain text-blue-500 text-xs"></i> 
                             REAL-TIME ANALYSIS
                         </h2>
+                        <div class="flex items-center gap-2">
+                            <button id="btnUndo" onclick="undo()" class="btn-glass px-2.5 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1.5" title="Undo (Ctrl+Z)" disabled>
+                                <i class="fa-solid fa-rotate-left"></i> Undo
+                            </button>
+                            <button id="btnRedo" onclick="redo()" class="btn-glass px-2.5 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1.5" title="Redo (Ctrl+Y)" disabled>
+                                <i class="fa-solid fa-rotate-right"></i> Redo
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Master Identity Card -->

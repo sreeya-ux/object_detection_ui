@@ -794,3 +794,22 @@ h1, h2, h3 { font-family: 'Outfit', sans-serif; font-weight: 700; }
 .batch-thumb-add i {
     font-size: 14px;
 }
+
+.detection-box-selected {
+    stroke-width: 4 !important;
+    filter: url(#glow);
+    animation:
+        selectedPulse
+        1s
+        infinite
+        alternate;
+}
+
+@keyframes selectedPulse {
+    from {
+        opacity: .7;
+    }
+    to {
+        opacity: 1;
+    }
+}

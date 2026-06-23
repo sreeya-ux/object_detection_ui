@@ -104,19 +104,6 @@
                         <p class="text-[9px] text-gray-500 italic leading-relaxed">{{ asset.reason or 'No reason provided' }}</p>
                     </div>
                 </div>
-
-                <div>
-                    <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Controls</h3>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button onclick="undo()" class="btn-glass p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2" title="Undo (Ctrl+Z)">
-                            <i class="fa-solid fa-rotate-left"></i> Undo
-                        </button>
-                        <button onclick="redo()" class="btn-glass p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2" title="Redo (Ctrl+Y)">
-                            <i class="fa-solid fa-rotate-right"></i> Redo
-                        </button>
-                    </div>
-                </div>
-
                 <!-- Gallery -->
                 <div>
                     <h3 class="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-3">Gallery</h3>
@@ -162,21 +149,17 @@
 
             <!-- Toolbar -->
             <div class="flex flex-wrap items-center justify-between bg-white/5 border border-white/5 p-3 rounded-xl gap-3 sticky top-0 z-10 backdrop-blur-md">
-                <div class="flex items-center gap-2">
-                    <button onclick="undo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Undo (Ctrl+Z)">
+                <div class="flex items-center gap-3">
+                    <button id="btnUndo" onclick="undo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Undo (Ctrl+Z)">
                         <i class="fa-solid fa-rotate-left"></i> Undo
                     </button>
-                    <button onclick="redo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Redo (Ctrl+Y)">
+                    <button id="btnRedo" onclick="redo()" class="btn-glass px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2" title="Redo (Ctrl+Y)">
                         <i class="fa-solid fa-rotate-right"></i> Redo
                     </button>
-                    <div class="h-4 w-px bg-white/10 mx-2"></div>
-                    <div class="flex items-center gap-3 text-[9px] uppercase font-bold tracking-widest text-gray-500">
-                        <span class="text-blue-400/60"><i class="fa-solid fa-keyboard mr-1"></i> DEL Remove</span>
-                        <span class="text-blue-400/60"><i class="fa-solid fa-keyboard mr-1"></i> DblClick Relabel</span>
-                    </div>
+                    <span class="text-gray-600">|</span>
                 </div>
-                <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-4 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[9px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2">
-                    <i class="fa-solid fa-pencil"></i> Draw Box
+                <button id="btnDrawMode" onclick="toggleDrawMode()" class="px-5 py-2.5 rounded-lg bg-blue-600/10 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 shadow-lg shadow-blue-500/5">
+                    <i class="fa-solid fa-pencil"></i> DRAW BOX
                 </button>
             </div>
 
@@ -542,6 +525,7 @@ function saveState(idx) {
     const svg = document.getElementById(`svg-${idx}`);
     historyStack.push({ idx, data: svg.dataset.detections });
     redoStack = [];
+    updateUndoRedoButtons();
 }
 
 function undo() {
@@ -550,6 +534,7 @@ function undo() {
     redoStack.push({ idx: state.idx, data: document.getElementById(`svg-${state.idx}`).dataset.detections });
     document.getElementById(`svg-${state.idx}`).dataset.detections = state.data;
     initSVG(state.idx);
+    updateUndoRedoButtons();
 }
 
 function redo() {
@@ -558,6 +543,14 @@ function redo() {
     historyStack.push({ idx: state.idx, data: document.getElementById(`svg-${state.idx}`).dataset.detections });
     document.getElementById(`svg-${state.idx}`).dataset.detections = state.data;
     initSVG(state.idx);
+    updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+    const undoBtn = document.getElementById("btnUndo");
+    const redoBtn = document.getElementById("btnRedo");
+    if (undoBtn) undoBtn.disabled = historyStack.length === 0;
+    if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
 function syncDets(idx, dets) {
@@ -695,6 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     loadHistory();
+    updateUndoRedoButtons();
 
     // Gallery clicks
     document.querySelectorAll('.thumb-link').forEach(link => {

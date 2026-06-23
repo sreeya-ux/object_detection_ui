@@ -122,38 +122,146 @@ let pendingBbox = null;
 let historyStack = [];
 let redoStack = [];
 const MAX_HISTORY = 50;
+let selectedBoxIndex = null;
 let lastSaveTime = Date.now();
 
+function createSnapshot() {
+    return JSON.parse(JSON.stringify({
+        detections,
+        activeBatchIndex,
+        selectedBoxIndex,
+        imageDimensions
+    }));
+}
+
 function saveToHistory() {
-    if (historyStack.length >= MAX_HISTORY) historyStack.shift();
-    historyStack.push(JSON.stringify(detections));
-    redoStack = []; // Clear redo on new action
+    if (historyStack.length >= MAX_HISTORY)
+        historyStack.shift();
+
+    historyStack.push(
+        createSnapshot()
+    );
+
+    redoStack = [];
+
+    updateUndoRedoButtons();
+}
+
+function initHistory() {
+    historyStack = [
+        createSnapshot()
+    ];
+    redoStack = [];
+    updateUndoRedoButtons();
+}
+
+function restoreSnapshot(snapshot) {
+    detections =
+        JSON.parse(
+            JSON.stringify(snapshot.detections)
+        );
+
+    activeBatchIndex =
+        snapshot.activeBatchIndex;
+
+    selectedBoxIndex =
+        snapshot.selectedBoxIndex;
+
+    imageDimensions =
+        snapshot.imageDimensions;
+
+    if (activeBatchIndex !== -1) {
+        batchImages[
+            activeBatchIndex
+        ].detections =
+            JSON.parse(
+                JSON.stringify(detections)
+            );
+    }
+
+    renderResults();
+    renderBoxes();
+    saveDraft();
 }
 
 function undo() {
-    if (historyStack.length > 0) {
-        redoStack.push(JSON.stringify(detections));
-        detections = JSON.parse(historyStack.pop());
-        if (activeBatchIndex !== -1) {
-            batchImages[activeBatchIndex].detections = [...detections];
-        }
-        renderResults();
-        renderBoxes();
-        showToast("Undo", "primary");
-    }
+    if (historyStack.length <= 1)
+        return;
+
+    redoStack.push(
+        historyStack.pop()
+    );
+
+    restoreSnapshot(
+        historyStack[
+            historyStack.length - 1
+        ]
+    );
+
+    updateUndoRedoButtons();
+    showToast(
+        "Undo",
+        "primary"
+    );
 }
 
 function redo() {
-    if (redoStack.length > 0) {
-        historyStack.push(JSON.stringify(detections));
-        detections = JSON.parse(redoStack.pop());
-        if (activeBatchIndex !== -1) {
-            batchImages[activeBatchIndex].detections = [...detections];
-        }
-        renderResults();
-        renderBoxes();
-        showToast("Redo", "primary");
-    }
+    if (!redoStack.length)
+        return;
+
+    const state =
+        redoStack.pop();
+
+    historyStack.push(state);
+    restoreSnapshot(state);
+    updateUndoRedoButtons();
+    showToast(
+        "Redo",
+        "primary"
+    );
+}
+
+function updateUndoRedoButtons() {
+    const undoBtn =
+        document.getElementById(
+            "btnUndo"
+        );
+
+    const redoBtn =
+        document.getElementById(
+            "btnRedo"
+        );
+
+    if (undoBtn)
+        undoBtn.disabled =
+            historyStack.length <= 1;
+
+    if (redoBtn)
+        redoBtn.disabled =
+            redoStack.length === 0;
+}
+
+function deleteSelectedDetection() {
+    if (
+        selectedBoxIndex === null
+    )
+        return;
+
+    saveToHistory();
+    detections.splice(
+        selectedBoxIndex,
+        1
+    );
+
+    selectedBoxIndex = null;
+    renderResults();
+    renderBoxes();
+    saveDraft();
+    updateUndoRedoButtons();
+    showToast(
+        "Detection removed",
+        "primary"
+    );
 }
 
 function saveDraft() {
@@ -238,8 +346,7 @@ function checkAndRestoreDraft() {
             imageDimensions = draft.imageDimensions || {};
 
             // Initialize history stack for restored draft state
-            historyStack = [];
-            redoStack = [];
+            initHistory();
 
             // Restore preview image
             if (batchImages[activeBatchIndex]?.src) {
@@ -462,12 +569,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey || e.metaKey) {
-            if (e.key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-            if (e.key === 's') { e.preventDefault(); saveDraft(); }
+        const ctrl =
+            e.ctrlKey || e.metaKey;
+
+        if (ctrl) {
+            if (
+                e.key.toLowerCase() === 'z'
+            ) {
+                e.preventDefault();
+                e.shiftKey
+                    ? redo()
+                    : undo();
+            }
+
+            if (
+                e.key.toLowerCase() === 's'
+            ) {
+                e.preventDefault();
+                saveDraft();
+            }
         }
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            // Logic to delete selected box if applicable
+
+        if (
+            e.key === 'Delete' ||
+            e.key === 'Backspace'
+        ) {
+            e.preventDefault();
+            deleteSelectedDetection();
         }
     });
 
@@ -1086,8 +1214,7 @@ function selectBatchImage(index) {
     imageDimensions = { ...item.dims };
 
     // Initialize history stack for the new image state to enable Undo/Redo
-    historyStack = [];
-    redoStack = [];
+    initHistory();
 
     // Update UI
     document.getElementById('preview').src = item.src;
@@ -1921,6 +2048,8 @@ function toggleConfirmGlobal(imgIdx, detIdx) {
     }
     renderResults();
     renderBoxes();
+    saveDraft();
+    updateUndoRedoButtons();
 }
 
 function removeDetectionGlobal(imgIdx, detIdx) {
@@ -1931,6 +2060,8 @@ function removeDetectionGlobal(imgIdx, detIdx) {
     }
     renderResults();
     renderBoxes();
+    saveDraft();
+    updateUndoRedoButtons();
 }
 
 function toggleConfirm(index) {
@@ -1959,6 +2090,8 @@ function bulkConfirmAll() {
     
     renderResults();
     renderBoxes();
+    saveDraft();
+    updateUndoRedoButtons();
 }
 
 function removeGroup(label) {
@@ -2048,9 +2181,64 @@ function renderBoxes() {
 
         shape.setAttribute("id", `box-${i}`);
         shape.classList.add("detection-box");
+        if (selectedBoxIndex === i) {
+            shape.classList.add("detection-box-selected");
+        }
         shape.style.pointerEvents = "auto";
         if (obj.manual) shape.classList.add("manual-box");
         overlay.appendChild(shape);
+
+        shape.addEventListener(
+            "click",
+            () => {
+                document
+                    .querySelectorAll(
+                        ".detection-box-selected"
+                    )
+                    .forEach(
+                        el =>
+                            el.classList.remove(
+                                "detection-box-selected"
+                            )
+                    );
+
+                shape.classList.add(
+                    "detection-box-selected"
+                );
+
+                selectedBoxIndex = i;
+            }
+        );
+
+        shape.addEventListener(
+            "dblclick",
+            () => {
+                selectedBoxIndex = i;
+                const current =
+                    detections[i].label;
+
+                const nextLabel =
+                    prompt(
+                        "Change class:",
+                        current
+                    );
+
+                if (
+                    !nextLabel ||
+                    nextLabel === current
+                )
+                    return;
+
+                saveToHistory();
+                detections[i].label =
+                    nextLabel.toUpperCase();
+
+                renderResults();
+                renderBoxes();
+                saveDraft();
+                updateUndoRedoButtons();
+            }
+        );
 
         // --- 2. Calculate Label Position ---
         let labelX = x;
@@ -2591,6 +2779,8 @@ function saveManualDraw(labelOverride = null) {
     cancelManualDraw();
     renderResults();
     renderBoxes();
+    saveDraft();
+    updateUndoRedoButtons();
     showToast(`Added manual ${label}`, "success");
 }
 

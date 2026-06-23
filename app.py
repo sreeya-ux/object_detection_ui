@@ -2880,14 +2880,38 @@ def delete_asset_image():
 @admin_required
 def get_asset_history(asset_id):
     conn = get_db_connection()
-    logs = conn.execute('''
-        SELECT user_name, action, details, timestamp
-        FROM activity_logs 
-        WHERE details LIKE ? 
-        ORDER BY timestamp ASC
-    ''', (f'%{asset_id}%',)).fetchall()
-    conn.close()
-    return jsonify([dict(l) for l in logs])
+    try:
+        asset = conn.execute('SELECT worker_name, timestamp FROM assets WHERE id = ?', (asset_id,)).fetchone()
+        if not asset:
+            return jsonify({"worker_name": "Unknown", "submitted_at": "", "images": [], "logs": []})
+        
+        image_rows = conn.execute('SELECT image_b64, detections FROM asset_images WHERE asset_id = ?', (asset_id,)).fetchall()
+        images = []
+        for row in image_rows:
+            dets = parse_db_json(row['detections'])
+            images.append({
+                "image_b64": row['image_b64'],
+                "detections": dets
+            })
+            
+        logs = conn.execute('''
+            SELECT user_name, action, details, timestamp
+            FROM activity_logs 
+            WHERE details LIKE ? 
+            ORDER BY timestamp ASC
+        ''', (f'%{asset_id}%',)).fetchall()
+        
+        return jsonify({
+            "worker_name": asset['worker_name'],
+            "submitted_at": asset['timestamp'],
+            "images": images,
+            "logs": [dict(l) for l in logs]
+        })
+    except Exception as e:
+        print(f"[app] Error fetching history for asset {asset_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 
 # =========================
 # TRAINING PIPELINE API
