@@ -224,9 +224,9 @@ class InfrastructurePipeline:
 
         # 4. Finalize
         ins_b = self._nms(ins_b, 0.35) # Stricter NMS to prevent insulator overlaps
-        pole_b = self._merge_boxes(pole_b, 0.45)
+        pole_b = self._merge_boxes(pole_b, 0.45)  # Merge duplicate pole detections by overlap
         arm_b = self._nms(arm_b, 0.40) # 0.40 NMS prevents double-boxes without deleting adjacent arms
-        cond_b = self._merge_boxes(cond_b, 0.30) # Consolidate overlapping conductor boxes into single entity
+        cond_b = self._merge_boxes(cond_b, 0.30, proximity_ratio=1.5)  # Merge conductors by overlap OR proximity
         other_b = self._nms(other_b, 0.40) # Suppress duplicate hardware/special clamp/street light detections
         
         ins_results = []
@@ -448,8 +448,16 @@ class InfrastructurePipeline:
             items = [i for i in items if self._iou(best[0], i[0]) < thresh]
         return keep
 
-    def _merge_boxes(self, items, thresh):
+    def _merge_boxes(self, items, thresh, proximity_ratio=0.0):
+        """Merge overlapping or nearby boxes into single unified entries.
+        
+        thresh: IoU threshold for merging (boxes with IoU >= thresh are merged).
+        proximity_ratio: If > 0, also merges boxes whose centroids are within
+                         (proximity_ratio * max(width, height)) pixels, even if IoU < thresh.
+                         Useful for conductors that share the same line but have gaps.
+        """
         if not items: return []
+        items = list(items)
         items.sort(key=lambda x: x[1], reverse=True)
         keep = []
         while items:
@@ -458,11 +466,26 @@ class InfrastructurePipeline:
             i = 0
             while i < len(items):
                 other = items[i]
-                if self._iou(best[0], other[0]) >= thresh:
-                    best_box[0] = min(best_box[0], other[0][0])
-                    best_box[1] = min(best_box[1], other[0][1])
-                    best_box[2] = max(best_box[2], other[0][2])
-                    best_box[3] = max(best_box[3], other[0][3])
+                ob = other[0]
+                # Check IoU-based overlap
+                iou_val = self._iou(tuple(best_box), ob)
+                should_merge = iou_val >= thresh
+                # Check proximity if requested
+                if not should_merge and proximity_ratio > 0:
+                    cx1 = (best_box[0] + best_box[2]) / 2.0
+                    cy1 = (best_box[1] + best_box[3]) / 2.0
+                    cx2 = (ob[0] + ob[2]) / 2.0
+                    cy2 = (ob[1] + ob[3]) / 2.0
+                    diag = max(best_box[2] - best_box[0], best_box[3] - best_box[1],
+                               ob[2] - ob[0], ob[3] - ob[1], 1.0)
+                    dist = math.sqrt((cx1 - cx2)**2 + (cy1 - cy2)**2)
+                    should_merge = dist < proximity_ratio * diag
+                if should_merge:
+                    # Expand the merged bounding box to encompass both
+                    best_box[0] = min(best_box[0], ob[0])
+                    best_box[1] = min(best_box[1], ob[1])
+                    best_box[2] = max(best_box[2], ob[2])
+                    best_box[3] = max(best_box[3], ob[3])
                     best[0] = tuple(best_box)
                     items.pop(i)
                 else:

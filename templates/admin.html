@@ -582,23 +582,33 @@
                 groups[category].push({ ...d, originalIndex: i, displayLabel: lbl });
             });
 
+            // Category display order
+            const CATEGORY_ORDER = ['POLES', 'CONDUCTORS', 'INSULATORS', 'CROSSARMS', 'OTHERS'];
+            const CATEGORY_ICONS = { POLES: 'fa-tower-broadcast', CONDUCTORS: 'fa-bezier-curve', INSULATORS: 'fa-bolt', CROSSARMS: 'fa-compass-drafting', OTHERS: 'fa-tag' };
             const colors = { INSULATORS: '#f59e0b', POLES: '#8b5cf6', CONDUCTORS: '#06b6d4', CROSSARMS: '#10b981', OTHERS: '#94a3b8' };
 
-            for (const label in groups) {
+            const orderedCategories = CATEGORY_ORDER.filter(c => groups[c]);
+            // Append any unexpected categories at the end
+            Object.keys(groups).forEach(c => { if (!orderedCategories.includes(c)) orderedCategories.push(c); });
+
+            for (const label of orderedCategories) {
                 const items = groups[label];
+                if (!items || items.length === 0) continue;
                 const col = colors[label] || '#3b82f6';
+                const icon = CATEGORY_ICONS[label] || 'fa-tag';
                 const allConfirmed = items.every(it => it.confirmed !== false);
                 const isExpanded = expandedAdminGroups.has(label);
 
                 const groupEl = document.createElement('div');
-                groupEl.className = "mb-2 border border-gray-800 rounded-lg overflow-hidden bg-gray-900/50";
+                groupEl.className = "mb-2 border border-gray-800 rounded-xl overflow-hidden bg-gray-900/50";
                 
                 groupEl.innerHTML = `
-                    <div class="flex items-center justify-between p-2 cursor-pointer hover:bg-gray-800 transition-colors" onclick="toggleAdminGroup('${label}')">
-                        <div class="flex items-center gap-2">
-                            <i class="fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[8px] text-gray-600"></i>
-                            <span class="text-[10px] font-bold" style="color: ${col}">${label}S</span>
-                            <span class="text-[8px] bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded-full font-mono">${items.length}</span>
+                    <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-gray-800/80 transition-colors" onclick="toggleAdminGroup('${label}')">
+                        <div class="flex items-center gap-2.5">
+                            <i class="fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[8px] text-gray-500"></i>
+                            <i class="fa-solid ${icon} text-[9px]" style="color: ${col}"></i>
+                            <span class="text-[10px] font-bold uppercase tracking-widest" style="color: ${col}">${label}</span>
+                            <span class="text-[8px] bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded-full font-mono border border-gray-700">${items.length}</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <button onclick="event.stopPropagation(); bulkAdminConfirm('${label}', ${!allConfirmed})" 
@@ -607,22 +617,27 @@
                             </button>
                         </div>
                     </div>
-                    <div id="admin-group-${label}" class="${isExpanded ? '' : 'hidden'} p-1 space-y-1 bg-black/20 border-t border-gray-800/50">
+                    <div id="admin-group-${label}" class="${isExpanded ? '' : 'hidden'} px-2 py-1 space-y-1 bg-black/20 border-t border-gray-800/50">
                         ${items.map(it => {
                             const i = it.originalIndex;
                             const isConfirmed = it.confirmed !== false;
+                            const conf = it.confidence ? Math.round(it.confidence * 100) + '%' : '--';
+                            const displayName = (it.displayLabel || it.label || 'OBJECT').replace(/_/g, ' ');
                             return `
-                                <div class="flex justify-between items-center text-[9px] p-2 ${isConfirmed ? 'bg-gray-800/50' : 'bg-rose-500/5 opacity-60'} rounded border ${isConfirmed ? 'border-gray-700/50' : 'border-rose-500/20'}">
+                                <div class="flex justify-between items-center text-[9px] px-2 py-1.5 ${isConfirmed ? 'bg-gray-800/50' : 'bg-rose-500/5 opacity-70'} rounded border ${isConfirmed ? 'border-gray-700/30' : 'border-rose-500/20'}">
                                     <div class="flex items-center gap-2">
-                                        <div class="w-1 h-1 rounded-full" style="background: ${col}"></div>
-                                        <span class="font-bold text-gray-400 uppercase">${label} #${i+1}</span>
+                                        <div class="w-1.5 h-1.5 rounded-full" style="background: ${col}"></div>
+                                        <div>
+                                            <span class="font-bold text-gray-300 uppercase text-[9px]">${displayName}</span>
+                                            <span class="text-gray-600 ml-1 font-mono text-[8px]">${conf}</span>
+                                        </div>
                                     </div>
-                                    <div class="flex items-center gap-2">
-                                        <button onclick="toggleAdminConfirm(${i})" class="w-6 h-6 flex items-center justify-center rounded ${isConfirmed ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-500 border border-white/5'}">
-                                            <i class="fa-solid ${isConfirmed ? 'fa-check' : 'fa-xmark'}"></i>
+                                    <div class="flex items-center gap-1.5">
+                                        <button onclick="toggleAdminConfirm(${i})" class="w-6 h-6 flex items-center justify-center rounded ${isConfirmed ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-500 border border-white/5'}" title="${isConfirmed ? 'Uncheck' : 'Check'}">
+                                            <i class="fa-solid ${isConfirmed ? 'fa-check' : 'fa-xmark'} text-[8px]"></i>
                                         </button>
-                                        <button onclick="removeAdminDetection(${i})" class="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-rose-500">
-                                            <i class="fa-solid fa-trash-can"></i>
+                                        <button onclick="removeAdminDetection(${i})" class="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-rose-500 transition-colors" title="Remove">
+                                            <i class="fa-solid fa-trash-can text-[8px]"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -652,13 +667,18 @@
             renderAdminOverlay(task);
         }
 
-        function bulkAdminConfirm(label, state) {
+        // Fix bulkAdminConfirm to work with category-based grouping
+        function bulkAdminConfirm(category, state) {
             const task = allTasksCached.find(t => t.id === currentTaskId);
             if (!task) return;
             task.detections.forEach(d => {
-                if ((d.label || '').toUpperCase() === label) {
-                    d.confirmed = state;
-                }
+                const lbl = (d.label || '').toUpperCase();
+                let cat = 'OTHERS';
+                if (lbl.includes('POLE')) cat = 'POLES';
+                else if (lbl.includes('CONDUCTOR') || lbl.includes('WIRE') || lbl.includes('CLEAT')) cat = 'CONDUCTORS';
+                else if (lbl.includes('INSULATOR') || lbl === 'INS_PIN' || lbl === 'INS_DISC') cat = 'INSULATORS';
+                else if (lbl.includes('ARM') || lbl.includes('CROSS') || lbl.includes('CHANNEL') || lbl.includes('RISING')) cat = 'CROSSARMS';
+                if (cat === category) d.confirmed = state;
             });
             renderAdminDetections(task);
             renderAdminOverlay(task);
