@@ -127,18 +127,16 @@
         </div>
 
         <div class="mt-8">
-            <div class="flex items-center justify-between">
-                        <h2 class="text-xl font-bold flex items-center gap-2">
-                            <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
-                        </h2>
-                        <div class="flex items-center gap-3">
-                            <div class="flex gap-2">
-                                <button id="filterBtn-pending" onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50 transition-all">Pending</button>
-                                <button id="filterBtn-approved" onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Recent Approved</button>
-                                <button id="filterBtn-rejected" onclick="filterTasks('rejected')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Rejected</button>
-                            </div>
-                        </div>
-                    </div>
+            <div class="flex items-center justify-between pb-4">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
+                </h2>
+                <div class="flex gap-2">
+                    <button id="filterBtn-pending" onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50 transition-all">Pending</button>
+                    <button id="filterBtn-approved" onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Recent Approved</button>
+                    <button id="filterBtn-rejected" onclick="filterTasks('rejected')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Rejected</button>
+                </div>
+            </div>
 
         <main id="taskList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <!-- Loading indicator -->
@@ -775,30 +773,7 @@
             updateUndoRedoButtons();
         }
 
-        function updateUndoRedoButtons() {
-            const undoBtn = document.getElementById('btnAdminUndo');
-            const redoBtn = document.getElementById('btnAdminRedo');
-            
-            if (adminHistoryStack.length > 0) {
-                undoBtn.disabled = false;
-                undoBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'text-gray-500');
-                undoBtn.classList.add('text-gray-400');
-            } else {
-                undoBtn.disabled = true;
-                undoBtn.classList.add('opacity-50', 'cursor-not-allowed', 'text-gray-500');
-                undoBtn.classList.remove('text-gray-400');
-            }
-            
-            if (adminRedoStack.length > 0) {
-                redoBtn.disabled = false;
-                redoBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'text-gray-500');
-                redoBtn.classList.add('text-gray-400');
-            } else {
-                redoBtn.disabled = true;
-                redoBtn.classList.add('opacity-50', 'cursor-not-allowed', 'text-gray-500');
-                redoBtn.classList.remove('text-gray-400');
-            }
-        }
+        function updateUndoRedoButtons() { /* buttons removed */ }
 
         function filterTasks(status) {
             currentFilter = status;
@@ -1172,20 +1147,7 @@
             loadTasks();
             loadTrainingStats();
         }, 30000); // Refresh every 30s
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-                e.preventDefault();
-                if (!document.getElementById('btnAdminUndo').disabled) {
-                    undoAdminAction();
-                }
-            }
-            if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-                e.preventDefault();
-                if (!document.getElementById('btnAdminRedo').disabled) {
-                    redoAdminAction();
-                }
-            }
-        });
+        // Keyboard shortcuts removed (undo/redo buttons removed)
     </script>
 </body>
 </html>
