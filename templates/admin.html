@@ -132,14 +132,6 @@
                             <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
                         </h2>
                         <div class="flex items-center gap-3">
-                            <div class="flex items-center gap-2 mr-4 border-r border-white/5 pr-4">
-                                <button id="btnAdminUndo" onclick="undoAdminAction()" disabled class="btn-glass flex items-center gap-2 text-[10px] font-bold px-3 py-1.5 rounded-lg" title="Undo (Ctrl+Z)">
-                                    <i class="fa-solid fa-rotate-left"></i> Undo
-                                </button>
-                                <button id="btnAdminRedo" onclick="redoAdminAction()" disabled class="btn-glass flex items-center gap-2 text-[10px] font-bold px-3 py-1.5 rounded-lg" title="Redo (Ctrl+Y)">
-                                    <i class="fa-solid fa-rotate-right"></i> Redo
-                                </button>
-                            </div>
                             <div class="flex gap-2">
                                 <button id="filterBtn-pending" onclick="filterTasks('pending')" class="text-xs bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 hover:bg-blue-900/50 transition-all">Pending</button>
                                 <button id="filterBtn-approved" onclick="filterTasks('approved')" class="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full border border-transparent hover:bg-gray-700 transition-all">Recent Approved</button>
