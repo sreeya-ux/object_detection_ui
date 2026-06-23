@@ -39,7 +39,7 @@
                     <div class="font-bold text-blue-400">Administrator</div>
                 </div>
 
-                <a href="/" class="btn-primary flex items-center gap-2 font-bold text-xs"><i class="fa-solid fa-home"></i> User UI</a>
+                <a href="/" onclick="saveAdminContext()" class="btn-primary flex items-center gap-2 font-bold text-xs"><i class="fa-solid fa-home"></i> User UI</a>
                 <a href="/logout" class="text-red-400 hover:text-red-300 ml-4"><i class="fa-solid fa-right-from-bracket"></i></a>
             </div>
         </header>
@@ -127,7 +127,7 @@
         </div>
 
         <div class="mt-8">
-            <div class="flex items-center justify-between pb-4">
+            <div class="flex items-center justify-between mb-6">
                 <h2 class="text-xl font-bold flex items-center gap-2">
                     <i class="fa-solid fa-list-ul text-blue-400"></i> Submissions Queue
                 </h2>
@@ -236,6 +236,8 @@
         } catch(e) {}
         let adminHistoryStack = [];
         let adminRedoStack = [];
+        let learningHistoryStack = [];
+        let learningRedoStack = [];
         let adminActionsLog = [];
         let allTasksCached = [];
         let expandedAdminGroups = new Set();
@@ -452,7 +454,7 @@
                         <i class="fa-solid fa-trash-can text-[10px]"></i>
                     </button>
 
-                    <a href="/admin/asset/${task.id}" class="block">
+                    <a href="/admin/asset/${task.id}" class="block" onclick="event.preventDefault(); openReview('${task.id}');">
                         <div class="flex justify-between items-start mb-3">
                             <div>
                                 <p class="text-[10px] text-gray-500 font-mono mb-0.5">ID: ${task.id.split('-')[0]}</p>
@@ -464,13 +466,16 @@
                             </div>
                             <span class="badge ${task.status === 'pending' ? 'bg-amber-900/20 text-amber-500 border-amber-500/30' : task.status === 'approved' ? 'bg-emerald-900/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-900/20 text-rose-500 border-rose-500/30'} text-[10px] px-2 py-0.5 border rounded-full font-bold uppercase tracking-widest">${task.status}</span>
                         </div>
-                        <div class="aspect-[4/3] bg-gray-800 rounded-xl overflow-hidden mb-3 border border-white/5 relative group-hover:border-blue-500/50 transition-all">
-                            <img src="${formatB64(task.thumbnail)}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div class="aspect-[4/3] bg-gray-800 rounded-xl overflow-hidden mb-3 border border-white/5 relative group-hover:border-blue-500/50 transition-all cursor-pointer" onclick="event.preventDefault(); openReview('${task.id}');">
+                            <img src="${formatB64(task.thumbnail)}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
                         </div>
                     </a>
-                    <div class="mt-3">
+                    <div class="mt-3 flex gap-2">
+                        <a href="/admin/asset/${task.id}" class="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 border border-white/5">
+                            <i class="fa-solid fa-pen-ruler"></i> Studio
+                        </a>
                         <button onclick="event.stopPropagation(); openHistory('${task.id}', '${task.worker_name}')" 
-                            class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
+                            class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
                             <i class="fa-solid fa-clock-rotate-left"></i> Logs
                         </button>
                     </div>
@@ -562,7 +567,7 @@
             const groups = {};
             dets.forEach((d, i) => {
                 const lbl = (d.label || 'OBJECT').toUpperCase();
-                let category = 'OTHERS';
+                let category = 'OTHER';
                 if (lbl.includes('POLE')) category = 'POLES';
                 else if (lbl.includes('CONDUCTOR') || lbl.includes('WIRE') || lbl.includes('CLEAT')) category = 'CONDUCTORS';
                 else if (lbl.includes('INSULATOR') || lbl === 'INS_PIN' || lbl === 'INS_DISC') category = 'INSULATORS';
@@ -573,9 +578,9 @@
             });
 
             // Category display order
-            const CATEGORY_ORDER = ['POLES', 'CONDUCTORS', 'INSULATORS', 'CROSSARMS', 'OTHERS'];
-            const CATEGORY_ICONS = { POLES: 'fa-tower-broadcast', CONDUCTORS: 'fa-bezier-curve', INSULATORS: 'fa-bolt', CROSSARMS: 'fa-compass-drafting', OTHERS: 'fa-tag' };
-            const colors = { INSULATORS: '#f59e0b', POLES: '#8b5cf6', CONDUCTORS: '#06b6d4', CROSSARMS: '#10b981', OTHERS: '#94a3b8' };
+            const CATEGORY_ORDER = ['POLES', 'CONDUCTORS', 'INSULATORS', 'CROSSARMS', 'OTHER'];
+            const CATEGORY_ICONS = { POLES: 'fa-tower-broadcast', CONDUCTORS: 'fa-bezier-curve', INSULATORS: 'fa-bolt', CROSSARMS: 'fa-compass-drafting', OTHER: 'fa-tag' };
+            const colors = { INSULATORS: '#f59e0b', POLES: '#8b5cf6', CONDUCTORS: '#06b6d4', CROSSARMS: '#10b981', OTHER: '#94a3b8' };
 
             const orderedCategories = CATEGORY_ORDER.filter(c => groups[c]);
             // Append any unexpected categories at the end
@@ -663,7 +668,7 @@
             if (!task) return;
             task.detections.forEach(d => {
                 const lbl = (d.label || '').toUpperCase();
-                let cat = 'OTHERS';
+                let cat = 'OTHER';
                 if (lbl.includes('POLE')) cat = 'POLES';
                 else if (lbl.includes('CONDUCTOR') || lbl.includes('WIRE') || lbl.includes('CLEAT')) cat = 'CONDUCTORS';
                 else if (lbl.includes('INSULATOR') || lbl === 'INS_PIN' || lbl === 'INS_DISC') cat = 'INSULATORS';
@@ -773,7 +778,77 @@
             updateUndoRedoButtons();
         }
 
-        function updateUndoRedoButtons() { /* buttons removed */ }
+        function saveAdminContext() {
+            try {
+                localStorage.setItem('asakta_admin_context', JSON.stringify({
+                    filter: currentFilter,
+                    taskId: currentTaskId,
+                    expandedGroups: Array.from(expandedAdminGroups),
+                    datasetOpen: document.getElementById('activeDatasetDetails')?.open || false,
+                    savedAt: Date.now()
+                }));
+            } catch (e) {}
+        }
+
+        function restoreAdminContext() {
+            try {
+                const raw = localStorage.getItem('asakta_admin_context');
+                if (!raw) return;
+                const ctx = JSON.parse(raw);
+                if (ctx.filter) filterTasks(ctx.filter);
+                if (ctx.expandedGroups) expandedAdminGroups = new Set(ctx.expandedGroups);
+                const detailsEl = document.getElementById('activeDatasetDetails');
+                if (detailsEl && typeof ctx.datasetOpen === 'boolean') detailsEl.open = ctx.datasetOpen;
+                if (ctx.taskId && allTasksCached.some(t => t.id === ctx.taskId)) {
+                    openReview(ctx.taskId);
+                }
+            } catch (e) {}
+        }
+
+        function pushLearningAction(action, payload) {
+            learningHistoryStack.push({ action, payload, timestamp: new Date().toLocaleString() });
+            learningRedoStack = [];
+            adminActionsLog.unshift({ action: `[Learning Pool] ${action}`, timestamp: new Date().toLocaleString() });
+            renderAdminActionLog();
+            updateLearningUndoRedoButtons();
+        }
+
+        function undoLearningAction() {
+            if (!learningHistoryStack.length) return;
+            const last = learningHistoryStack.pop();
+            learningRedoStack.push(last);
+            adminActionsLog.unshift({ action: `UNDID learning action: ${last.action}`, timestamp: new Date().toLocaleString() });
+            renderAdminActionLog();
+            updateLearningUndoRedoButtons();
+        }
+
+        function redoLearningAction() {
+            if (!learningRedoStack.length) return;
+            const last = learningRedoStack.pop();
+            learningHistoryStack.push(last);
+            adminActionsLog.unshift({ action: `REDID learning action: ${last.action}`, timestamp: new Date().toLocaleString() });
+            renderAdminActionLog();
+            updateLearningUndoRedoButtons();
+        }
+
+        function updateLearningUndoRedoButtons() {
+            const undoBtn = document.getElementById('btnLearningUndo');
+            const redoBtn = document.getElementById('btnLearningRedo');
+            if (!undoBtn || !redoBtn) return;
+            undoBtn.disabled = learningHistoryStack.length === 0;
+            redoBtn.disabled = learningRedoStack.length === 0;
+            [undoBtn, redoBtn].forEach(btn => {
+                if (btn.disabled) {
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        }
+
+        function updateUndoRedoButtons() {
+            // Buttons removed from UI — no-op
+        }
 
         function filterTasks(status) {
             currentFilter = status;
@@ -1023,14 +1098,15 @@
         async function restoreUserState(username) {
             if (!confirm(`Are you sure you want to RESTORE the active state for user '${username}'? This will keep/verify their session drafts.`)) return;
             try {
-                const res = await fetch(`/api/admin/users/${username}/security/restore`, { method: 'POST' });
+                const res = await fetch(`/api/admin/users/${username}/security/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmed: true })
+                });
                 const data = await res.json();
                 alert(data.message);
                 if (data.status === 'success') {
-                    if (typeof adminActionsLog !== 'undefined') {
-                        adminActionsLog.unshift({ action: `Restored session state for ${username}`, timestamp: new Date().toLocaleString() });
-                        renderAdminActionLog();
-                    }
+                    pushLearningAction(`Restored session state for ${username}`, { username });
                 }
             } catch(e) {
                 alert('Connection error while trying to restore user state');
@@ -1039,15 +1115,17 @@
 
         async function discardUserChanges(username) {
             if (!confirm(`WARNING: Are you sure you want to DISCARD all draft changes for user '${username}'? This will clear their uncommitted work and cannot be undone.`)) return;
+            if (!confirm(`Final confirmation: permanently discard all drafts for '${username}'?`)) return;
             try {
-                const res = await fetch(`/api/admin/users/${username}/security/discard`, { method: 'POST' });
+                const res = await fetch(`/api/admin/users/${username}/security/discard`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmed: true })
+                });
                 const data = await res.json();
                 alert(data.message);
                 if (data.status === 'success') {
-                    if (typeof adminActionsLog !== 'undefined') {
-                        adminActionsLog.unshift({ action: `Discarded draft changes for ${username}`, timestamp: new Date().toLocaleString() });
-                        renderAdminActionLog();
-                    }
+                    pushLearningAction(`Discarded draft changes for ${username}`, { username });
                 }
             } catch(e) {
                 alert('Connection error while trying to discard user changes');
@@ -1104,6 +1182,9 @@
         filterTasks(currentFilter);
         loadTrainingStats();
         loadUsers();
+        restoreAdminContext();
+        updateUndoRedoButtons();
+        updateLearningUndoRedoButtons();
 
         // Restore activeDatasetDetails open state from localStorage
         try {
@@ -1147,7 +1228,20 @@
             loadTasks();
             loadTrainingStats();
         }, 30000); // Refresh every 30s
-        // Keyboard shortcuts removed (undo/redo buttons removed)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                if (adminHistoryStack.length > 0) {
+                    undoAdminAction();
+                }
+            }
+            if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+                e.preventDefault();
+                if (adminRedoStack.length > 0) {
+                    redoAdminAction();
+                }
+            }
+        });
     </script>
 </body>
 </html>
