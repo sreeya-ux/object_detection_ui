@@ -1291,8 +1291,26 @@ def process_image_file(file_stream, fast_mode=False, enable_ocr=True):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 
-            mask_binary = (mask > 0.85).astype(np.uint8) * 255
+            # 1. Lower sigmoid threshold to 0.60 to capture faint wires
+            mask_binary = (mask > 0.60).astype(np.uint8) * 255
             mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
+
+            # 2. Hybrid enhancement: extract straight line segments (Canny + HoughLinesP)
+            try:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+                edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
+                # Probabilistic Hough Line Transform to detect faint/thin straight conductor segments
+                lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=80, minLineLength=120, maxLineGap=45)
+                if lines is not None:
+                    hough_mask = np.zeros((h, w), dtype=np.uint8)
+                    for line in lines:
+                        x1, y1, x2, y2 = line[0]
+                        cv2.line(hough_mask, (x1, y1), (x2, y2), 255, 3)
+                    # Merge lines with the UNet output
+                    mask_resized = cv2.bitwise_or(mask_resized, hough_mask)
+            except Exception as he:
+                print(f"[HYBRID-CONDUCTOR-WARNING] Hough enhancement skipped: {he}", flush=True)
 
             # Thickness Measurement via Distance Transform & Skeletonize
             dist = cv2.distanceTransform(mask_resized, cv2.DIST_L2, 5)
@@ -1905,15 +1923,17 @@ def _time_gap_to_group(track, group):
 def _same_physical_pole(track, group, frame_width=None, temporal_gap_max_frames=15):
     if track["label"] != group["label"]:
         return False
-    track_id = track.get("track_id")
-    if track_id is not None and track_id in group.get("track_ids", []):
-        return True
     temporal_gap = _time_gap_to_group(track, group)
     if temporal_gap >= temporal_gap_max_frames:
         return False
     a = _track_edge_bbox(group, "end")
     b = _track_edge_bbox(track, "start")
     width_threshold = max(1.0, (frame_width or max(a[2], b[2], 1)) * 0.15)
+    if _track_centroid_distance_px(a, b) >= width_threshold:
+        return False
+    track_id = track.get("track_id")
+    if track_id is not None and track_id in group.get("track_ids", []):
+        return True
     return _track_centroid_distance_px(a, b) < width_threshold
 
 def _merge_pole_track_fragments(tracks, frame_width, temporal_gap_max_frames=15):
@@ -2662,6 +2682,38 @@ def get_draft(draft_id):
     if draft:
         return jsonify({"status": "success", "data": draft['data']})
     return jsonify({"status": "error", "message": "Draft not found"}), 404
+
+@app.route('/api/admin/users/<username>/security/restore', methods=['POST'])
+@login_required
+def admin_user_security_restore(username):
+    if session.get('role') != 'admin':
+        return jsonify({"status": "error", "message": "Admin access required"}), 403
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"status": "error", "message": "User not found"}), 404
+    log_activity(session.get('user', 'admin'), "security_restore", f"Restored session state for user: {username}")
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": f"Successfully restored security state for user {username}."})
+
+@app.route('/api/admin/users/<username>/security/discard', methods=['POST'])
+@login_required
+def admin_user_security_discard(username):
+    if session.get('role') != 'admin':
+        return jsonify({"status": "error", "message": "Admin access required"}), 403
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"status": "error", "message": "User not found"}), 404
+    conn.execute("DELETE FROM drafts WHERE id LIKE ?", (f"%_{username}",))
+    log_activity(session.get('user', 'admin'), "security_discard", f"Discarded draft changes for user: {username}")
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": f"Successfully discarded changes and drafts for user {username}."})
+
 
 @app.route('/api/download_annotated/<asset_id>')
 @login_required

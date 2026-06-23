@@ -2188,6 +2188,76 @@ function renderBoxes() {
         if (obj.manual) shape.classList.add("manual-box");
         overlay.appendChild(shape);
 
+        // --- Drag/Move Logic for Manual Edits ---
+        shape.addEventListener('mousedown', (e) => {
+            if (isDrawMode || !obj.bbox) return;
+            e.stopPropagation();
+            let isDragging = true;
+            selectedBoxIndex = i;
+            let hasMoved = false;
+            
+            document.querySelectorAll('.detection-box-selected').forEach(el => el.classList.remove('detection-box-selected'));
+            shape.classList.add('detection-box-selected');
+            
+            const pos = getPointerPos(e);
+            const startPt = { x: pos.x, y: pos.y };
+            const origBox = [...obj.bbox];
+            const dragSnapshot = createSnapshot();
+
+            const onMouseMove = (moveEv) => {
+                if (!isDragging) return;
+                const pos = getPointerPos(moveEv);
+                const dx = (pos.x - startPt.x) / scaleX;
+                const dy = (pos.y - startPt.y) / scaleY;
+                
+                if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                    hasMoved = true;
+                }
+                
+                const newBbox = [
+                    origBox[0] + dx,
+                    origBox[1] + dy,
+                    origBox[2] + dx,
+                    origBox[3] + dy
+                ];
+                obj.bbox = newBbox;
+                
+                if (shape.tagName === "rect") {
+                    shape.setAttribute("x", newBbox[0] * scaleX);
+                    shape.setAttribute("y", newBbox[1] * scaleY);
+                } else if (shape.tagName === "polygon" && obj.polygon) {
+                    const shiftedPoly = obj.polygon.map(pt => [pt[0] + dx, pt[1] + dy]);
+                    const pointsStr = shiftedPoly.map(pt => `${pt[0] * scaleX},${pt[1] * scaleY}`).join(" ");
+                    shape.setAttribute("points", pointsStr);
+                }
+            };
+
+            const onMouseUp = () => {
+                isDragging = false;
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+                
+                if (hasMoved && dragSnapshot) {
+                    if (historyStack.length >= MAX_HISTORY) historyStack.shift();
+                    historyStack.push(dragSnapshot);
+                    redoStack = [];
+                    updateUndoRedoButtons();
+                }
+                
+                if (activeBatchIndex !== -1) {
+                    batchImages[activeBatchIndex].detections = [...detections];
+                }
+                
+                renderResults();
+                renderBoxes();
+                saveDraft();
+                updateUndoRedoButtons();
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+
         shape.addEventListener(
             "click",
             () => {

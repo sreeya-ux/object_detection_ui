@@ -91,9 +91,15 @@ class InfrastructurePipeline:
         self.insulator_model = _safe_yolo_load(insulator_model) if insulator_model else None
         self.insulator_clf = InsulatorClassifier(shed_model, crop_clf)
         self.conf, self.iou = DETECTION_CONF, DETECTION_IOU
+        self._predict_cache = {}
 
 
     def predict(self, image_path, visualize=True, save_path=None, fast_mode=False) -> PipelineResult:
+        cache_key = (image_path, fast_mode)
+        if cache_key in self._predict_cache:
+            import copy
+            print(f"[CACHE] Hit for image: {image_path} (fast_mode={fast_mode})", flush=True)
+            return copy.deepcopy(self._predict_cache[cache_key])
         img_original = cv2.imread(image_path)
         if img_original is None: raise FileNotFoundError(image_path)
         img = self._enhance_image(img_original)
@@ -111,7 +117,7 @@ class InfrastructurePipeline:
         raw_hardware = []
         try:
             tile_size = 640 if fast_mode else 1024
-            overlap = 0.50
+            overlap = 0.20 # Reduced overlap from 0.50 to 0.20 to minimize redundant overlapping tile inferences
             hw_res = self.hardware_model(image_path, conf=0.05, imgsz=tile_size, verbose=False, device=active_device)
             raw_hardware.extend(list(hw_res))
             
@@ -365,6 +371,14 @@ class InfrastructurePipeline:
         if visualize:
             vis = self._draw(img_original, res_obj)
             cv2.imwrite(save_path or "result.jpg", vis)
+            
+        # Cache prediction (max 50 entries, FIFO eviction)
+        if len(self._predict_cache) >= 50:
+            first_key = next(iter(self._predict_cache))
+            self._predict_cache.pop(first_key)
+        import copy
+        self._predict_cache[cache_key] = copy.deepcopy(res_obj)
+        
         return res_obj
 
     def _normalise_model_name(self, name: str) -> str:
