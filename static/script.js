@@ -678,6 +678,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dropZone) {
         dropZone.addEventListener('click', (e) => {
+            // Prevent file explorer if clicking on the image container or its children
+            if (e.target.closest('#imageContainer')) return;
+            
             if (currentInputMode === 'video') {
                 if (uploadedVideoFile || videoInput.disabled) return;
                 videoInput.click();

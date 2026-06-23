@@ -224,9 +224,9 @@ class InfrastructurePipeline:
 
         # 4. Finalize
         ins_b = self._nms(ins_b, 0.35) # Stricter NMS to prevent insulator overlaps
-        pole_b = self._nms(pole_b, 0.45)
+        pole_b = self._merge_boxes(pole_b, 0.45)
         arm_b = self._nms(arm_b, 0.40) # 0.40 NMS prevents double-boxes without deleting adjacent arms
-        cond_b = self._nms(cond_b, 0.30) # Suppress overlapping conductor boxes
+        cond_b = self._merge_boxes(cond_b, 0.30) # Consolidate overlapping conductor boxes into single entity
         other_b = self._nms(other_b, 0.40) # Suppress duplicate hardware/special clamp/street light detections
         
         ins_results = []
@@ -446,6 +446,28 @@ class InfrastructurePipeline:
             best = items.pop(0); keep.append(best)
             # Agnostic NMS: suppress ANY box that overlaps, even if it's a different class (e.g., top_cleat vs v_cross_arm)
             items = [i for i in items if self._iou(best[0], i[0]) < thresh]
+        return keep
+
+    def _merge_boxes(self, items, thresh):
+        if not items: return []
+        items.sort(key=lambda x: x[1], reverse=True)
+        keep = []
+        while items:
+            best = list(items.pop(0))
+            best_box = list(best[0])
+            i = 0
+            while i < len(items):
+                other = items[i]
+                if self._iou(best[0], other[0]) >= thresh:
+                    best_box[0] = min(best_box[0], other[0][0])
+                    best_box[1] = min(best_box[1], other[0][1])
+                    best_box[2] = max(best_box[2], other[0][2])
+                    best_box[3] = max(best_box[3], other[0][3])
+                    best[0] = tuple(best_box)
+                    items.pop(i)
+                else:
+                    i += 1
+            keep.append(tuple(best))
         return keep
 
     def _iou(self, b1, b2):

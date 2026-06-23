@@ -568,15 +568,21 @@
                 return;
             }
 
-            // Grouping
+            // Grouping by primary category
             const groups = {};
             dets.forEach((d, i) => {
                 const lbl = (d.label || 'OBJECT').toUpperCase();
-                if (!groups[lbl]) groups[lbl] = [];
-                groups[lbl].push({ ...d, originalIndex: i });
+                let category = 'OTHERS';
+                if (lbl.includes('POLE')) category = 'POLES';
+                else if (lbl.includes('CONDUCTOR') || lbl.includes('WIRE') || lbl.includes('CLEAT')) category = 'CONDUCTORS';
+                else if (lbl.includes('INSULATOR') || lbl === 'INS_PIN' || lbl === 'INS_DISC') category = 'INSULATORS';
+                else if (lbl.includes('ARM') || lbl.includes('CROSS') || lbl.includes('CHANNEL') || lbl.includes('RISING')) category = 'CROSSARMS';
+                
+                if (!groups[category]) groups[category] = [];
+                groups[category].push({ ...d, originalIndex: i, displayLabel: lbl });
             });
 
-            const colors = { INSULATOR: '#f59e0b', POLE: '#8b5cf6', CONDUCTOR: '#06b6d4', CROSSARM: '#10b981' };
+            const colors = { INSULATORS: '#f59e0b', POLES: '#8b5cf6', CONDUCTORS: '#06b6d4', CROSSARMS: '#10b981', OTHERS: '#94a3b8' };
 
             for (const label in groups) {
                 const items = groups[label];
