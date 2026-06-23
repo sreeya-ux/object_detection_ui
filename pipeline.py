@@ -221,6 +221,7 @@ class InfrastructurePipeline:
         pole_b = self._nms(pole_b, 0.45)
         arm_b = self._nms(arm_b, 0.40) # 0.40 NMS prevents double-boxes without deleting adjacent arms
         cond_b = self._nms(cond_b, 0.30) # Suppress overlapping conductor boxes
+        other_b = self._nms(other_b, 0.40) # Suppress duplicate hardware/special clamp/street light detections
         
         ins_results = []
         for b, c, detector_class, poly, _ in ins_b:
@@ -291,8 +292,8 @@ class InfrastructurePipeline:
         # Resolve the model's common street-light/special-clamp confusion using
         # pole context before splitting dedicated UI classes.
         st_lights = []
-        final_others = []
-        for name, box, conf, poly in other_b:
+        raw_final_others = []
+        for box, conf, name, poly in other_b:
             name_lower = name.lower()
             if name_lower == "street_light" and self._is_compact_pole_mounted_hardware(box, all_poles_res):
                 print(
@@ -306,7 +307,20 @@ class InfrastructurePipeline:
             if name_lower == "street_light" or name_lower.startswith("lamp_") or name_lower in {"lamp", "lamp_head"}:
                 st_lights.append((box, conf, poly))
             else:
-                final_others.append((name, box, conf, poly))
+                raw_final_others.append((name, box, conf, poly))
+
+        # Filter to keep at most one special_clamp (the one with the highest confidence)
+        final_others = []
+        best_clamp = None
+        for item in raw_final_others:
+            name, box, conf, poly = item
+            if name == "special_clamp":
+                if best_clamp is None or conf > best_clamp[2]:
+                    best_clamp = item
+            else:
+                final_others.append(item)
+        if best_clamp is not None:
+            final_others.append(best_clamp)
 
         pole_id_str = "Not Found"
 
@@ -398,7 +412,7 @@ class InfrastructurePipeline:
                 thresh = 0.05
             threshold = thresh
             if conf > thresh:
-                other_b.append((name, box, conf, poly))
+                other_b.append((box, conf, name, poly))
                 bucket = "other_b"
                 kept = True
         if raw_name in {"street_light", "special_clamp"} or name in {"street_light", "special_clamp"}:
